@@ -66,6 +66,13 @@ pub enum DbError {
         limit: u64,
     },
 
+    #[error("job error message of {size} bytes exceeds the limit of {limit} bytes")]
+    ErrorMessageTooLarge {
+        job_id: JobId,
+        size: u64,
+        limit: u64,
+    },
+
     #[error(transparent)]
     Sql(#[from] sqlx::error::Error),
 }

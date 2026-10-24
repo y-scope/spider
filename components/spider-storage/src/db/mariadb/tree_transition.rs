@@ -38,7 +38,7 @@ impl MariaDbStorageConnector {
         let statements = UpdateStatement::group(
             transition.updates,
             self.max_statement_payload,
-            self.max_outputs_size,
+            self.max_row_payload,
         )?;
         if let [statement] = statements.as_slice()
             && statement.rows.len() == 1
@@ -89,8 +89,7 @@ impl MariaDbStorageConnector {
 /// The upper bound of the payload bound to one statement.
 pub(super) const MAX_STATEMENT_PAYLOAD: u64 = 4 * 1024 * 1024;
 
-/// The bytes of a packet that an `UPDATE` statement's text and its values other than one row's
-/// outputs may take.
+/// The bytes reserved for an `UPDATE` statement's SQL, IDs, states, and protocol overhead.
 pub(super) const MAX_STATEMENT_OVERHEAD: u64 = 64 * 1024;
 
 /// The maximum number of IDs in one statement's `IN` list.
@@ -111,8 +110,9 @@ impl UpdateStatement {
     ///
     /// Updates are grouped by their `from` and `to` states, whether they carry outputs, and their
     /// error message. Groups that carry outputs come first. Each group is cut into statements of
-    /// at most [`IN_LIST_MAX_IDS`] rows, and a group that carries outputs is also cut where a
-    /// statement's outputs would exceed `max_payload`. Every statement holds at least one row.
+    /// at most [`IN_LIST_MAX_IDS`] rows. Serialized outputs and the shared error message count
+    /// toward `max_payload`, capped at `max_row_payload`. A single row may exceed `max_payload`
+    /// provided its outputs and error message together fit `max_row_payload`.
     ///
     /// # Returns
     ///
@@ -123,14 +123,29 @@ impl UpdateStatement {
     /// Returns an error if:
     ///
     /// * [`DbError::ValueSerializationFailure`] if any outputs fail to serialize.
-    /// * [`DbError::OutputsTooLarge`] if any serialized outputs exceed `max_outputs_size`.
+    /// * [`DbError::ErrorMessageTooLarge`] if any error message exceeds `max_row_payload`.
+    /// * [`DbError::OutputsTooLarge`] if any serialized outputs exceed the space remaining in
+    ///   `max_row_payload` after their error message.
     fn group(
         updates: Vec<JobStateUpdate>,
         max_payload: u64,
-        max_outputs_size: u64,
+        max_row_payload: u64,
     ) -> Result<Vec<Self>, DbError> {
+        let max_payload = max_payload.min(max_row_payload);
         let mut groups: Vec<Self> = Vec::new();
         for update in updates {
+            let error_size = update
+                .error_message
+                .as_ref()
+                .map_or(0, |message| message.len() as u64);
+            if error_size > max_row_payload {
+                return Err(DbError::ErrorMessageTooLarge {
+                    job_id: update.job_id,
+                    size: error_size,
+                    limit: max_row_payload,
+                });
+            }
+            let max_outputs_size = max_row_payload - error_size;
             let serialized_outputs = update
                 .outputs
                 .map(|outputs| {
@@ -178,7 +193,10 @@ impl UpdateStatement {
             let mut rows = group.rows.into_iter().peekable();
             while rows.peek().is_some() {
                 let mut chunk = Vec::new();
-                let mut payload: u64 = 0;
+                let mut payload = group
+                    .error_message
+                    .as_ref()
+                    .map_or(0, |message| message.len() as u64);
                 while let Some(row) = rows.peek() {
                     let row_payload = row
                         .serialized_outputs
@@ -412,6 +430,73 @@ mod tests {
             vec![(JobState::Running, JobState::Succeeded, 1); 5],
             "every statement should carry at least one row"
         );
+    }
+
+    #[test]
+    fn shared_error_message_counts_once_per_statement() -> anyhow::Result<()> {
+        let outputs = vec![vec![1, 2, 3]];
+        let output_size = SerializedTaskOutputs::serialize_with_size_hint(&outputs)?
+            .to_raw()
+            .len() as u64;
+        let error_message = "é".repeat(10);
+        let two_row_payload = error_message.len() as u64 + 2 * output_size;
+        let updates: Vec<_> = (0..3)
+            .map(|id| JobStateUpdate {
+                outputs: Some(outputs.clone()),
+                error_message: Some(error_message.clone()),
+                ..JobStateUpdate::new(JobId::from(id), JobState::Running, JobState::Failed)
+            })
+            .collect();
+        for (target, hard_limit) in [(two_row_payload, u64::MAX), (u64::MAX, two_row_payload)] {
+            let statements = UpdateStatement::group(updates.clone(), target, hard_limit)?;
+            assert_eq!(
+                statements
+                    .iter()
+                    .map(|statement| statement.rows.len())
+                    .collect::<Vec<_>>(),
+                vec![2, 1]
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn error_messages_and_outputs_share_the_hard_payload_limit() -> anyhow::Result<()> {
+        let job_id = JobId::from(3);
+        let error_message = "é".to_owned();
+        let error_size = error_message.len() as u64;
+        let mut update = JobStateUpdate {
+            error_message: Some(error_message),
+            ..JobStateUpdate::new(job_id, JobState::Running, JobState::Failed)
+        };
+        let result = UpdateStatement::group(vec![update.clone()], u64::MAX, error_size - 1);
+        assert!(
+            matches!(
+                result,
+                Err(DbError::ErrorMessageTooLarge { job_id: culprit, size, limit })
+                    if culprit == job_id && size == error_size && limit == error_size - 1
+            ),
+            "unexpected result {result:?}"
+        );
+        UpdateStatement::group(vec![update.clone()], 0, error_size)?;
+
+        let outputs = vec![vec![1, 2, 3]];
+        let output_size = SerializedTaskOutputs::serialize_with_size_hint(&outputs)?
+            .to_raw()
+            .len() as u64;
+        update.outputs = Some(outputs);
+        let combined_size = error_size + output_size;
+        let result = UpdateStatement::group(vec![update.clone()], u64::MAX, combined_size - 1);
+        assert!(
+            matches!(
+                result,
+                Err(DbError::OutputsTooLarge { job_id: culprit, size, limit })
+                    if culprit == job_id && size == output_size && limit == output_size - 1
+            ),
+            "unexpected result {result:?}"
+        );
+        UpdateStatement::group(vec![update], 0, combined_size)?;
+        Ok(())
     }
 
     #[test]

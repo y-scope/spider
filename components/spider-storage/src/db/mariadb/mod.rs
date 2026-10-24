@@ -35,7 +35,7 @@ pub struct MariaDbStorageConnector {
     session_id: SessionId,
     fence_id: u64,
     max_statement_payload: u64,
-    max_outputs_size: u64,
+    max_row_payload: u64,
 }
 
 impl MariaDbStorageConnector {
@@ -111,7 +111,7 @@ impl MariaDbStorageConnector {
             session_id,
             fence_id,
             max_statement_payload: MAX_STATEMENT_PAYLOAD.min(max_allowed_packet / 2),
-            max_outputs_size: max_allowed_packet.saturating_sub(MAX_STATEMENT_OVERHEAD),
+            max_row_payload: max_allowed_packet.saturating_sub(MAX_STATEMENT_OVERHEAD),
         })
     }
 

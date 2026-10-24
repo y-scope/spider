@@ -196,7 +196,9 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     /// Returns an error if:
     ///
     /// * [`DbError::Fenced`] if a newer storage session has fenced this one off.
-    /// * [`DbError::OutputsTooLarge`] if an update's serialized outputs are too large for one
+    /// * [`DbError::OutputsTooLarge`] if an update's serialized outputs and error message together
+    ///   are too large for one statement. Nothing is sent to the database then.
+    /// * [`DbError::ErrorMessageTooLarge`] if an update's error message alone is too large for one
     ///   statement. Nothing is sent to the database then.
     /// * [`DbError::ValueSerializationFailure`] if an update's outputs fail to serialize.
     /// * [`DbError::CorruptedDbState`] if:

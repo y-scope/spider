@@ -195,6 +195,42 @@ async fn guard_miss_is_corruption_and_rolls_back_every_earlier_statement() -> an
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
+async fn an_oversized_error_message_rejects_the_entire_transition() -> anyhow::Result<()> {
+    let fixture = Fixture::create().await;
+    let job_ids = fixture.register_jobs(2).await;
+    let max_allowed_packet: u64 = sqlx::query_scalar("SELECT @@max_allowed_packet;")
+        .fetch_one(&fixture.pool)
+        .await?;
+    let size = max_allowed_packet + 1;
+    let result = fixture
+        .storage
+        .apply_tree_transition(transition(vec![
+            JobStateUpdate::new(job_ids[0], JobState::Ready, JobState::Running),
+            JobStateUpdate {
+                error_message: Some("x".repeat(usize::try_from(size)?)),
+                ..JobStateUpdate::new(job_ids[1], JobState::Ready, JobState::Failed)
+            },
+        ]))
+        .await;
+
+    assert!(
+        matches!(
+            result,
+            Err(DbError::ErrorMessageTooLarge { job_id, size: actual_size, limit })
+                if job_id == job_ids[1] && actual_size == size && limit < size
+        ),
+        "an oversized error should reject its job before any write, got {result:?}"
+    );
+    assert_eq!(fixture.count_in_state(&job_ids, JobState::Ready).await, 2);
+    for job_id in &job_ids {
+        assert!(!fixture.has_ended_at(*job_id).await);
+    }
+    fixture.finish().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
 async fn chunks_of_one_group_commit_in_one_transaction() -> anyhow::Result<()> {
     let fixture = Fixture::create().await;
     let job_ids = fixture.register_jobs(1_201).await;
@@ -235,6 +271,10 @@ async fn chunks_of_one_group_commit_in_one_transaction() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 async fn outputs_larger_than_one_statement_payload_are_all_written() -> anyhow::Result<()> {
+    use rand::Rng;
+    use rand::SeedableRng;
+    use spider_core::types::io::SerializedTaskOutputs;
+
     const OUTPUT_SIZE: usize = 1536 * 1024;
 
     let fixture = Fixture::create().await;
@@ -248,18 +288,34 @@ async fn outputs_larger_than_one_statement_payload_are_all_written() -> anyhow::
         )))
         .await?;
 
-    let outputs_of = |job_index: usize| -> Vec<TaskOutput> {
-        vec![vec![
-            u8::try_from(job_index)
-                .expect("job index should fit in a byte");
-            OUTPUT_SIZE
-        ]]
-    };
+    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+    let job_outputs: Vec<Vec<TaskOutput>> = job_ids
+        .iter()
+        .map(|_| {
+            let mut output = vec![0; OUTPUT_SIZE];
+            rng.fill(output.as_mut_slice());
+            vec![output]
+        })
+        .collect();
+    let mut serialized_size = 0;
+    for outputs in &job_outputs {
+        serialized_size += SerializedTaskOutputs::serialize_with_size_hint(outputs)?
+            .to_raw()
+            .len() as u64;
+    }
+    let max_allowed_packet: u64 = sqlx::query_scalar("SELECT @@max_allowed_packet;")
+        .fetch_one(&fixture.pool)
+        .await?;
+    let max_statement_payload = (4 * 1024 * 1024).min(max_allowed_packet / 2);
+    assert!(
+        serialized_size > max_statement_payload,
+        "serialized outputs must exceed one statement's payload budget"
+    );
     let tree_updates = job_ids
         .iter()
-        .enumerate()
-        .map(|(job_index, job_id)| JobStateUpdate {
-            outputs: Some(outputs_of(job_index)),
+        .zip(&job_outputs)
+        .map(|(job_id, outputs)| JobStateUpdate {
+            outputs: Some(outputs.clone()),
             ..JobStateUpdate::new(*job_id, JobState::Running, JobState::Succeeded)
         })
         .collect();
@@ -268,11 +324,8 @@ async fn outputs_larger_than_one_statement_payload_are_all_written() -> anyhow::
         .apply_tree_transition(transition(tree_updates))
         .await?;
 
-    for (job_index, job_id) in job_ids.iter().enumerate() {
-        assert_eq!(
-            fixture.storage.get_outputs(*job_id).await?,
-            outputs_of(job_index)
-        );
+    for (job_id, outputs) in job_ids.iter().zip(job_outputs) {
+        assert_eq!(fixture.storage.get_outputs(*job_id).await?, outputs);
     }
     fixture.finish().await;
     Ok(())
