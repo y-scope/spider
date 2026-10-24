@@ -59,6 +59,20 @@ pub enum DbError {
     #[error("Value deserialization failure: {0}")]
     ValueDeserializationFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
 
+    #[error("job outputs of {size} serialized bytes exceed the limit of {limit} bytes")]
+    OutputsTooLarge {
+        job_id: JobId,
+        size: u64,
+        limit: u64,
+    },
+
+    #[error("job error message of {size} bytes exceeds the limit of {limit} bytes")]
+    ErrorMessageTooLarge {
+        job_id: JobId,
+        size: u64,
+        limit: u64,
+    },
+
     #[error(transparent)]
     Sql(#[from] sqlx::error::Error),
 }
