@@ -1,3 +1,4 @@
+
 #[cfg(test)]
 mod fence_tests;
 
@@ -16,9 +17,8 @@ use crate::db::mariadb::schema::JOBS_TABLE_NAME;
 use crate::db::mariadb::schema::STORAGE_FENCE_TABLE_NAME;
 
 impl MariaDbStorageConnector {
-    /// Writes `transition` as
-    /// [`apply_tree_transition`](crate::db::InternalJobOrchestration::apply_tree_transition)
-    /// specifies.
+    /// Atomically writes job state updates guarded by their expected states and this connector's
+    /// session fence.
     ///
     /// # Errors
     ///
@@ -86,7 +86,7 @@ impl MariaDbStorageConnector {
     }
 }
 
-/// The upper bound of the payload bound to one statement.
+/// The maximum batching target for a statement's payload. A single row may exceed this target.
 pub(super) const MAX_STATEMENT_PAYLOAD: u64 = 4 * 1024 * 1024;
 
 /// The bytes reserved for an `UPDATE` statement's SQL, IDs, states, and protocol overhead.
