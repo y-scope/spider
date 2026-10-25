@@ -377,14 +377,23 @@ impl<RowType> UpdateGroup<RowType> {
     /// further row once that row would push its payload past `max_payload`, but always takes its
     /// first row.
     ///
+    /// # Type Parameters
+    ///
+    /// * `RowPayloadType` - The type of `row_payload`, which returns a row's payload size.
+    /// * `IntoRowsType` - The type of `into_rows`, which wraps a statement's rows into
+    ///   [`UpdateRows`].
+    ///
     /// # Returns
     ///
     /// The statements, in row order, with each statement's rows wrapped by `into_rows`.
-    fn into_statements(
+    fn into_statements<
+        RowPayloadType: Fn(&RowType) -> u64,
+        IntoRowsType: Fn(Vec<RowType>) -> UpdateRows,
+    >(
         self,
         max_payload: u64,
-        row_payload: impl Fn(&RowType) -> u64,
-        into_rows: impl Fn(Vec<RowType>) -> UpdateRows,
+        row_payload: RowPayloadType,
+        into_rows: IntoRowsType,
     ) -> Vec<UpdateStatement> {
         let base_payload = self
             .error_message
