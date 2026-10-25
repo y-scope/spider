@@ -270,9 +270,9 @@ impl UpdateStatement {
         }
         query_builder.push(" WHERE `id` IN (");
         let mut job_ids = query_builder.separated(",");
-        for job_id in self.rows.job_ids() {
+        self.rows.for_each_job_id(|job_id| {
             job_ids.push_bind(job_id);
-        }
+        });
         query_builder.push(") AND `state` = ").push_bind(self.from);
         if let Some(fence) = fence {
             query_builder
@@ -299,7 +299,8 @@ impl UpdateStatement {
         if matched_rows == self.rows.len() as u64 {
             return Ok(());
         }
-        let job_ids = self.rows.job_ids();
+        let mut job_ids = Vec::with_capacity(self.rows.len());
+        self.rows.for_each_job_id(|job_id| job_ids.push(job_id));
         Err(DbError::CorruptedDbState(format!(
             "expected jobs {job_ids:?} in state {from} to move to {to}, but only {matched_rows} \
              of them matched",
@@ -324,13 +325,23 @@ impl UpdateRows {
         }
     }
 
-    /// # Returns
+    /// Calls `func` with the job ID of each row, in row order.
     ///
-    /// The rows' job IDs, in row order.
-    fn job_ids(&self) -> Vec<JobId> {
+    /// # Type Parameters
+    ///
+    /// * `FuncType` - The type of `func`, which visits a job ID.
+    fn for_each_job_id<FuncType: FnMut(JobId)>(&self, mut func: FuncType) {
         match self {
-            Self::WithOutputs(rows) => rows.iter().map(|row| row.job_id).collect(),
-            Self::WithoutOutputs(job_ids) => job_ids.clone(),
+            Self::WithOutputs(rows) => {
+                for row in rows {
+                    func(row.job_id);
+                }
+            }
+            Self::WithoutOutputs(job_ids) => {
+                for job_id in job_ids {
+                    func(*job_id);
+                }
+            }
         }
     }
 }
