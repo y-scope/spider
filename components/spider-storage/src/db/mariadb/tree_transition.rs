@@ -98,7 +98,7 @@ struct UpdateStatement {
     from: JobState,
     to: JobState,
     error_message: Option<String>,
-    rows: Vec<UpdateRow>,
+    rows: UpdateRows,
 }
 
 impl UpdateStatement {
@@ -128,7 +128,8 @@ impl UpdateStatement {
         max_row_payload: u64,
     ) -> Result<Vec<Self>, DbError> {
         let max_payload = max_payload.min(max_row_payload);
-        let mut groups: Vec<Self> = Vec::new();
+        let mut outputs_groups = Vec::new();
+        let mut plain_groups = Vec::new();
         for update in updates {
             let error_size = update
                 .error_message
@@ -161,60 +162,41 @@ impl UpdateStatement {
                     limit: max_outputs_size,
                 });
             }
-            let row = UpdateRow {
-                job_id: update.job_id,
-                serialized_outputs,
-            };
-            let has_outputs = row.serialized_outputs.is_some();
-            // A transition has few distinct groups, so a linear scan is cheap, and it keeps the
-            // groups in the order their first update arrived.
-            if let Some(group) = groups.iter_mut().find(|group| {
-                group.from == update.from
-                    && group.to == update.to
-                    && group.has_outputs() == has_outputs
-                    && group.error_message == update.error_message
-            }) {
-                group.rows.push(row);
-            } else {
-                groups.push(Self {
-                    from: update.from,
-                    to: update.to,
-                    error_message: update.error_message,
-                    rows: vec![row],
-                });
+            match serialized_outputs {
+                Some(serialized_outputs) => UpdateGroup::add(
+                    &mut outputs_groups,
+                    update.from,
+                    update.to,
+                    update.error_message,
+                    OutputsRow {
+                        job_id: update.job_id,
+                        serialized_outputs,
+                    },
+                ),
+                None => UpdateGroup::add(
+                    &mut plain_groups,
+                    update.from,
+                    update.to,
+                    update.error_message,
+                    update.job_id,
+                ),
             }
         }
-        groups.sort_by_key(|group| !group.has_outputs());
 
         let mut statements = Vec::new();
-        for group in groups {
-            let mut rows = group.rows.into_iter().peekable();
-            while rows.peek().is_some() {
-                let mut chunk = Vec::new();
-                let mut payload = group
-                    .error_message
-                    .as_ref()
-                    .map_or(0, |message| message.len() as u64);
-                while let Some(row) = rows.peek() {
-                    let row_payload = row
-                        .serialized_outputs
-                        .as_ref()
-                        .map_or(0, |outputs| outputs.len() as u64);
-                    if !chunk.is_empty()
-                        && (chunk.len() == IN_LIST_MAX_IDS || payload + row_payload > max_payload)
-                    {
-                        break;
-                    }
-                    payload += row_payload;
-                    chunk.push(rows.next().expect("a peeked row should exist"));
-                }
-                statements.push(Self {
-                    from: group.from,
-                    to: group.to,
-                    error_message: group.error_message.clone(),
-                    rows: chunk,
-                });
-            }
+        for group in outputs_groups {
+            statements.extend(group.into_statements(
+                max_payload,
+                |row| row.serialized_outputs.len() as u64,
+                UpdateRows::WithOutputs,
+            ));
+        }
+        for group in plain_groups {
+            statements.extend(group.into_statements(
+                max_payload,
+                |_| 0,
+                UpdateRows::WithoutOutputs,
+            ));
         }
         Ok(statements)
     }
@@ -238,18 +220,18 @@ impl UpdateStatement {
     ) -> Result<u64, DbError> {
         let sql = self.sql(fence.is_some());
         let mut query = sqlx::query(&sql).bind(self.to);
-        if self.has_outputs() {
-            for row in &self.rows {
+        if let UpdateRows::WithOutputs(rows) = &self.rows {
+            for row in rows {
                 query = query
                     .bind(row.job_id)
-                    .bind(row.serialized_outputs.as_deref());
+                    .bind(row.serialized_outputs.as_slice());
             }
         }
         if let Some(error_message) = &self.error_message {
             query = query.bind(error_message);
         }
-        for row in &self.rows {
-            query = query.bind(row.job_id);
+        for job_id in self.rows.job_ids() {
+            query = query.bind(job_id);
         }
         query = query.bind(self.from);
         if let Some(fence) = fence {
@@ -271,7 +253,7 @@ impl UpdateStatement {
         if matched_rows == self.rows.len() as u64 {
             return Ok(());
         }
-        let job_ids: Vec<JobId> = self.rows.iter().map(|row| row.job_id).collect();
+        let job_ids = self.rows.job_ids();
         Err(DbError::CorruptedDbState(format!(
             "expected jobs {job_ids:?} in state {from} to move to {to}, but only {matched_rows} \
              of them matched",
@@ -295,9 +277,9 @@ impl UpdateStatement {
         );
 
         let mut sql = UPDATE_PREFIX.to_owned();
-        if self.has_outputs() {
+        if let UpdateRows::WithOutputs(rows) = &self.rows {
             sql.push_str(", `serialized_job_outputs` = CASE `id`");
-            sql.push_str(&" WHEN ? THEN ?".repeat(self.rows.len()));
+            sql.push_str(&" WHEN ? THEN ?".repeat(rows.len()));
             sql.push_str(" END");
         }
         if self.error_message.is_some() {
@@ -315,22 +297,123 @@ impl UpdateStatement {
         sql.push(';');
         sql
     }
+}
+
+/// The rows of an [`UpdateStatement`]: either every row carries outputs or none does.
+#[derive(Debug)]
+enum UpdateRows {
+    WithOutputs(Vec<OutputsRow>),
+    WithoutOutputs(Vec<JobId>),
+}
+
+impl UpdateRows {
+    const fn len(&self) -> usize {
+        match self {
+            Self::WithOutputs(rows) => rows.len(),
+            Self::WithoutOutputs(job_ids) => job_ids.len(),
+        }
+    }
 
     /// # Returns
     ///
-    /// Whether the statement's rows carry outputs.
-    fn has_outputs(&self) -> bool {
-        self.rows
-            .first()
-            .is_some_and(|row| row.serialized_outputs.is_some())
+    /// The rows' job IDs, in row order.
+    fn job_ids(&self) -> Vec<JobId> {
+        match self {
+            Self::WithOutputs(rows) => rows.iter().map(|row| row.job_id).collect(),
+            Self::WithoutOutputs(job_ids) => job_ids.clone(),
+        }
     }
 }
 
-/// A row of an [`UpdateStatement`].
+/// A row of an [`UpdateStatement`] that carries outputs.
 #[derive(Debug)]
-struct UpdateRow {
+struct OutputsRow {
     job_id: JobId,
-    serialized_outputs: Option<Vec<u8>>,
+    serialized_outputs: Vec<u8>,
+}
+
+/// The updates of a tree transition that share their `from` and `to` states and their error
+/// message, before they are cut into [`UpdateStatement`]s.
+///
+/// # Type Parameters
+///
+/// * `RowType` - The type of the group's rows: [`OutputsRow`] for updates that carry outputs, or
+///   [`JobId`] for updates that don't.
+struct UpdateGroup<RowType> {
+    from: JobState,
+    to: JobState,
+    error_message: Option<String>,
+    rows: Vec<RowType>,
+}
+
+impl<RowType> UpdateGroup<RowType> {
+    /// Adds `row` to the group in `groups` with the given `from`, `to`, and `error_message`,
+    /// creating that group at the end of `groups` if none exists.
+    fn add(
+        groups: &mut Vec<Self>,
+        from: JobState,
+        to: JobState,
+        error_message: Option<String>,
+        row: RowType,
+    ) {
+        // A transition has few distinct groups, so a linear scan is cheap, and it keeps the
+        // groups in the order their first update arrived.
+        if let Some(group) = groups.iter_mut().find(|group| {
+            group.from == from && group.to == to && group.error_message == error_message
+        }) {
+            group.rows.push(row);
+        } else {
+            groups.push(Self {
+                from,
+                to,
+                error_message,
+                rows: vec![row],
+            });
+        }
+    }
+
+    /// Cuts the group into statements of at most [`IN_LIST_MAX_IDS`] rows. A statement's payload
+    /// is the group's error message plus each row's `row_payload`, and a statement takes no
+    /// further row once that row would push its payload past `max_payload`, but always takes its
+    /// first row.
+    ///
+    /// # Returns
+    ///
+    /// The statements, in row order, with each statement's rows wrapped by `into_rows`.
+    fn into_statements(
+        self,
+        max_payload: u64,
+        row_payload: impl Fn(&RowType) -> u64,
+        into_rows: impl Fn(Vec<RowType>) -> UpdateRows,
+    ) -> Vec<UpdateStatement> {
+        let base_payload = self
+            .error_message
+            .as_ref()
+            .map_or(0, |message| message.len() as u64);
+        let mut statements = Vec::new();
+        let mut rows = self.rows.into_iter().peekable();
+        while rows.peek().is_some() {
+            let mut chunk = Vec::new();
+            let mut payload = base_payload;
+            while let Some(row) = rows.peek() {
+                let row_payload = row_payload(row);
+                if !chunk.is_empty()
+                    && (chunk.len() == IN_LIST_MAX_IDS || payload + row_payload > max_payload)
+                {
+                    break;
+                }
+                payload += row_payload;
+                chunk.push(rows.next().expect("a peeked row should exist"));
+            }
+            statements.push(UpdateStatement {
+                from: self.from,
+                to: self.to,
+                error_message: self.error_message.clone(),
+                rows: into_rows(chunk),
+            });
+        }
+        statements
+    }
 }
 
 #[cfg(test)]
