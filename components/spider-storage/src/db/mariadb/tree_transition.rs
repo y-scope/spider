@@ -172,6 +172,7 @@ impl UpdateStatement {
                     limit: max_row_payload,
                 });
             }
+
             let max_outputs_size = max_row_payload - error_size;
             let serialized_outputs = update
                 .outputs
@@ -192,6 +193,7 @@ impl UpdateStatement {
                     limit: max_outputs_size,
                 });
             }
+
             match serialized_outputs {
                 Some(serialized_outputs) => UpdateGroup::add(
                     &mut outputs_groups,
