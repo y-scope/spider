@@ -103,7 +103,7 @@ impl MariaDbStorageConnector {
         statement: &UpdateStatement,
         is_fence_check_needed: bool,
     ) -> Result<u64, DbError> {
-        let mut query_builder = statement.build_query(self.fence(), is_fence_check_needed);
+        let mut query_builder = statement.build_query(is_fence_check_needed.then(|| self.fence()));
         Ok(query_builder
             .build()
             .execute(connection)
@@ -231,18 +231,13 @@ impl UpdateStatement {
         Ok(statements)
     }
 
-    /// Builds the statement's SQL text and binds in one pass. If `is_fence_check_needed`, the
-    /// statement also requires that the fence row holds `fence`'s session, and takes a shared lock
-    /// on that row; otherwise `fence` is unused.
+    /// Builds the statement's SQL text and binds in one pass. With `fence`, the statement also
+    /// requires that the fence row holds `fence`'s session, and takes a shared lock on that row.
     ///
     /// # Returns
     ///
     /// The query builder holding the statement's SQL text and binds.
-    fn build_query(
-        &self,
-        fence: FencePredicate,
-        is_fence_check_needed: bool,
-    ) -> QueryBuilder<'_, MySql> {
+    fn build_query(&self, fence: Option<FencePredicate>) -> QueryBuilder<'_, MySql> {
         const UPDATE_PREFIX: &str = formatcp!(
             "UPDATE `{table}` FORCE INDEX (PRIMARY) SET `state` = ",
             table = JOBS_TABLE_NAME,
@@ -279,7 +274,7 @@ impl UpdateStatement {
             job_ids.push_bind(job_id);
         }
         query_builder.push(") AND `state` = ").push_bind(self.from);
-        if is_fence_check_needed {
+        if let Some(fence) = fence {
             query_builder
                 .push(FENCE_PREDICATE_PREFIX)
                 .push_bind(fence.fence_id)
@@ -484,14 +479,16 @@ mod tests {
             ]
         );
         for statement in &statements {
-            for is_fenced in [false, true] {
-                let fence = FencePredicate {
+            for fence in [
+                None,
+                Some(FencePredicate {
                     fence_id: 0,
                     session_id: 0,
-                };
+                }),
+            ] {
                 assert!(
                     statement
-                        .build_query(fence, is_fenced)
+                        .build_query(fence)
                         .sql()
                         .contains("FORCE INDEX (PRIMARY)")
                 );
