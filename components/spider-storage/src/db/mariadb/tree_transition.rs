@@ -166,6 +166,8 @@ impl UpdateStatement {
                 serialized_outputs,
             };
             let has_outputs = row.serialized_outputs.is_some();
+            // A transition has few distinct groups, so a linear scan is cheap, and it keeps the
+            // groups in the order their first update arrived.
             if let Some(group) = groups.iter_mut().find(|group| {
                 group.from == update.from
                     && group.to == update.to
