@@ -2,7 +2,9 @@ use const_format::formatcp;
 use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 use spider_core::types::io::SerializedTaskOutputs;
+use sqlx::MySql;
 use sqlx::MySqlConnection;
+use sqlx::QueryBuilder;
 
 use crate::db::DbError;
 use crate::db::JobStateUpdate;
@@ -24,7 +26,7 @@ impl MariaDbStorageConnector {
     /// * Forwards [`Self::apply_single_row_update_in_statement`]'s return values on failure.
     /// * Forwards [`sqlx::Pool::begin`]'s return values on failure.
     /// * Forwards [`Self::check_fence`]'s return values on failure.
-    /// * Forwards [`UpdateStatement::execute`]'s return values on failure.
+    /// * Forwards [`Self::execute_update_statement`]'s return values on failure.
     /// * Forwards [`UpdateStatement::ensure_every_row_matched`]'s return values on failure.
     /// * Forwards [`sqlx::Transaction::commit`]'s return values on failure.
     pub(super) async fn write_tree_transition(
@@ -45,7 +47,9 @@ impl MariaDbStorageConnector {
         let mut tx = self.pool.begin().await?;
         self.check_fence(&mut tx).await?;
         for statement in &statements {
-            let matched_rows = statement.execute(&mut tx, None).await?;
+            let matched_rows = self
+                .execute_update_statement(&mut tx, statement, false)
+                .await?;
             statement.ensure_every_row_matched(matched_rows)?;
         }
         tx.commit().await?;
@@ -60,7 +64,7 @@ impl MariaDbStorageConnector {
     /// Returns an error if:
     ///
     /// * Forwards [`sqlx::Pool::acquire`]'s return values on failure.
-    /// * Forwards [`UpdateStatement::execute`]'s return values on failure.
+    /// * Forwards [`Self::execute_update_statement`]'s return values on failure.
     /// * Forwards [`Self::probe_fence`]'s return values on failure, if the statement matched no
     ///   row.
     /// * Forwards [`UpdateStatement::ensure_every_row_matched`]'s return values on failure, if the
@@ -70,8 +74,8 @@ impl MariaDbStorageConnector {
         statement: &UpdateStatement,
     ) -> Result<(), DbError> {
         let mut connection = self.pool.acquire().await?;
-        let matched_rows = statement
-            .execute(&mut connection, Some(self.fence()))
+        let matched_rows = self
+            .execute_update_statement(&mut connection, statement, true)
             .await?;
         let Err(guard_miss) = statement.ensure_every_row_matched(matched_rows) else {
             return Ok(());
@@ -79,6 +83,32 @@ impl MariaDbStorageConnector {
 
         self.probe_fence(&mut connection).await?;
         Err(guard_miss)
+    }
+
+    /// Runs `statement` on `connection`. If `is_fence_check_needed`, the statement also requires
+    /// that the fence row holds this connector's session, and takes a shared lock on that row.
+    ///
+    /// # Returns
+    ///
+    /// The number of rows that the statement matched on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
+    async fn execute_update_statement(
+        &self,
+        connection: &mut MySqlConnection,
+        statement: &UpdateStatement,
+        is_fence_check_needed: bool,
+    ) -> Result<u64, DbError> {
+        let mut query_builder = statement.build_query(self.fence(), is_fence_check_needed);
+        Ok(query_builder
+            .build()
+            .execute(connection)
+            .await?
+            .rows_affected())
     }
 }
 
@@ -201,43 +231,64 @@ impl UpdateStatement {
         Ok(statements)
     }
 
-    /// Runs the statement on `connection`. With `fence`, the statement also requires that the fence
-    /// row holds `fence`'s session, and takes a shared lock on that row.
+    /// Builds the statement's SQL text and binds in one pass. If `is_fence_check_needed`, the
+    /// statement also requires that the fence row holds `fence`'s session, and takes a shared lock
+    /// on that row; otherwise `fence` is unused.
     ///
     /// # Returns
     ///
-    /// The number of rows that the statement matched on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
-    async fn execute(
+    /// The query builder holding the statement's SQL text and binds.
+    fn build_query(
         &self,
-        connection: &mut MySqlConnection,
-        fence: Option<FencePredicate>,
-    ) -> Result<u64, DbError> {
-        let sql = self.sql(fence.is_some());
-        let mut query = sqlx::query(&sql).bind(self.to);
+        fence: FencePredicate,
+        is_fence_check_needed: bool,
+    ) -> QueryBuilder<'_, MySql> {
+        const UPDATE_PREFIX: &str = formatcp!(
+            "UPDATE `{table}` FORCE INDEX (PRIMARY) SET `state` = ",
+            table = JOBS_TABLE_NAME,
+        );
+        const FENCE_PREDICATE_PREFIX: &str = formatcp!(
+            " AND EXISTS (SELECT 1 FROM `{table}` WHERE `id` = ",
+            table = STORAGE_FENCE_TABLE_NAME,
+        );
+
+        let mut query_builder = QueryBuilder::new(UPDATE_PREFIX);
+        query_builder.push_bind(self.to);
         if let UpdateRows::WithOutputs(rows) = &self.rows {
+            query_builder.push(", `serialized_job_outputs` = CASE `id`");
             for row in rows {
-                query = query
-                    .bind(row.job_id)
-                    .bind(row.serialized_outputs.as_slice());
+                query_builder
+                    .push(" WHEN ")
+                    .push_bind(row.job_id)
+                    .push(" THEN ")
+                    .push_bind(row.serialized_outputs.as_slice());
             }
+            query_builder.push(" END");
         }
         if let Some(error_message) = &self.error_message {
-            query = query.bind(error_message);
+            query_builder
+                .push(", `error_message` = ")
+                .push_bind(error_message);
         }
+        if self.to.is_terminal() {
+            query_builder.push(", `ended_at` = CURRENT_TIMESTAMP");
+        }
+        query_builder.push(" WHERE `id` IN (");
+        let mut job_ids = query_builder.separated(",");
         for job_id in self.rows.job_ids() {
-            query = query.bind(job_id);
+            job_ids.push_bind(job_id);
         }
-        query = query.bind(self.from);
-        if let Some(fence) = fence {
-            query = query.bind(fence.fence_id).bind(fence.session_id);
+        query_builder.push(") AND `state` = ").push_bind(self.from);
+        if is_fence_check_needed {
+            query_builder
+                .push(FENCE_PREDICATE_PREFIX)
+                .push_bind(fence.fence_id)
+                .push(" AND `session_id` = ")
+                .push_bind(fence.session_id)
+                .push(" LOCK IN SHARE MODE)");
         }
-        Ok(query.execute(connection).await?.rows_affected())
+        query_builder.push(';');
+        query_builder
     }
 
     /// Checks that `matched_rows`, the number of rows that the statement matched, covers every one
@@ -260,42 +311,6 @@ impl UpdateStatement {
             from = self.from,
             to = self.to,
         )))
-    }
-
-    /// # Returns
-    ///
-    /// The statement's SQL text, with the fence predicate if `is_fenced`.
-    fn sql(&self, is_fenced: bool) -> String {
-        const FENCE_PREDICATE: &str = formatcp!(
-            " AND EXISTS (SELECT 1 FROM `{table}` WHERE `id` = ? AND `session_id` = ? LOCK IN \
-             SHARE MODE)",
-            table = STORAGE_FENCE_TABLE_NAME,
-        );
-        const UPDATE_PREFIX: &str = formatcp!(
-            "UPDATE `{table}` FORCE INDEX (PRIMARY) SET `state` = ?",
-            table = JOBS_TABLE_NAME,
-        );
-
-        let mut sql = UPDATE_PREFIX.to_owned();
-        if let UpdateRows::WithOutputs(rows) = &self.rows {
-            sql.push_str(", `serialized_job_outputs` = CASE `id`");
-            sql.push_str(&" WHEN ? THEN ?".repeat(rows.len()));
-            sql.push_str(" END");
-        }
-        if self.error_message.is_some() {
-            sql.push_str(", `error_message` = ?");
-        }
-        if self.to.is_terminal() {
-            sql.push_str(", `ended_at` = CURRENT_TIMESTAMP");
-        }
-        sql.push_str(" WHERE `id` IN (");
-        sql.push_str(&vec!["?"; self.rows.len()].join(","));
-        sql.push_str(") AND `state` = ?");
-        if is_fenced {
-            sql.push_str(FENCE_PREDICATE);
-        }
-        sql.push(';');
-        sql
     }
 }
 
@@ -435,6 +450,7 @@ mod tests {
     use super::UpdateStatement;
     use crate::db::DbError;
     use crate::db::JobStateUpdate;
+    use crate::db::mariadb::fence::FencePredicate;
 
     #[test]
     fn updates_are_grouped_by_edge_with_outputs_groups_first() -> anyhow::Result<()> {
@@ -469,7 +485,16 @@ mod tests {
         );
         for statement in &statements {
             for is_fenced in [false, true] {
-                assert!(statement.sql(is_fenced).contains("FORCE INDEX (PRIMARY)"));
+                let fence = FencePredicate {
+                    fence_id: 0,
+                    session_id: 0,
+                };
+                assert!(
+                    statement
+                        .build_query(fence, is_fenced)
+                        .sql()
+                        .contains("FORCE INDEX (PRIMARY)")
+                );
             }
         }
         for count in [IN_LIST_MAX_IDS, IN_LIST_MAX_IDS + 1] {
@@ -666,8 +691,8 @@ mod fence_tests {
                 let mut raw_connection = raw_pool.acquire().await?;
                 let mut raw_tx =
                     begin_at_isolation_level(&mut raw_connection, isolation_level).await?;
-                let matched_rows = single_row_statement(update)
-                    .execute(&mut raw_tx, Some(holder.fence()))
+                let matched_rows = holder
+                    .execute_update_statement(&mut raw_tx, &single_row_statement(update), true)
                     .await?;
                 assert_eq!(
                     matched_rows, 1,
@@ -735,21 +760,33 @@ mod fence_tests {
                         .map(|result| result.rows_affected())
                         .map_err(DbError::from),
                     StaleWrite::Start => {
-                        single_row_statement(JobStateUpdate::new(
-                            job_id,
-                            JobState::Ready,
-                            JobState::Running,
-                        ))
-                        .execute(&mut raw_connection, Some(holder.fence()))
-                        .await
+                        holder
+                            .execute_update_statement(
+                                &mut raw_connection,
+                                &single_row_statement(JobStateUpdate::new(
+                                    job_id,
+                                    JobState::Ready,
+                                    JobState::Running,
+                                )),
+                                true,
+                            )
+                            .await
                     }
                     StaleWrite::SucceedWithOutputs => {
-                        single_row_statement(JobStateUpdate {
-                            outputs: Some(vec![b"outputs".to_vec()]),
-                            ..JobStateUpdate::new(job_id, JobState::Running, JobState::Succeeded)
-                        })
-                        .execute(&mut raw_connection, Some(holder.fence()))
-                        .await
+                        holder
+                            .execute_update_statement(
+                                &mut raw_connection,
+                                &single_row_statement(JobStateUpdate {
+                                    outputs: Some(vec![b"outputs".to_vec()]),
+                                    ..JobStateUpdate::new(
+                                        job_id,
+                                        JobState::Running,
+                                        JobState::Succeeded,
+                                    )
+                                }),
+                                true,
+                            )
+                            .await
                     }
                 };
                 sqlx::raw_sql("ROLLBACK;")
