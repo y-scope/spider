@@ -7,6 +7,9 @@ use crate::test_hooks::HookContext;
 use crate::test_hooks::HookPoint;
 
 /// A fault that a hook injects. Without the `test-hooks` feature, no fault exists.
+///
+/// The enum has no variants, so no value of it can exist: a `Result<_, InjectedFault>` is always
+/// `Ok`, and the compiler removes the error path of every `?` on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InjectedFault {}
 
