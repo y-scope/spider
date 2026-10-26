@@ -900,6 +900,7 @@ impl<
     /// Returns an error if:
     ///
     /// * [`StorageServerError::Stopping`] if:
+    ///   * The service is already shutting down when called, in which case the body is not run.
     ///   * The service is shutting down before the body finishes.
     ///   * The body fails while the service is shutting down without a fatal error.
     /// * [`InternalError::HandlerBodyFailed`] if the body panicked.
@@ -909,7 +910,14 @@ impl<
         body: impl Future<Output = Result<ReturnType, StorageServerError>> + Send + 'static,
     ) -> Result<ReturnType, StorageServerError> {
         let shutdown_handle = &self.inner.shutdown_handle;
+        // Keeps the tracker non-empty between the shutdown check and the spawn, so that
+        // `Runtime::stop`'s `wait()` cannot return in that gap and miss the body.
+        let task_tracker_token = self.inner.task_tracker.token();
+        if shutdown_handle.is_cancelled() {
+            return Err(Self::stopping_error());
+        }
         let join_handle = self.inner.task_tracker.spawn(body);
+        drop(task_tracker_token);
         tokio::select! {
             biased;
             result = join_handle => match result {
@@ -964,6 +972,9 @@ struct ServiceStateInner<
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
+
     use spider_core::compression::encode_zstd_bytes;
     use spider_core::job::JobState;
     use spider_core::task::DataTypeDescriptor;
@@ -2282,5 +2293,29 @@ mod tests {
             ),
             "a body failing with a fatal shutdown should keep its error, got {result:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_body_requested_after_shutdown_starts_is_not_run() {
+        let service = create_test_service();
+        service.inner.shutdown_handle.shut_down_gracefully();
+        let body_ran = Arc::new(AtomicBool::new(false));
+        let body_ran_in_body = Arc::clone(&body_ran);
+
+        let result = service
+            .spawn_body(async move {
+                body_ran_in_body.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+            .await;
+
+        assert!(
+            matches!(result, Err(StorageServerError::Stopping(_))),
+            "a body requested after shutdown starts should be stopped, got {result:?}"
+        );
+        assert_eq!(service.inner.task_tracker.len(), 0);
+        service.inner.task_tracker.close();
+        service.inner.task_tracker.wait().await;
+        assert!(!body_ran.load(Ordering::SeqCst));
     }
 }
