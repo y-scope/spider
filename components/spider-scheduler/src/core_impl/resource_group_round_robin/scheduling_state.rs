@@ -114,6 +114,9 @@ impl RgSchedulingState {
     /// # Returns
     ///
     /// Whether the group holds any assignments.
+    // TODO: Make this function `const` once stable Rust allows `VecDeque::is_empty` in `const fn`
+    // (see #544).
+    #[allow(clippy::missing_const_for_fn)]
     pub(super) fn has_schedulable_task(&self) -> bool {
         !self.finalize_queue.is_empty()
             || !self.active_jobs.is_empty()
