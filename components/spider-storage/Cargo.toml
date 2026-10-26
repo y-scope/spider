@@ -17,9 +17,6 @@ name = "test_spider_storage"
 path = "tests/test_spider_storage.rs"
 required-features = ["test-hooks"]
 
-[features]
-test-hooks = []
-
 [dependencies]
 async-channel = { workspace = true }
 async-trait = { workspace = true }
@@ -52,3 +49,6 @@ serde_json = { workspace = true }
 serial_test = { workspace = true }
 tabled = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+
+[features]
+test-hooks = []
