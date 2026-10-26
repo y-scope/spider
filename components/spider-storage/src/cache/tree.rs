@@ -37,8 +37,8 @@ impl TreeControlBlock {
     ///
     /// A pair, containing:
     ///
-    /// * The control block of a new tree, which refuses events during `shutdown_handle`'s shutdown
-    ///   once the tree's committer no longer takes them.
+    /// * The control block of a new tree, whose refused events resolve to
+    ///   [`CacheError::ServiceStopping`] once `shutdown_handle` is cancelled.
     /// * The receivers of the tree's events, for the tree's committer.
     #[must_use]
     pub fn new(shutdown_handle: ShutdownHandle) -> (Self, EventReceivers) {
@@ -58,20 +58,22 @@ impl TreeControlBlock {
     }
 
     /// Sends `event` to the tree's committer at the call, before the returned future is first
-    /// polled: a `CancelRoot` or a `TerminalFailure` on the fast-forward channel, any other event
-    /// on the regular channel.
+    /// polled: a [`TreeEventKind::CancelRoot`] or a [`TreeEventKind::TerminalFailure`] on the
+    /// fast-forward channel, any other event on the regular channel.
     ///
     /// # Returns
     ///
     /// A future that resolves to the committer's reply to `event`, or to
-    /// [`TreeOutcome::Untracked`] if the committer no longer takes events.
+    /// [`TreeOutcome::Untracked`] if the committer no longer takes events and the control block's
+    /// shutdown handle is not cancelled.
     ///
     /// # Errors
     ///
     /// The future resolves to an error if:
     ///
-    /// * [`CacheError::ServiceStopping`] if the committer no longer takes events while the service
-    ///   shuts down, in which case `event` was not and will not be applied.
+    /// * [`CacheError::ServiceStopping`] if the committer no longer takes events once the control
+    ///   block's shutdown handle is cancelled, in which case `event` was not and will not be
+    ///   applied.
     /// * [`InternalError::TreePoisoned`] if the committer dropped `event` without a reply.
     pub fn submit(&self, event: TreeEvent) -> impl Future<Output = TreeReply> + Send + use<> {
         let (reply, receiver) = oneshot::channel();
@@ -100,7 +102,7 @@ impl TreeControlBlock {
 
 /// The receivers of a tree's two event channels, owned by the tree's committer.
 pub struct EventReceivers {
-    /// The `CancelRoot` and `TerminalFailure` events.
+    /// The [`TreeEventKind::CancelRoot`] and [`TreeEventKind::TerminalFailure`] events.
     pub fast_forward: mpsc::UnboundedReceiver<Pending>,
 
     /// Every other event.
@@ -135,7 +137,7 @@ pub enum TreeEventKind {
     /// The job's cleanup task succeeded.
     CleanupDone,
 
-    /// A task of the job in `lane` failed with no retry left.
+    /// A task of the job in the [`Lane`] `lane` failed with no retry left.
     TerminalFailure { lane: Lane, message: String },
 
     /// The root is cancelled.
@@ -145,8 +147,8 @@ pub enum TreeEventKind {
 impl TreeEventKind {
     /// # Returns
     ///
-    /// Whether an event of this kind travels on its tree's fast-forward channel: a `CancelRoot` or
-    /// a `TerminalFailure`.
+    /// Whether an event of this kind travels on its tree's fast-forward channel: a
+    /// [`Self::CancelRoot`] or a [`Self::TerminalFailure`].
     #[must_use]
     pub const fn is_fast_forward(&self) -> bool {
         matches!(self, Self::CancelRoot | Self::TerminalFailure { .. })
@@ -156,17 +158,21 @@ impl TreeEventKind {
     ///
     /// # Errors
     ///
-    /// Returns the stale-state error of an event of this kind whose job is in `state`:
+    /// Returns an error if:
     ///
-    /// * [`StaleStateError::JobAlreadyStarted`] if a `Start` finds the job not `Ready`.
-    /// * [`StaleStateError::JobAlreadyTerminated`] if an event of a task's lane finds the job
-    ///   terminal, or a `CancelRoot` finds it `Succeeded` or `Failed`.
+    /// * [`StaleStateError::JobAlreadyStarted`] if a [`Self::Start`] finds the job not
+    ///   [`JobState::Ready`].
+    /// * [`StaleStateError::JobAlreadyTerminated`] if a task event ([`Self::RegularTasksDone`],
+    ///   [`Self::CommitDone`], [`Self::CleanupDone`] or [`Self::TerminalFailure`]) finds the job
+    ///   terminal, or a [`Self::CancelRoot`] finds it [`JobState::Succeeded`] or
+    ///   [`JobState::Failed`].
     /// * [`StaleStateError::JobNoLongerRunning`], [`StaleStateError::JobNoLongerCommitReady`] or
-    ///   [`StaleStateError::JobNoLongerCleanupReady`] if an event of a task's lane finds the job
-    ///   non-terminal but not in the state that runs the lane.
-    /// * [`StaleStateError::JobCancellationAlreadyRequested`] if a `CancelRoot` finds the job
-    ///   `CleanupReady`.
-    /// * [`StaleStateError::JobAlreadyCancelled`] if a `CancelRoot` finds the job `Cancelled`.
+    ///   [`StaleStateError::JobNoLongerCleanupReady`] if a task event finds the job non-terminal
+    ///   but not in the state that runs the event's [`Lane`].
+    /// * [`StaleStateError::JobCancellationAlreadyRequested`] if a [`Self::CancelRoot`] finds the
+    ///   job [`JobState::CleanupReady`].
+    /// * [`StaleStateError::JobAlreadyCancelled`] if a [`Self::CancelRoot`] finds the job
+    ///   [`JobState::Cancelled`].
     pub const fn ensure_accepts(&self, state: JobState) -> Result<(), StaleStateError> {
         match self {
             Self::Start => match state {
@@ -189,8 +195,9 @@ impl TreeEventKind {
 
 /// The lane of a task: whether it is a regular, commit or cleanup task of its job.
 ///
-/// A job runs the tasks of one lane per state: its regular tasks while `Running`, its commit task
-/// while `CommitReady` and its cleanup task while `CleanupReady`.
+/// A job runs the tasks of one lane per state: its regular tasks while [`JobState::Running`], its
+/// commit task while [`JobState::CommitReady`] and its cleanup task while
+/// [`JobState::CleanupReady`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lane {
     Regular,
@@ -267,24 +274,30 @@ impl TreeStructure {
     /// * [`TreeOutcome::Stale`] with no update if the job's state does not accept the event (see
     ///   [`TreeEventKind::ensure_accepts`]).
     /// * Otherwise, the event's update and publications:
-    ///   * `Start`: the root moves from `Ready` to `Running`, and its ready tasks are published.
-    ///   * `RegularTasksDone`: the job stores its outputs and moves from `Running` to
-    ///     `CommitReady`, with its commit task published, if it has a commit task, otherwise to
-    ///     `Succeeded`.
-    ///   * `CommitDone`: the job moves from `CommitReady` to `Succeeded`.
-    ///   * `CleanupDone`: the job moves from `CleanupReady` to `Cancelled`.
-    ///   * `TerminalFailure`: the job moves from its lane's state to `Failed` and stores the
-    ///     failure's message, cut to [`MAX_ERROR_MESSAGE_CHARS`] characters.
-    ///   * `CancelRoot`: the root moves to `Cancelled` if it is `Ready` or has no cleanup task,
-    ///     otherwise to `CleanupReady`, with its cleanup task published.
+    ///   * [`TreeEventKind::Start`]: the root moves from [`JobState::Ready`] to
+    ///     [`JobState::Running`], and its ready tasks are published.
+    ///   * [`TreeEventKind::RegularTasksDone`]: the job stores its outputs and moves from
+    ///     [`JobState::Running`] to [`JobState::CommitReady`], with its commit task published, if
+    ///     it has a commit task, otherwise to [`JobState::Succeeded`].
+    ///   * [`TreeEventKind::CommitDone`]: the job moves from [`JobState::CommitReady`] to
+    ///     [`JobState::Succeeded`].
+    ///   * [`TreeEventKind::CleanupDone`]: the job moves from [`JobState::CleanupReady`] to
+    ///     [`JobState::Cancelled`].
+    ///   * [`TreeEventKind::TerminalFailure`]: the job moves from its lane's state to
+    ///     [`JobState::Failed`] and stores the failure's message, cut to
+    ///     [`MAX_ERROR_MESSAGE_CHARS`] characters.
+    ///   * [`TreeEventKind::CancelRoot`]: the root moves to [`JobState::Cancelled`] if it is
+    ///     [`JobState::Ready`] or has no cleanup task, otherwise to [`JobState::CleanupReady`],
+    ///     with its cleanup task published.
     ///
     /// # Panics
     ///
     /// Panics if:
     ///
     /// * The state of the event's job, which is in the tree, is not in `collected`.
-    /// * An accepted `Start` does not come with [`PlannerInput::Start`], or an accepted
-    ///   `RegularTasksDone` does not come with [`PlannerInput::RegularTasksDone`].
+    /// * An accepted [`TreeEventKind::Start`] does not come with [`PlannerInput::Start`], or an
+    ///   accepted [`TreeEventKind::RegularTasksDone`] does not come with
+    ///   [`PlannerInput::RegularTasksDone`].
     #[must_use]
     pub fn plan_event(
         &self,
@@ -323,9 +336,10 @@ pub struct TreeNode {
 impl TreeNode {
     /// # Returns
     ///
-    /// The state that a cancel moves the job from `state` to: `Cancelled` if the job is `Ready` or
-    /// has no cleanup task, otherwise `CleanupReady`. A `Ready` job never moves to `CleanupReady`:
-    /// none of its tasks ran, and the edge is not a valid job state transition.
+    /// The state that a cancel moves the job from `state` to: [`JobState::Cancelled`] if the job
+    /// is [`JobState::Ready`] or has no cleanup task, otherwise [`JobState::CleanupReady`]. A
+    /// [`JobState::Ready`] job never moves to [`JobState::CleanupReady`]: none of its tasks ran,
+    /// and the edge is not a valid job state transition.
     const fn abort_target(&self, state: JobState) -> JobState {
         if matches!(state, JobState::Ready) || !self.has_cleanup {
             JobState::Cancelled
@@ -338,10 +352,10 @@ impl TreeNode {
 /// The input, besides the job states, that the committer collects to plan an event.
 #[derive(Debug)]
 pub enum PlannerInput {
-    /// The ready task indices of a `Ready` root.
+    /// The ready task indices of a [`JobState::Ready`] root.
     Start { ready_task_indices: Vec<TaskIndex> },
 
-    /// The outputs of a `Running` job whose regular tasks are done.
+    /// The outputs of a [`JobState::Running`] job whose regular tasks are done.
     RegularTasksDone { outputs: Vec<TaskOutput> },
 
     /// Nothing, because the event needs nothing or its job is no longer in the state that the
@@ -394,8 +408,8 @@ impl Plan {
     ///
     /// # Returns
     ///
-    /// The plan of starting the root `root_id`: `Ready` to `Running`, with the ready tasks of
-    /// `input` published.
+    /// The plan of starting the root `root_id`: [`JobState::Ready`] to [`JobState::Running`],
+    /// with the ready tasks of `input` published.
     ///
     /// # Panics
     ///
@@ -422,8 +436,8 @@ impl Plan {
     /// # Returns
     ///
     /// The plan of the regular tasks of `job_id` being done: the job stores the outputs of `input`
-    /// and moves from `Running` to `CommitReady`, with its commit task published, if `node` has a
-    /// commit task, otherwise to `Succeeded`.
+    /// and moves from [`JobState::Running`] to [`JobState::CommitReady`], with its commit task
+    /// published, if `node` has a commit task, otherwise to [`JobState::Succeeded`].
     ///
     /// # Panics
     ///
@@ -451,7 +465,8 @@ impl Plan {
     ///
     /// # Returns
     ///
-    /// The plan of the commit task of `job_id` being done: `CommitReady` to `Succeeded`.
+    /// The plan of the commit task of `job_id` being done: [`JobState::CommitReady`] to
+    /// [`JobState::Succeeded`].
     fn complete_commit(job_id: JobId) -> Self {
         Self::applying(JobStateUpdate::new(
             job_id,
@@ -464,7 +479,8 @@ impl Plan {
     ///
     /// # Returns
     ///
-    /// The plan of the cleanup task of `job_id` being done: `CleanupReady` to `Cancelled`.
+    /// The plan of the cleanup task of `job_id` being done: [`JobState::CleanupReady`] to
+    /// [`JobState::Cancelled`].
     fn complete_cleanup(job_id: JobId) -> Self {
         Self::applying(JobStateUpdate::new(
             job_id,
@@ -477,8 +493,8 @@ impl Plan {
     ///
     /// # Returns
     ///
-    /// The plan of failing `job_id` from `from`: the job moves to `Failed` and stores `message`,
-    /// cut to [`MAX_ERROR_MESSAGE_CHARS`] characters.
+    /// The plan of failing `job_id` from `from`: the job moves to [`JobState::Failed`] and stores
+    /// `message`, cut to [`MAX_ERROR_MESSAGE_CHARS`] characters.
     fn fail_job(job_id: JobId, from: JobState, message: &str) -> Self {
         Self::applying(JobStateUpdate {
             error_message: Some(truncate_chars(message, MAX_ERROR_MESSAGE_CHARS).to_owned()),
@@ -492,7 +508,7 @@ impl Plan {
     ///
     /// The plan of cancelling the root `root_id` from `from`: the root moves to its abort target
     /// (see [`TreeNode::abort_target`]), with its cleanup task published if that is
-    /// `CleanupReady`.
+    /// [`JobState::CleanupReady`].
     fn cancel_root(root_id: JobId, from: JobState, node: &TreeNode) -> Self {
         let to = node.abort_target(from);
         let mut plan = Self::applying(JobStateUpdate::new(root_id, from, to));
@@ -531,8 +547,6 @@ fn truncate_chars(message: &str, max_chars: usize) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use std::mem::discriminant;
-
     use super::*;
 
     const ROOT_ID: JobId = JobId::from(1);
@@ -542,6 +556,7 @@ mod tests {
         has_cleanup: false,
     };
 
+    // `BlockingOnChildren` is left out: no job can be in it until a tree has children.
     const STATES: [JobState; 7] = [
         JobState::Ready,
         JobState::Running,
@@ -612,6 +627,8 @@ mod tests {
 
     #[test]
     fn a_task_event_is_accepted_only_in_its_lanes_state() {
+        use std::mem::discriminant;
+
         for (kind, lane_state, no_longer_error) in [
             (
                 TreeEventKind::RegularTasksDone,
@@ -717,26 +734,25 @@ mod tests {
             "an event of a job not in the tree gave {:?}",
             plan.outcome
         );
-        assert_eq!(plan.updates, []);
     }
 
     #[test]
     fn an_event_that_its_jobs_state_does_not_accept_plans_nothing() {
         let plan = plan_root_event(
             TreeNode {
-                has_commit: true,
+                has_cleanup: true,
                 ..PLAIN_NODE
             },
-            JobState::Running,
-            TreeEventKind::CommitDone,
+            JobState::CleanupReady,
+            TreeEventKind::CancelRoot,
             PlannerInput::Empty,
         );
         assert!(
             matches!(
                 plan.outcome,
-                TreeOutcome::Stale(StaleStateError::JobNoLongerCommitReady)
+                TreeOutcome::Stale(StaleStateError::JobCancellationAlreadyRequested)
             ),
-            "a commit done of a running job gave {:?}",
+            "a cancel of a cleanup-ready root gave {:?}",
             plan.outcome
         );
         assert_eq!(plan.updates, []);
@@ -937,17 +953,16 @@ mod tests {
     #[test]
     fn submit_routes_cancels_and_failures_to_the_fast_forward_channel() {
         let (control_block, mut receivers) = TreeControlBlock::new(ShutdownHandle::new());
-        let replies: Vec<_> = [
+        for kind in [
             TreeEventKind::Start,
             TreeEventKind::CancelRoot,
             TreeEventKind::RegularTasksDone,
             failure(Lane::Commit, "boom"),
             TreeEventKind::CommitDone,
             TreeEventKind::CleanupDone,
-        ]
-        .into_iter()
-        .map(|kind| control_block.submit(root_event(kind)))
-        .collect();
+        ] {
+            drop(control_block.submit(root_event(kind)));
+        }
 
         assert_eq!(
             drain_kinds(&mut receivers.fast_forward),
@@ -962,7 +977,6 @@ mod tests {
                 TreeEventKind::CleanupDone,
             ]
         );
-        drop(replies);
     }
 
     #[tokio::test]
@@ -1013,10 +1027,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_submit_to_an_exited_committer_during_a_shutdown_is_stopping() {
+    async fn a_submit_during_a_shutdown_is_stopping_only_once_the_committer_exits() {
         let shutdown_handle = ShutdownHandle::new();
-        let (control_block, receivers) = TreeControlBlock::new(shutdown_handle.clone());
+        let (control_block, mut receivers) = TreeControlBlock::new(shutdown_handle.clone());
         shutdown_handle.shut_down_gracefully();
+
+        drop(control_block.submit(root_event(TreeEventKind::Start)));
+        receivers
+            .regular
+            .try_recv()
+            .expect("a submit during a shutdown should still reach a live committer");
         drop(receivers);
 
         let reply = control_block.submit(root_event(TreeEventKind::Start)).await;
