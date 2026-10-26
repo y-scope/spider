@@ -1034,11 +1034,20 @@ mod tests {
         let (control_block, mut receivers) = TreeControlBlock::new(shutdown_handle.clone());
         shutdown_handle.shut_down_gracefully();
 
-        drop(control_block.submit(root_event(TreeEventKind::Start)));
+        let start_reply = control_block.submit(root_event(TreeEventKind::Start));
         receivers
             .regular
             .try_recv()
-            .expect("a submit during a shutdown should still reach a live committer");
+            .expect("a submit during a shutdown should still reach a live committer")
+            .reply
+            .send(Ok(TreeOutcome::Applied(JobState::Running)))
+            .expect("the start's reply future should still hold its receiver");
+        let reply = start_reply.await;
+        assert!(
+            matches!(reply, Ok(TreeOutcome::Applied(JobState::Running))),
+            "a submit queued during a shutdown should resolve to the committer's reply, got \
+             {reply:?}"
+        );
         drop(receivers);
 
         let reply = control_block.submit(root_event(TreeEventKind::Start)).await;
