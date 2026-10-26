@@ -1,8 +1,8 @@
 //! Deterministic fault and pause injection points for tests of the storage service.
 //!
-//! Hooks are per runtime instance: every [`TestHooks`] value is independent, so tests that run in
-//! one process never see each other's hooks. Without the `test-hooks` feature, [`TestHooks`] is a
-//! zero-sized type whose hook points never fire.
+//! Hooks are per [`crate::state::Runtime`] instance: every [`TestHooks`] value is independent, so
+//! tests that run in one process never see each other's hooks. Without the `test-hooks` feature,
+//! [`TestHooks`] is a zero-sized type whose hook points never fire.
 
 use spider_core::types::id::JobId;
 use spider_core::types::id::TaskInstanceId;
@@ -36,15 +36,15 @@ pub enum HookPoint {
     /// incomplete tasks is decremented.
     TaskSuccessAfterTcbFlip,
 
-    /// In a task success that completes the job's last task, after the job's read guard is
-    /// dropped, before the job's outputs are committed.
+    /// In a task success that completes the job's last task, after the job's read guard is dropped,
+    /// before the job's outputs are committed.
     TaskSuccessBeforeOutputsCommit,
 
     /// In a task success, after the outputs are written, before the first successor's lock.
     TaskSuccessBeforeSuccessorLock,
 
-    /// In an instance creation, after the task registered the instance, before the instance is
-    /// sent to the task instance pool.
+    /// In an instance creation, after the task registered the instance, before the instance is sent
+    /// to the task instance pool.
     CreateInstanceBeforePoolSend,
 }
 
