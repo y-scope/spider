@@ -239,6 +239,9 @@ impl<
     ///
     /// The number of terminated jobs currently queued for retention.
     #[cfg(test)]
+    // TODO: Make this function `const` once stable Rust allows `VecDeque::len` in `const fn` (see
+    // #544).
+    #[allow(clippy::missing_const_for_fn)]
     fn get_num_queued_terminated_jobs(&self) -> usize {
         self.terminated_jobs.len()
     }

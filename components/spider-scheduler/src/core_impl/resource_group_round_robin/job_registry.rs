@@ -79,6 +79,9 @@ impl JobEntry {
     /// # Returns
     ///
     /// Whether the job has at least one ready task.
+    // TODO: Make this function `const` once stable Rust allows `VecDeque::is_empty` in `const fn`
+    // (see #544).
+    #[allow(clippy::missing_const_for_fn)]
     pub(super) fn has_ready_task(&self) -> bool {
         !self.ready_task_queue.is_empty()
     }
