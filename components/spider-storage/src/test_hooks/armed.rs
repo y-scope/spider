@@ -35,7 +35,7 @@ impl HookFilter {
     /// # Returns
     ///
     /// Whether every field that the filter sets matches `context`.
-    fn matches(&self, context: &HookContext) -> bool {
+    fn is_match(&self, context: &HookContext) -> bool {
         self.job_id
             .is_none_or(|job_id| context.job_ids.contains(&job_id))
     }
@@ -260,7 +260,7 @@ impl ArmedHookState {
     ///
     /// Whether the hook fired.
     fn try_fire(&self, context: &HookContext) -> bool {
-        if !self.filter.matches(context) {
+        if !self.filter.is_match(context) {
             return false;
         }
         let has_hits_left = self
