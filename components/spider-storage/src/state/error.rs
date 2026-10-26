@@ -36,7 +36,7 @@ pub enum StorageServerError {
 impl From<CacheError> for StorageServerError {
     fn from(error: CacheError) -> Self {
         match error {
-            CacheError::ServiceStopping => Self::Stopping(error.to_string()),
+            CacheError::ServiceStopping => Self::Stopping("a job tree refused an event".to_owned()),
             error => Self::Cache(error),
         }
     }
