@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use spider_core::task::TdlContext;
 use spider_core::task::TimeoutPolicy;
+use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -28,6 +29,7 @@ use spider_execution_manager::process_pool::Outcome;
 use spider_execution_manager::process_pool::ProcessPool;
 use spider_execution_manager::process_pool::ProcessPoolConfig;
 use spider_task_executor::ExecutorError;
+use spider_tdl::ExecutionManagerMetadata;
 use spider_tdl::TdlError;
 use test_utils::PACKAGE_NAME;
 use test_utils::decode_single_output;
@@ -93,6 +95,10 @@ fn make_request(task_func: &str, inputs: Vec<TaskInput>) -> ExecuteRequest {
         job_id: JobId::random(),
         task_id: TaskId::Index(0),
         resource_group_id: ResourceGroupId::random(),
+        execution_manager_metadata: ExecutionManagerMetadata {
+            id: ExecutionManagerId::random(),
+            pinned_resource_group_id: None,
+        },
         ctx: ExecutionContext {
             task_instance_id: 1,
             tdl_context: TdlContext {
