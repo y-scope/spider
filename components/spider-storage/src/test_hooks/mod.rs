@@ -3,6 +3,35 @@
 //! Hooks are per [`crate::state::Runtime`] instance: every [`TestHooks`] value is independent, so
 //! tests that run in one process never see each other's hooks. Without the `test-hooks` feature,
 //! [`TestHooks`] is a zero-sized type whose hook points never fire.
+//!
+//! # Glossary
+//!
+//! | Term           | Meaning                                                                    |
+//! |----------------|----------------------------------------------------------------------------|
+//! | Hook point     | A named place in the storage code where a test can act.                    |
+//! | Hit            | One pass of the code over a hook point.                                    |
+//! | Context        | What a hit is about: its jobs and its task instance.                       |
+//! | Filter         | Which hits at a hook point to act on, chosen by their context.             |
+//! | Count          | How many of the filtered hits to act on: once, n times, or always.         |
+//! | Action         | What to do to a hit that passes the filter and the count.                  |
+//! | Hook           | A hook point with a filter, a count and an action.                         |
+//! | Arm            | Activates a hook, so that it starts acting on hits.                        |
+//! | Fire           | An armed hook acting on a hit at its point that passes filter and count.   |
+//! | Pause          | An action: blocks the hit until the test lets it go on or shutdown starts. |
+//! | Release        | Lets a paused hit go on.                                                   |
+//! | Disarm         | Deactivates an armed hook and releases its paused hits.                    |
+//! | Reached        | Waits until an armed hook has fired a given number of times.               |
+//! | Injected fault | The error a hit returns, e.g., when shutdown ends its pause.               |
+//!
+//! When the code hits a hook point, every hook armed at that point checks the hit in this order:
+//!
+//! 1. Filter: the hook skips the hit unless the hit's context passes its filter.
+//! 2. Count: the hook skips the hit if it has already fired its count of times; otherwise, the hit
+//!    uses up one.
+//! 3. Action: the hook fires and runs its action on the hit.
+//!
+//! A hit that the filter skips doesn't use up the count. A hook whose count is used up stays armed
+//! but never fires again.
 
 use spider_core::types::id::JobId;
 use spider_core::types::id::TaskInstanceId;
