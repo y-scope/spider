@@ -75,6 +75,8 @@ impl TreeControlBlock {
     ///   block's shutdown handle is cancelled, in which case `event` was not and will not be
     ///   applied.
     /// * [`InternalError::TreePoisoned`] if the committer dropped `event` without a reply.
+    /// * Any [`CacheError`] the committer replies to `event` with, e.g.,
+    ///   [`CacheError::ServiceStopping`] if it shuts down before applying `event`.
     pub fn submit(&self, event: TreeEvent) -> impl Future<Output = TreeReply> + Send + use<> {
         let (reply, receiver) = oneshot::channel();
         let sender = if event.kind.is_fast_forward() {
