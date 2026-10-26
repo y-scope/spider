@@ -34,14 +34,14 @@ pub use disarmed::TestHooks;
 pub enum HookPoint {
     /// In a task success, after the task control block has succeeded, before the job's count of
     /// incomplete tasks is decremented.
-    PhaseAAfterTcbFlip,
+    TaskSuccessAfterTcbFlip,
 
     /// In a task success that completes the job's last task, after the job's read guard is
     /// dropped, before the job's outputs are committed.
-    PhaseABeforeSubmit,
+    TaskSuccessBeforeOutputsCommit,
 
     /// In a task success, after the outputs are written, before the first successor's lock.
-    PhaseABeforeSuccessorLock,
+    TaskSuccessBeforeSuccessorLock,
 
     /// In an instance creation, after the task registered the instance, before the instance is
     /// sent to the task instance pool.

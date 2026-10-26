@@ -26,7 +26,7 @@ async fn dropped_report_after_the_tcb_flip_still_finishes_the_job() -> anyhow::R
     let job_id = start_chain_job(&env, 1, 1).await;
     let instance_id = create_instance(&env, job_id, TaskId::Index(0)).await;
     let pause = env.hooks.arm(
-        HookPoint::PhaseAAfterTcbFlip,
+        HookPoint::TaskSuccessAfterTcbFlip,
         HookFilter::job(job_id),
         HookAction::Pause,
         HookCount::Once,
@@ -63,7 +63,7 @@ async fn dropped_report_at_the_successor_lock_publishes_the_successor_once() -> 
     let job_id = start_chain_job(&env, 2, 1).await;
     let instance_id = create_instance(&env, job_id, TaskId::Index(0)).await;
     let pause = env.hooks.arm(
-        HookPoint::PhaseABeforeSuccessorLock,
+        HookPoint::TaskSuccessBeforeSuccessorLock,
         HookFilter::job(job_id),
         HookAction::Pause,
         HookCount::Once,

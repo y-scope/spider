@@ -400,7 +400,7 @@ impl<
                 jcb.hook_context(Some(task_instance_id))
             })
             .await?;
-        jcb.hit_hook(HookPoint::PhaseAAfterTcbFlip, Some(task_instance_id))
+        jcb.hit_hook(HookPoint::TaskSuccessAfterTcbFlip, Some(task_instance_id))
             .await?;
         // NOTE: `fetch_sub` returns the previous value, so the new count is the returned value
         // minus 1.
@@ -425,8 +425,11 @@ impl<
 
         // Release the read lock prior to acquiring a write lock for committing job outputs.
         drop(job);
-        jcb.hit_hook(HookPoint::PhaseABeforeSubmit, Some(task_instance_id))
-            .await?;
+        jcb.hit_hook(
+            HookPoint::TaskSuccessBeforeOutputsCommit,
+            Some(task_instance_id),
+        )
+        .await?;
         let mut job = jcb.job_execution_state.write_running().await?;
         let job_outputs = job.task_graph.read_output_payloads().await?;
         let has_commit_task = job.task_graph.has_commit_task();

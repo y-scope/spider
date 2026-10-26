@@ -315,8 +315,8 @@ impl SharedTaskControlBlock {
 
     /// Marks a task instance as succeeded.
     ///
-    /// `hooks` fire at [`HookPoint::PhaseABeforeSuccessorLock`] with the context that `context`
-    /// builds, after the outputs are written.
+    /// `hooks` fire at [`HookPoint::TaskSuccessBeforeSuccessorLock`] with the context that
+    /// `context` builds, after the outputs are written.
     ///
     /// # Returns
     ///
@@ -348,7 +348,7 @@ impl SharedTaskControlBlock {
         // state has already been updated.
         tcb.write_outputs(task_outputs).await?;
         hooks
-            .hit(HookPoint::PhaseABeforeSuccessorLock, context)
+            .hit(HookPoint::TaskSuccessBeforeSuccessorLock, context)
             .await?;
         let result: Result<_, InternalError> = {
             let mut ready_child_indices = Vec::new();
