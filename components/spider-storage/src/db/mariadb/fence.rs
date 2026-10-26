@@ -62,6 +62,16 @@ impl MariaDbStorageConnector {
         self.ensure_fence_holds(fence_session_id)
     }
 
+    /// # Returns
+    ///
+    /// The fence predicate's parameters for this connector.
+    pub(super) const fn fence(&self) -> FencePredicate {
+        FencePredicate {
+            fence_id: self.fence_id,
+            session_id: self.session_id,
+        }
+    }
+
     /// Checks that the current connector's session ID is what the current fence holds.
     ///
     /// # Errors
@@ -88,6 +98,14 @@ impl MariaDbStorageConnector {
 /// The ID of the `storage_fence` row that a storage service fences its writes with unless
 /// [`DatabaseConfig::fence_id`](crate::config::DatabaseConfig::fence_id) overrides it.
 pub(super) const DEFAULT_FENCE_ID: u64 = 0;
+
+/// The parameters of a write statement's fence predicate: the statement writes only while the
+/// fence row `fence_id` holds `session_id`.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct FencePredicate {
+    pub(super) fence_id: u64,
+    pub(super) session_id: SessionId,
+}
 
 /// Raises the fence row `fence_id` to `session_id` unless it already holds a newer session, so that
 /// every storage session that connected earlier with the same fence ID fails its next write with

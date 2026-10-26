@@ -103,6 +103,7 @@ use spider_storage::db::ExternalJobOrchestration;
 use spider_storage::db::InternalJobOrchestration;
 use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::db::RecoverableJobContext;
+use spider_storage::db::TreeTransition;
 use spider_storage::inbound_queue::InboundQueueSender;
 use spider_storage::job_submission::ValidatedJobSubmission;
 use spider_storage::task_instance_pool::TaskInstanceMetadata;
@@ -153,6 +154,10 @@ pub struct NoopDbConnector {}
 
 #[async_trait]
 impl InternalJobOrchestration for NoopDbConnector {
+    async fn apply_tree_transition(&self, _transition: TreeTransition) -> Result<(), DbError> {
+        Ok(())
+    }
+
     async fn start(&self, _job_id: JobId) -> Result<(), DbError> {
         Ok(())
     }

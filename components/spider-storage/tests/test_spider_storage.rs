@@ -1,3 +1,5 @@
+use spider_storage as storage;
+
 mod mariadb_infra;
 mod runtime_infra;
 mod scheduling_infra;
@@ -9,3 +11,4 @@ mod jcb_test;
 mod mariadb_test;
 mod pool_config_test;
 mod runtime_recovery_test;
+mod tree_transition_test;
