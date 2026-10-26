@@ -9,7 +9,7 @@ use crate::db::DbError;
 #[derive(thiserror::Error, Debug)]
 pub enum StorageServerError {
     #[error(transparent)]
-    Cache(#[from] CacheError),
+    Cache(CacheError),
 
     #[error(transparent)]
     Db(#[from] DbError),
@@ -31,4 +31,40 @@ pub enum StorageServerError {
 
     #[error("serde: {0}")]
     Serde(#[source] Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl From<CacheError> for StorageServerError {
+    fn from(error: CacheError) -> Self {
+        match error {
+            CacheError::ServiceStopping => Self::Stopping(error.to_string()),
+            error => Self::Cache(error),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::error::StaleStateError;
+
+    #[test]
+    fn only_a_service_stopping_cache_error_converts_to_stopping() {
+        let error = StorageServerError::from(CacheError::ServiceStopping);
+        assert!(
+            matches!(error, StorageServerError::Stopping(_)),
+            "a service-stopping cache error should convert to stopping, got {error:?}"
+        );
+
+        let error =
+            StorageServerError::from(CacheError::StaleState(StaleStateError::JobAlreadyStarted));
+        assert!(
+            matches!(
+                error,
+                StorageServerError::Cache(CacheError::StaleState(
+                    StaleStateError::JobAlreadyStarted
+                ))
+            ),
+            "any other cache error should stay a cache error, got {error:?}"
+        );
+    }
 }
