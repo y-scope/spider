@@ -5,6 +5,7 @@ mod mysql_error;
 mod resource_group;
 mod scheduler;
 mod schema;
+mod tree_transition;
 
 use std::time::Duration;
 
@@ -24,6 +25,8 @@ use crate::db::mariadb::fence::bump_fence;
 use crate::db::mariadb::schema::SESSIONS_TABLE_NAME;
 use crate::db::mariadb::schema::STORAGE_FENCE_TABLE_NAME;
 use crate::db::mariadb::schema::create_tables;
+use crate::db::mariadb::tree_transition::MAX_STATEMENT_OVERHEAD;
+use crate::db::mariadb::tree_transition::MAX_STATEMENT_PAYLOAD;
 
 /// A cloneable storage connector for `MariaDB` database that implements Spider's DB protocols.
 #[derive(Clone)]
@@ -31,6 +34,8 @@ pub struct MariaDbStorageConnector {
     pool: MySqlPool,
     session_id: SessionId,
     fence_id: u64,
+    max_statement_payload: u64,
+    max_row_payload: u64,
 }
 
 impl MariaDbStorageConnector {
@@ -49,9 +54,11 @@ impl MariaDbStorageConnector {
     /// * Forwards [`create_tables`]'s return values on failure.
     /// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
     /// * Forwards [`bump_fence`]'s return values on failure.
+    /// * Forwards [`sqlx::query::QueryScalar::fetch_one`]'s return values on failure.
     pub async fn connect(config: &DatabaseConfig) -> Result<Self, DbError> {
         const SET_WAIT_TIMEOUT_QUERY: &str =
             formatcp!("SET SESSION wait_timeout = {SESSION_WAIT_TIMEOUT_SEC};");
+        const SELECT_MAX_ALLOWED_PACKET_QUERY: &str = "SELECT @@max_allowed_packet;";
         const BUMP_SESSION_ID_QUERY: &str = formatcp!(
             "INSERT INTO `{table}` () VALUES ();",
             table = SESSIONS_TABLE_NAME,
@@ -95,11 +102,16 @@ impl MariaDbStorageConnector {
                 .last_insert_id(),
         );
         bump_fence(&pool, fence_id, session_id).await?;
+        let max_allowed_packet: u64 = sqlx::query_scalar(SELECT_MAX_ALLOWED_PACKET_QUERY)
+            .fetch_one(&pool)
+            .await?;
 
         Ok(Self {
             pool,
             session_id,
             fence_id,
+            max_statement_payload: MAX_STATEMENT_PAYLOAD.min(max_allowed_packet / 2),
+            max_row_payload: max_allowed_packet.saturating_sub(MAX_STATEMENT_OVERHEAD),
         })
     }
 

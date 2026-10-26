@@ -28,10 +28,15 @@ use crate::db::RecoverableJobContext;
 use crate::db::ResourceGroupManagement;
 use crate::db::SchedulerRegistrationManagement;
 use crate::db::SessionManagement;
+use crate::db::TreeTransition;
 use crate::inbound_queue::InboundQueueSender;
 use crate::job_submission::ValidatedJobSubmission;
 use crate::task_instance_pool::TaskInstanceMetadata;
 use crate::task_instance_pool::TaskInstancePoolConnector;
+
+/// The maximum total size of one job's outputs that [`MockDbConnector`] accepts in a tree
+/// transition.
+pub const MOCK_MAX_OUTPUTS_SIZE: u64 = 4 * 1024 * 1024;
 
 /// A mock inbound queue sender for testing.
 #[derive(Clone, Default)]
@@ -133,6 +138,43 @@ impl ExternalJobOrchestration for MockDbConnector {
 
 #[async_trait::async_trait]
 impl InternalJobOrchestration for MockDbConnector {
+    async fn apply_tree_transition(&self, transition: TreeTransition) -> Result<(), DbError> {
+        for update in &transition.updates {
+            let size: u64 = update
+                .outputs
+                .iter()
+                .flatten()
+                .map(|output| output.len() as u64)
+                .sum();
+            if size > MOCK_MAX_OUTPUTS_SIZE {
+                return Err(DbError::OutputsTooLarge {
+                    job_id: update.job_id,
+                    size,
+                    limit: MOCK_MAX_OUTPUTS_SIZE,
+                });
+            }
+        }
+        for update in &transition.updates {
+            let current = self.states.get(&update.job_id).map(|state| *state);
+            if current != Some(update.from) {
+                return Err(DbError::CorruptedDbState(format!(
+                    "expected job {:?} in state {}, found {current:?}",
+                    update.job_id, update.from
+                )));
+            }
+        }
+        for update in transition.updates {
+            self.states.insert(update.job_id, update.to);
+            if let Some(outputs) = update.outputs {
+                self.outputs.insert(update.job_id, outputs);
+            }
+            if let Some(error_message) = update.error_message {
+                self.errors.insert(update.job_id, error_message);
+            }
+        }
+        Ok(())
+    }
+
     async fn start(&self, job_id: JobId) -> Result<(), DbError> {
         self.states.insert(job_id, JobState::Running);
         Ok(())

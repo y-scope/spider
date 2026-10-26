@@ -14,6 +14,7 @@ use crate::db::DbError;
 use crate::db::ExternalJobOrchestration;
 use crate::db::InternalJobOrchestration;
 use crate::db::RecoverableJobContext;
+use crate::db::TreeTransition;
 use crate::db::error::ExpectedStates;
 use crate::db::mariadb::MariaDbStorageConnector;
 use crate::db::mariadb::mysql_error::MYSQL_ER_BAD_NULL_ERROR;
@@ -36,7 +37,7 @@ impl MariaDbStorageConnector {
     ///
     /// The insert, bound to register `job_submission` in `resource_group_id` while the fence row
     /// holds this connector's session.
-    fn fenced_register_query<'submission_lifetime>(
+    pub(super) fn fenced_register_query<'submission_lifetime>(
         &self,
         resource_group_id: ResourceGroupId,
         job_submission: &'submission_lifetime ValidatedJobSubmission,
@@ -187,6 +188,10 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
 
 #[async_trait]
 impl InternalJobOrchestration for MariaDbStorageConnector {
+    async fn apply_tree_transition(&self, transition: TreeTransition) -> Result<(), DbError> {
+        self.write_tree_transition(transition).await
+    }
+
     async fn start(&self, job_id: JobId) -> Result<(), DbError> {
         let mut tx = self.pool.begin().await?;
         self.check_fence(&mut tx).await?;

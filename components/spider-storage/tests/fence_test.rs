@@ -9,8 +9,10 @@ use spider_storage::DatabaseConfig;
 use spider_storage::db::DbError;
 use spider_storage::db::ExternalJobOrchestration;
 use spider_storage::db::InternalJobOrchestration;
+use spider_storage::db::JobStateUpdate;
 use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::db::SessionManagement;
+use spider_storage::db::TreeTransition;
 use spider_storage::job_submission::ValidatedJobSubmission;
 use sqlx::Acquire;
 use sqlx::MySqlPool;
@@ -18,9 +20,9 @@ use sqlx::MySqlPool;
 use super::mariadb_infra::IsolatedTestDb;
 use super::mariadb_infra::create_raw_pool;
 use super::mariadb_infra::create_test_resource_group;
-use super::mariadb_infra::has_mysql_error_number;
 use super::mariadb_infra::root_credentials;
 use super::mariadb_infra::test_fence_id;
+use super::mariadb_infra::wait_for_queued_fence_bump;
 use super::task_graph_builder::build_flat_task_graph;
 use super::task_graph_builder::create_validated_submission;
 
@@ -514,6 +516,183 @@ async fn register_maps_a_missing_resource_group() {
     isolated_test_db.drop_database().await;
 }
 
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn a_tree_transition_that_passed_the_fence_holds_it_until_it_commits() -> anyhow::Result<()> {
+    let isolated_test_db = IsolatedTestDb::create().await;
+    let config = isolated_test_db.config();
+    let unprivileged_config = DatabaseConfig {
+        credentials: isolated_test_db
+            .create_user_without_global_privileges()
+            .await,
+        ..config.clone()
+    };
+    let root_pool = create_root_pool(&config).await;
+    let storage = connect(&config).await;
+    let rg_id = create_test_resource_group(&storage).await;
+    let job_submission = flat_submission();
+    let first_job_id = storage.register(rg_id, &job_submission).await?;
+    let second_job_id = storage.register(rg_id, &job_submission).await?;
+
+    let starting_storage = storage.clone();
+    let ((), newer) = commit_behind_a_queued_fence_bump(
+        &root_pool,
+        &unprivileged_config,
+        "jobs",
+        second_job_id.get(),
+        "UPDATE `jobs`%",
+        async move { start(&starting_storage, &[first_job_id, second_job_id]).await },
+    )
+    .await?;
+
+    assert_eq!(
+        job_states(&root_pool).await,
+        vec![
+            (first_job_id, JobState::Running),
+            (second_job_id, JobState::Running),
+        ],
+        "{config:?}"
+    );
+    let result = start(&storage, &[first_job_id]).await;
+    assert_fenced(&result, &storage, &newer, &format!("{config:?}"));
+    root_pool.close().await;
+    isolated_test_db.drop_database().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn a_tree_transition_issued_while_the_fence_bump_is_queued_is_fenced() -> anyhow::Result<()> {
+    let isolated_test_db = IsolatedTestDb::create().await;
+    let config = isolated_test_db.config();
+    let unprivileged_config = DatabaseConfig {
+        credentials: isolated_test_db
+            .create_user_without_global_privileges()
+            .await,
+        ..config.clone()
+    };
+    let older = connect(&config).await;
+    let rg_id = create_test_resource_group(&older).await;
+    let job_submission = flat_submission();
+    let mut job_ids = Vec::new();
+    for _ in 0..3 {
+        job_ids.push(older.register(rg_id, &job_submission).await?);
+    }
+    start(&older, &job_ids).await?;
+    let raw_pool = create_raw_pool(&config).await;
+    let root_pool = create_root_pool(&config).await;
+    let mut raw_connection = raw_pool.acquire().await?;
+    let mut raw_tx = raw_connection.begin().await?;
+    sqlx::query(SELECT_FENCE_FOR_SHARE_QUERY)
+        .bind(test_fence_id(&config))
+        .execute(&mut *raw_tx)
+        .await?;
+
+    let first_bump_attempt_deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+    let newer_connect_join_handle =
+        tokio::spawn(async move { connect(&unprivileged_config).await });
+    tokio::time::timeout_at(
+        first_bump_attempt_deadline,
+        wait_for_queued_fence_bump(&root_pool, test_fence_id(&config)),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        panic!("connect should queue its fence bump behind the open transaction with {config:?}")
+    });
+    let success_update = |job_id: JobId| JobStateUpdate {
+        outputs: Some(vec![job_id.get().to_le_bytes().to_vec()]),
+        ..JobStateUpdate::new(job_id, JobState::Running, JobState::Succeeded)
+    };
+    let mut transitions = Vec::new();
+    for job_ids in [&job_ids[..1], &job_ids[1..]] {
+        let storage = older.clone();
+        let updates = job_ids.iter().copied().map(success_update).collect();
+        transitions.push(tokio::spawn(async move {
+            storage
+                .apply_tree_transition(TreeTransition { updates })
+                .await
+        }));
+    }
+    tokio::time::timeout_at(
+        first_bump_attempt_deadline,
+        wait_for_blocked_statements(&root_pool, "%`storage_fence`%LOCK IN SHARE MODE%", 2),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        panic!(
+            "the older connector's transitions should queue behind the fence bump with {config:?}"
+        )
+    });
+    for transition in &transitions {
+        assert!(
+            !transition.is_finished(),
+            "the transition should wait for the fence bump with {config:?}"
+        );
+    }
+
+    raw_tx.commit().await?;
+    let newer = tokio::time::timeout(Duration::from_secs(5), newer_connect_join_handle).await??;
+    for transition in transitions {
+        let result = tokio::time::timeout(Duration::from_secs(5), transition).await??;
+        assert_fenced(
+            &result,
+            &older,
+            &newer,
+            &format!("transition issued while the fence bump is queued with {config:?}"),
+        );
+    }
+    assert_eq!(
+        job_states(&root_pool).await,
+        job_ids
+            .iter()
+            .map(|job_id| (*job_id, JobState::Running))
+            .collect::<Vec<_>>(),
+        "{config:?}"
+    );
+    let jobs_with_outputs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM `jobs` WHERE `serialized_job_outputs` IS NOT NULL;",
+    )
+    .fetch_one(&root_pool)
+    .await?;
+    assert_eq!(
+        jobs_with_outputs, 0,
+        "fenced transitions should write no outputs"
+    );
+    drop(raw_connection);
+    raw_pool.close().await;
+    root_pool.close().await;
+    isolated_test_db.drop_database().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn in_statement_guard_miss_is_corruption_not_fenced() -> anyhow::Result<()> {
+    let isolated_test_db = IsolatedTestDb::create().await;
+    let config = isolated_test_db.config();
+    let storage = connect(&config).await;
+    let rg_id = create_test_resource_group(&storage).await;
+    let job_submission = flat_submission();
+    let running_job_id = storage.register(rg_id, &job_submission).await?;
+    let ready_job_id = storage.register(rg_id, &job_submission).await?;
+    start(&storage, &[running_job_id]).await?;
+
+    let guard_miss_result = start(&storage, &[running_job_id]).await;
+    assert!(
+        matches!(guard_miss_result, Err(DbError::CorruptedDbState(_))),
+        "expected CorruptedDbState, got {guard_miss_result:?}"
+    );
+    assert_eq!(storage.get_state(running_job_id).await?, JobState::Running);
+
+    let newer = connect(&config).await;
+    let fenced_result = start(&storage, &[ready_job_id]).await;
+    assert_fenced(&fenced_result, &storage, &newer, "start");
+    assert_eq!(newer.get_state(ready_job_id).await?, JobState::Ready);
+
+    isolated_test_db.drop_database().await;
+    Ok(())
+}
+
 /// # Returns
 ///
 /// A [`MariaDbStorageConnector`] connected with `config`.
@@ -591,32 +770,6 @@ async fn job_states(pool: &MySqlPool) -> Vec<(JobId, JobState)> {
         .fetch_all(pool)
         .await
         .expect("the job state query should succeed")
-}
-
-/// Waits until an exclusive lock request on the fence row `fence_id` is queued, which a shared
-/// lock request without waiting then conflicts with.
-///
-/// # Panics
-///
-/// Panics if a probe fails for any reason other than the lock conflict.
-async fn wait_for_queued_fence_bump(pool: &MySqlPool, fence_id: u64) {
-    const MYSQL_ER_LOCK_WAIT_TIMEOUT: u16 = 1205;
-
-    loop {
-        let mut probe_tx = pool.begin().await.expect("probe should begin");
-        let probe_result = sqlx::query(
-            "SELECT `session_id` FROM `storage_fence` WHERE `id` = ? LOCK IN SHARE MODE NOWAIT;",
-        )
-        .bind(fence_id)
-        .execute(&mut *probe_tx)
-        .await;
-        probe_tx.rollback().await.expect("probe should roll back");
-        match probe_result {
-            Ok(_) => tokio::time::sleep(Duration::from_millis(20)).await,
-            Err(e) if has_mysql_error_number(&e, MYSQL_ER_LOCK_WAIT_TIMEOUT) => return,
-            Err(e) => panic!("unexpected probe failure: {e}"),
-        }
-    }
 }
 
 /// Runs `write` while a transaction locks the row `locked_row_id` of `locked_table` exclusively,
@@ -767,4 +920,22 @@ async fn wait_for_reissued_statement(pool: &MySqlPool, statement_pattern: &str) 
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+}
+
+/// Starts every job of `job_ids` through `storage` in one tree transition.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`InternalJobOrchestration::apply_tree_transition`]'s return values on failure.
+async fn start(storage: &MariaDbStorageConnector, job_ids: &[JobId]) -> Result<(), DbError> {
+    storage
+        .apply_tree_transition(TreeTransition {
+            updates: job_ids
+                .iter()
+                .map(|job_id| JobStateUpdate::new(*job_id, JobState::Ready, JobState::Running))
+                .collect(),
+        })
+        .await
 }
