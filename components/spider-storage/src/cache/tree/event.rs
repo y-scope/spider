@@ -21,6 +21,7 @@ pub struct TreeEvent {
 ///
 /// A variant may carry the inputs that planning the event needs, e.g., the outputs of a job whose
 /// regular tasks are done.
+#[derive(strum::IntoStaticStr)]
 pub enum TreeEventKind {
     /// The root is started. Carries the root's ready task indices.
     Start { ready_task_indices: Vec<TaskIndex> },
@@ -92,22 +93,21 @@ impl TreeEventKind {
 
 impl fmt::Debug for TreeEventKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name: &'static str = self.into();
         match self {
             Self::Start { ready_task_indices } => f
-                .debug_struct("Start")
+                .debug_struct(name)
                 .field("num_ready_tasks", &ready_task_indices.len())
                 .finish(),
             Self::RegularTasksDone { outputs } => f
-                .debug_struct("RegularTasksDone")
+                .debug_struct(name)
                 .field("num_outputs", &outputs.len())
                 .finish(),
-            Self::CommitDone => f.write_str("CommitDone"),
-            Self::CleanupDone => f.write_str("CleanupDone"),
             Self::TerminalFailure { lane, .. } => f
-                .debug_struct("TerminalFailure")
+                .debug_struct(name)
                 .field("lane", lane)
                 .finish_non_exhaustive(),
-            Self::CancelRoot => f.write_str("CancelRoot"),
+            Self::CommitDone | Self::CleanupDone | Self::CancelRoot => f.write_str(name),
         }
     }
 }
