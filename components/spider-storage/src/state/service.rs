@@ -1,5 +1,8 @@
 use std::net::IpAddr;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::Context;
+use std::task::Poll;
 use std::time::Duration;
 
 use spider_core::job::JobState;
@@ -19,6 +22,8 @@ use spider_core::types::scheduler::RegisteredScheduler;
 use spider_tdl::error::TdlError;
 use spider_utils::config::Host;
 use spider_utils::shutdown::ShutdownHandle;
+use tokio::task::JoinError;
+use tokio::task::JoinHandle;
 use tokio_util::task::TaskTracker;
 
 use crate::cache::error::CacheError;
@@ -887,6 +892,10 @@ impl<
     /// future does not cut the body short, and waits for its result, raced against the service's
     /// shutdown.
     ///
+    /// If the caller stops waiting for the result, a panic of the body still shuts the service down
+    /// fatally, and so does a fatal error (see [`StorageServerError::is_fatal`]) unless the service
+    /// is already shutting down gracefully.
+    ///
     /// # Type Parameters
     ///
     /// * `ReturnType` - The type of the value that the body returns on success.
@@ -918,9 +927,14 @@ impl<
         }
         let join_handle = self.inner.task_tracker.spawn(body);
         drop(task_tracker_token);
+        let mut handler_body_join_guard = HandlerBodyJoinGuard {
+            join_handle: Some(join_handle),
+            task_tracker: self.inner.task_tracker.clone(),
+            shutdown_handle: shutdown_handle.clone(),
+        };
         tokio::select! {
             biased;
-            result = join_handle => match result {
+            result = &mut handler_body_join_guard => match result {
                 Ok(Err(e)) if shutdown_handle.is_cancelled() && !shutdown_handle.is_fatal() => {
                     tracing::warn!(
                         error = % e,
@@ -968,6 +982,71 @@ struct ServiceStateInner<
     shutdown_handle: ShutdownHandle,
     task_tracker: TaskTracker,
     hooks: TestHooks,
+}
+
+/// The [`JoinHandle`] of a handler body spawned by [`ServiceState::spawn_body`], which resolves to
+/// the body's result.
+///
+/// If dropped before the result is read, it spawns a task into the task tracker that waits for the
+/// body and shuts the service down fatally on a panic, or on a fatal error unless the service is
+/// already shutting down gracefully.
+///
+/// # Type Parameters
+///
+/// * `ReturnType` - The type of the value that the body returns on success.
+struct HandlerBodyJoinGuard<ReturnType: Send + 'static> {
+    join_handle: Option<JoinHandle<Result<ReturnType, StorageServerError>>>,
+    task_tracker: TaskTracker,
+    shutdown_handle: ShutdownHandle,
+}
+
+impl<ReturnType: Send + 'static> Future for HandlerBodyJoinGuard<ReturnType> {
+    type Output = Result<Result<ReturnType, StorageServerError>, JoinError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let join_handle = self
+            .join_handle
+            .as_mut()
+            .expect("the handler body's result should not be read twice");
+        let output = std::task::ready!(Pin::new(join_handle).poll(cx));
+        self.join_handle = None;
+        Poll::Ready(output)
+    }
+}
+
+impl<ReturnType: Send + 'static> Drop for HandlerBodyJoinGuard<ReturnType> {
+    fn drop(&mut self) {
+        let Some(join_handle) = self.join_handle.take() else {
+            return;
+        };
+        let shutdown_handle = self.shutdown_handle.clone();
+        self.task_tracker.spawn(async move {
+            match join_handle.await {
+                Ok(Err(e)) if e.is_fatal() => {
+                    if shutdown_handle.is_cancelled() && !shutdown_handle.is_fatal() {
+                        tracing::warn!(
+                            error = % e,
+                            "Abandoned handler body failed while the service is shutting down."
+                        );
+                    } else {
+                        tracing::error!(
+                            error = % e,
+                            "Abandoned handler body failed with a fatal error. Cancelling service."
+                        );
+                        shutdown_handle.shut_down_fatally();
+                    }
+                }
+                Err(e) if e.is_panic() => {
+                    tracing::error!(
+                        error = % e,
+                        "Abandoned handler body panicked. Cancelling service."
+                    );
+                    shutdown_handle.shut_down_fatally();
+                }
+                _ => {}
+            }
+        });
+    }
 }
 
 #[cfg(test)]
@@ -2293,6 +2372,85 @@ mod tests {
             ),
             "a body failing with a fatal shutdown should keep its error, got {result:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_body_failing_fatally_after_its_caller_is_dropped_shuts_down_fatally() {
+        let service = create_test_service();
+        let (release_sender, release_receiver) = tokio::sync::oneshot::channel();
+
+        let mut caller = Box::pin(service.spawn_body(async move {
+            release_receiver
+                .await
+                .expect("the release sender should not be dropped");
+            Err::<(), _>(StorageServerError::from(CacheError::Internal(
+                InternalError::InboundQueueChannelClosed,
+            )))
+        }));
+        assert!(
+            std::future::poll_fn(|cx| Poll::Ready(caller.as_mut().poll(cx).is_pending())).await
+        );
+        drop(caller);
+        release_sender
+            .send(())
+            .expect("the body should still wait for the release");
+        service.inner.task_tracker.close();
+        service.inner.task_tracker.wait().await;
+
+        assert!(service.inner.shutdown_handle.is_fatal());
+    }
+
+    #[tokio::test]
+    async fn a_body_panicking_after_its_caller_is_dropped_shuts_down_fatally() {
+        let service = create_test_service();
+        let (release_sender, release_receiver) = tokio::sync::oneshot::channel();
+
+        let mut caller = Box::pin(service.spawn_body::<()>(async move {
+            release_receiver
+                .await
+                .expect("the release sender should not be dropped");
+            panic!("injected handler body panic")
+        }));
+        assert!(
+            std::future::poll_fn(|cx| Poll::Ready(caller.as_mut().poll(cx).is_pending())).await
+        );
+        drop(caller);
+        release_sender
+            .send(())
+            .expect("the body should still wait for the release");
+        service.inner.task_tracker.close();
+        service.inner.task_tracker.wait().await;
+
+        assert!(service.inner.shutdown_handle.is_fatal());
+    }
+
+    #[tokio::test]
+    async fn a_body_failing_fatally_without_a_caller_during_a_graceful_shutdown_is_not_fatal() {
+        let service = create_test_service();
+        let shutdown_handle = service.inner.shutdown_handle.clone();
+        let (release_sender, release_receiver) = tokio::sync::oneshot::channel();
+
+        let mut caller = Box::pin(service.spawn_body(async move {
+            release_receiver
+                .await
+                .expect("the release sender should not be dropped");
+            shutdown_handle.shut_down_gracefully();
+            Err::<(), _>(StorageServerError::from(CacheError::Internal(
+                InternalError::InboundQueueChannelClosed,
+            )))
+        }));
+        assert!(
+            std::future::poll_fn(|cx| Poll::Ready(caller.as_mut().poll(cx).is_pending())).await
+        );
+        drop(caller);
+        release_sender
+            .send(())
+            .expect("the body should still wait for the release");
+        service.inner.task_tracker.close();
+        service.inner.task_tracker.wait().await;
+
+        assert!(service.inner.shutdown_handle.is_cancelled());
+        assert!(!service.inner.shutdown_handle.is_fatal());
     }
 
     #[tokio::test]
