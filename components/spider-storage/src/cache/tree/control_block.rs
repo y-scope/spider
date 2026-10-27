@@ -9,8 +9,8 @@ use tokio::sync::oneshot;
 use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
 use crate::cache::tree::TreeEvent;
-use crate::cache::tree::TreeOutcome;
-use crate::cache::tree::TreeReply;
+use crate::cache::tree::TreeEventOutcome;
+use crate::cache::tree::TreeEventReply;
 
 /// The handle through which every job of a tree submits its events to the tree's committer.
 pub struct TreeControlBlock {
@@ -54,8 +54,8 @@ impl TreeControlBlock {
     /// # Returns
     ///
     /// A future that resolves to the committer's reply to `event`, or to
-    /// [`TreeOutcome::Untracked`] if the committer no longer takes events and the control block's
-    /// shutdown handle is not cancelled.
+    /// [`TreeEventOutcome::Untracked`] if the committer no longer takes events and the control
+    /// block's shutdown handle is not cancelled.
     ///
     /// # Errors
     ///
@@ -67,7 +67,7 @@ impl TreeControlBlock {
     /// * [`InternalError::TreePoisoned`] if the committer dropped `event` without a reply.
     /// * Any [`CacheError`] the committer replies to `event` with, e.g.,
     ///   [`CacheError::ServiceStopping`] if it shuts down before applying `event`.
-    pub fn submit(&self, event: TreeEvent) -> impl Future<Output = TreeReply> + Send + use<> {
+    pub fn submit(&self, event: TreeEvent) -> impl Future<Output = TreeEventReply> + Send + use<> {
         let (reply, receiver) = oneshot::channel();
         let sender = if event.kind.is_fast_forward() {
             &self.fast_forward
@@ -78,7 +78,7 @@ impl TreeControlBlock {
             if self.shutdown_handle.is_cancelled() {
                 Err(CacheError::ServiceStopping)
             } else {
-                Ok(TreeOutcome::Untracked)
+                Ok(TreeEventOutcome::Untracked)
             }
         });
         async move {
@@ -106,7 +106,7 @@ pub struct EventReceivers {
 /// An event on its way to the tree's committer, with the sender of its reply.
 pub struct Pending {
     pub event: TreeEvent,
-    pub reply: oneshot::Sender<TreeReply>,
+    pub reply: oneshot::Sender<TreeEventReply>,
 }
 
 #[cfg(test)]
@@ -121,7 +121,7 @@ mod tests {
     use crate::cache::tree::Pending;
     use crate::cache::tree::TreeControlBlock;
     use crate::cache::tree::TreeEventKind;
-    use crate::cache::tree::TreeOutcome;
+    use crate::cache::tree::TreeEventOutcome;
     use crate::cache::tree::test_utils::failure;
     use crate::cache::tree::test_utils::root_event;
 
@@ -178,7 +178,7 @@ mod tests {
             .try_recv()
             .expect("the cancel should be on the fast-forward channel")
             .reply
-            .send(Ok(TreeOutcome::Applied(JobState::Cancelled)))
+            .send(Ok(TreeEventOutcome::Applied(JobState::Cancelled)))
             .expect("the cancel's reply future should still hold its receiver");
         drop(
             receivers
@@ -189,7 +189,7 @@ mod tests {
 
         let reply = cancel_reply.await;
         assert!(
-            matches!(reply, Ok(TreeOutcome::Applied(JobState::Cancelled))),
+            matches!(reply, Ok(TreeEventOutcome::Applied(JobState::Cancelled))),
             "an answered event should resolve to its reply, got {reply:?}"
         );
         let reply = start_reply.await;
@@ -209,7 +209,7 @@ mod tests {
 
         let reply = control_block.submit(root_event(TreeEventKind::Start)).await;
         assert!(
-            matches!(reply, Ok(TreeOutcome::Untracked)),
+            matches!(reply, Ok(TreeEventOutcome::Untracked)),
             "a submit to an exited committer should be untracked, got {reply:?}"
         );
     }
@@ -226,11 +226,11 @@ mod tests {
             .try_recv()
             .expect("a submit during a shutdown should still reach a live committer")
             .reply
-            .send(Ok(TreeOutcome::Applied(JobState::Running)))
+            .send(Ok(TreeEventOutcome::Applied(JobState::Running)))
             .expect("the start's reply future should still hold its receiver");
         let reply = start_reply.await;
         assert!(
-            matches!(reply, Ok(TreeOutcome::Applied(JobState::Running))),
+            matches!(reply, Ok(TreeEventOutcome::Applied(JobState::Running))),
             "a submit queued during a shutdown should resolve to the committer's reply, got \
              {reply:?}"
         );

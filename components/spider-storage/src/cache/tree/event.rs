@@ -122,7 +122,7 @@ impl Lane {
 
 /// The outcome of an event.
 #[derive(Debug)]
-pub enum TreeOutcome {
+pub enum TreeEventOutcome {
     /// The event was applied. Carries the job's new state.
     Applied(JobState),
 
@@ -134,7 +134,7 @@ pub enum TreeOutcome {
 }
 
 /// The reply to an event.
-pub type TreeReply = Result<TreeOutcome, CacheError>;
+pub type TreeEventReply = Result<TreeEventOutcome, CacheError>;
 
 #[cfg(test)]
 mod tests {

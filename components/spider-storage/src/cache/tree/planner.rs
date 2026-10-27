@@ -5,8 +5,8 @@ use spider_core::task::TaskIndex;
 use spider_core::types::id::JobId;
 use spider_core::types::io::TaskOutput;
 
+use crate::cache::tree::TreeEventOutcome;
 use crate::cache::tree::TreeNode;
-use crate::cache::tree::TreeOutcome;
 use crate::db::JobStateUpdate;
 use crate::limits::MAX_ERROR_MESSAGE_CHARS;
 
@@ -34,7 +34,7 @@ pub struct Plan {
     pub publications: Vec<Publication>,
 
     /// The outcome of the event.
-    pub outcome: TreeOutcome,
+    pub outcome: TreeEventOutcome,
 }
 
 impl Plan {
@@ -43,7 +43,7 @@ impl Plan {
     /// # Returns
     ///
     /// A plan with no update and no publication whose event has `outcome`.
-    pub(super) const fn new(outcome: TreeOutcome) -> Self {
+    pub(super) const fn new(outcome: TreeEventOutcome) -> Self {
         Self {
             updates: Vec::new(),
             publications: Vec::new(),
@@ -177,7 +177,7 @@ impl Plan {
     /// state that `update` moves its job to.
     fn applying(update: JobStateUpdate) -> Self {
         Self {
-            outcome: TreeOutcome::Applied(update.to),
+            outcome: TreeEventOutcome::Applied(update.to),
             updates: vec![update],
             publications: Vec::new(),
         }

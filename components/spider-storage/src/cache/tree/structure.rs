@@ -9,7 +9,7 @@ use crate::cache::tree::Plan;
 use crate::cache::tree::PlannerInput;
 use crate::cache::tree::TreeEvent;
 use crate::cache::tree::TreeEventKind;
-use crate::cache::tree::TreeOutcome;
+use crate::cache::tree::TreeEventOutcome;
 
 /// The structure of a tree: its non-terminal jobs. It holds no job states.
 #[derive(Debug)]
@@ -36,9 +36,9 @@ impl TreeStructure {
     ///
     /// The plan of `event`:
     ///
-    /// * [`TreeOutcome::Untracked`] with no update if the event's job is not in the tree.
-    /// * [`TreeOutcome::Stale`] with no update if the job's state does not accept the event (see
-    ///   [`TreeEventKind::ensure_accepts`]).
+    /// * [`TreeEventOutcome::Untracked`] with no update if the event's job is not in the tree.
+    /// * [`TreeEventOutcome::Stale`] with no update if the job's state does not accept the event
+    ///   (see [`TreeEventKind::ensure_accepts`]).
     /// * Otherwise, the event's update and publications:
     ///   * [`TreeEventKind::Start`]: the root moves from [`JobState::Ready`] to
     ///     [`JobState::Running`], and its ready tasks are published.
@@ -73,13 +73,13 @@ impl TreeStructure {
     ) -> Plan {
         let job_id = event.job_id;
         let Some(node) = self.nodes.get(&job_id) else {
-            return Plan::new(TreeOutcome::Untracked);
+            return Plan::new(TreeEventOutcome::Untracked);
         };
         let from = *collected
             .get(&job_id)
             .expect("the state of the event's job should be collected");
         if let Err(error) = event.kind.ensure_accepts(from) {
-            return Plan::new(TreeOutcome::Stale(error));
+            return Plan::new(TreeEventOutcome::Stale(error));
         }
         match &event.kind {
             TreeEventKind::Start => Plan::start_root(job_id, input),
@@ -129,8 +129,8 @@ mod tests {
     use crate::cache::tree::Publication;
     use crate::cache::tree::TreeEvent;
     use crate::cache::tree::TreeEventKind;
+    use crate::cache::tree::TreeEventOutcome;
     use crate::cache::tree::TreeNode;
-    use crate::cache::tree::TreeOutcome;
     use crate::cache::tree::TreeStructure;
     use crate::cache::tree::test_utils::ROOT_ID;
     use crate::cache::tree::test_utils::failure;
@@ -172,7 +172,7 @@ mod tests {
             PlannerInput::Empty,
         );
         assert!(
-            matches!(plan.outcome, TreeOutcome::Untracked),
+            matches!(plan.outcome, TreeEventOutcome::Untracked),
             "an event of a job not in the tree gave {:?}",
             plan.outcome
         );
@@ -192,7 +192,7 @@ mod tests {
         assert!(
             matches!(
                 plan.outcome,
-                TreeOutcome::Stale(StaleStateError::JobCancellationAlreadyRequested)
+                TreeEventOutcome::Stale(StaleStateError::JobCancellationAlreadyRequested)
             ),
             "a cancel of a cleanup-ready root gave {:?}",
             plan.outcome
@@ -227,7 +227,7 @@ mod tests {
             }]
         );
         assert!(
-            matches!(plan.outcome, TreeOutcome::Applied(JobState::Running)),
+            matches!(plan.outcome, TreeEventOutcome::Applied(JobState::Running)),
             "a start of a ready root gave {:?}",
             plan.outcome
         );
