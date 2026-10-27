@@ -1,7 +1,11 @@
 //! The job-level events of a job tree and their outcomes.
 
+use std::fmt;
+
 use spider_core::job::JobState;
+use spider_core::task::TaskIndex;
 use spider_core::types::id::JobId;
+use spider_core::types::io::TaskOutput;
 
 use crate::cache::error::CacheError;
 use crate::cache::error::StaleStateError;
@@ -14,13 +18,12 @@ pub struct TreeEvent {
 }
 
 /// The kind of a job-level event.
-#[derive(Debug, PartialEq, Eq)]
 pub enum TreeEventKind {
-    /// The root is started.
-    Start,
+    /// The root is started. Carries the root's ready task indices.
+    Start { ready_task_indices: Vec<TaskIndex> },
 
-    /// The job's last regular task succeeded.
-    RegularTasksDone,
+    /// The job's last regular task succeeded. Carries the job's outputs.
+    RegularTasksDone { outputs: Vec<TaskOutput> },
 
     /// The job's commit task succeeded.
     CommitDone,
@@ -66,11 +69,11 @@ impl TreeEventKind {
     ///   [`JobState::Cancelled`].
     pub const fn ensure_accepts(&self, state: JobState) -> Result<(), StaleStateError> {
         match self {
-            Self::Start => match state {
+            Self::Start { .. } => match state {
                 JobState::Ready => Ok(()),
                 _ => Err(StaleStateError::JobAlreadyStarted),
             },
-            Self::RegularTasksDone => Lane::Regular.ensure_accepts(state),
+            Self::RegularTasksDone { .. } => Lane::Regular.ensure_accepts(state),
             Self::CommitDone => Lane::Commit.ensure_accepts(state),
             Self::CleanupDone => Lane::Cleanup.ensure_accepts(state),
             Self::TerminalFailure { lane, .. } => lane.ensure_accepts(state),
@@ -80,6 +83,28 @@ impl TreeEventKind {
                 state if state.is_terminal() => Err(StaleStateError::JobAlreadyTerminated(state)),
                 _ => Ok(()),
             },
+        }
+    }
+}
+
+impl fmt::Debug for TreeEventKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Start { ready_task_indices } => f
+                .debug_struct("Start")
+                .field("num_ready_tasks", &ready_task_indices.len())
+                .finish(),
+            Self::RegularTasksDone { outputs } => f
+                .debug_struct("RegularTasksDone")
+                .field("num_outputs", &outputs.len())
+                .finish(),
+            Self::CommitDone => f.write_str("CommitDone"),
+            Self::CleanupDone => f.write_str("CleanupDone"),
+            Self::TerminalFailure { lane, .. } => f
+                .debug_struct("TerminalFailure")
+                .field("lane", lane)
+                .finish_non_exhaustive(),
+            Self::CancelRoot => f.write_str("CancelRoot"),
         }
     }
 }
@@ -145,11 +170,12 @@ mod tests {
     use crate::cache::tree::Lane;
     use crate::cache::tree::TreeEventKind;
     use crate::cache::tree::test_utils::failure;
+    use crate::cache::tree::test_utils::start;
 
     #[test]
     fn start_is_accepted_only_by_a_ready_job() {
         for state in JobState::iter() {
-            let result = TreeEventKind::Start.ensure_accepts(state);
+            let result = start().ensure_accepts(state);
             let is_expected = if state == JobState::Ready {
                 matches!(result, Ok(()))
             } else {
@@ -165,7 +191,9 @@ mod tests {
 
         for (kind, lane_state, no_longer_error) in [
             (
-                TreeEventKind::RegularTasksDone,
+                TreeEventKind::RegularTasksDone {
+                    outputs: Vec::new(),
+                },
                 JobState::Running,
                 StaleStateError::JobNoLongerRunning,
             ),
@@ -256,5 +284,13 @@ mod tests {
                 "a cancel in {state} gave {result:?}"
             );
         }
+    }
+
+    #[test]
+    fn debug_shows_the_number_of_outputs_but_not_their_content() {
+        let kind = TreeEventKind::RegularTasksDone {
+            outputs: vec![b"recognizable output".to_vec(); 2],
+        };
+        assert_eq!(format!("{kind:?}"), "RegularTasksDone { num_outputs: 2 }");
     }
 }

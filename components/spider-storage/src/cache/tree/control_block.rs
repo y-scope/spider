@@ -111,6 +111,9 @@ pub struct Pending {
 
 #[cfg(test)]
 mod tests {
+    use std::mem::Discriminant;
+    use std::mem::discriminant;
+
     use spider_core::job::JobState;
     use spider_utils::shutdown::ShutdownHandle;
     use tokio::sync::mpsc;
@@ -124,27 +127,33 @@ mod tests {
     use crate::cache::tree::TreeEventOutcome;
     use crate::cache::tree::test_utils::failure;
     use crate::cache::tree::test_utils::root_event;
+    use crate::cache::tree::test_utils::start;
 
     /// Drains the events that `receiver` holds.
     ///
     /// # Returns
     ///
-    /// The kinds of the drained events, in the order they were sent.
-    fn drain_kinds(receiver: &mut mpsc::UnboundedReceiver<Pending>) -> Vec<TreeEventKind> {
-        let mut kinds = Vec::new();
+    /// The discriminants of the drained events' kinds, in the order they were sent.
+    fn drain_kind_discriminants(
+        receiver: &mut mpsc::UnboundedReceiver<Pending>,
+    ) -> Vec<Discriminant<TreeEventKind>> {
+        let mut kind_discriminants = Vec::new();
         while let Ok(pending) = receiver.try_recv() {
-            kinds.push(pending.event.kind);
+            kind_discriminants.push(discriminant(&pending.event.kind));
         }
-        kinds
+        kind_discriminants
     }
 
     #[test]
     fn submit_routes_cancels_and_failures_to_the_fast_forward_channel() {
         let (control_block, mut receivers) = TreeControlBlock::new(ShutdownHandle::new());
+        let regular_tasks_done = || TreeEventKind::RegularTasksDone {
+            outputs: Vec::new(),
+        };
         for kind in [
-            TreeEventKind::Start,
+            start(),
             TreeEventKind::CancelRoot,
-            TreeEventKind::RegularTasksDone,
+            regular_tasks_done(),
             failure(Lane::Commit, "boom"),
             TreeEventKind::CommitDone,
             TreeEventKind::CleanupDone,
@@ -153,16 +162,19 @@ mod tests {
         }
 
         assert_eq!(
-            drain_kinds(&mut receivers.fast_forward),
-            [TreeEventKind::CancelRoot, failure(Lane::Commit, "boom")]
+            drain_kind_discriminants(&mut receivers.fast_forward),
+            [
+                discriminant(&TreeEventKind::CancelRoot),
+                discriminant(&failure(Lane::Commit, "boom")),
+            ]
         );
         assert_eq!(
-            drain_kinds(&mut receivers.regular),
+            drain_kind_discriminants(&mut receivers.regular),
             [
-                TreeEventKind::Start,
-                TreeEventKind::RegularTasksDone,
-                TreeEventKind::CommitDone,
-                TreeEventKind::CleanupDone,
+                discriminant(&start()),
+                discriminant(&regular_tasks_done()),
+                discriminant(&TreeEventKind::CommitDone),
+                discriminant(&TreeEventKind::CleanupDone),
             ]
         );
     }
@@ -171,7 +183,7 @@ mod tests {
     async fn a_submitted_event_resolves_to_its_reply_or_to_tree_poisoned_if_dropped_unanswered() {
         let (control_block, mut receivers) = TreeControlBlock::new(ShutdownHandle::new());
         let cancel_reply = control_block.submit(root_event(TreeEventKind::CancelRoot));
-        let start_reply = control_block.submit(root_event(TreeEventKind::Start));
+        let start_reply = control_block.submit(root_event(start()));
 
         receivers
             .fast_forward
@@ -207,7 +219,7 @@ mod tests {
         let (control_block, receivers) = TreeControlBlock::new(ShutdownHandle::new());
         drop(receivers);
 
-        let reply = control_block.submit(root_event(TreeEventKind::Start)).await;
+        let reply = control_block.submit(root_event(start())).await;
         assert!(
             matches!(reply, Ok(TreeEventOutcome::Untracked)),
             "a submit to an exited committer should be untracked, got {reply:?}"
@@ -220,7 +232,7 @@ mod tests {
         let (control_block, mut receivers) = TreeControlBlock::new(shutdown_handle.clone());
         shutdown_handle.shut_down_gracefully();
 
-        let start_reply = control_block.submit(root_event(TreeEventKind::Start));
+        let start_reply = control_block.submit(root_event(start()));
         receivers
             .regular
             .try_recv()
@@ -236,7 +248,7 @@ mod tests {
         );
         drop(receivers);
 
-        let reply = control_block.submit(root_event(TreeEventKind::Start)).await;
+        let reply = control_block.submit(root_event(start())).await;
         assert!(
             matches!(reply, Err(CacheError::ServiceStopping)),
             "a submit to an exited committer during a shutdown should be stopping, got {reply:?}"

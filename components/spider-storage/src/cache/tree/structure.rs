@@ -6,7 +6,6 @@ use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 
 use crate::cache::tree::Plan;
-use crate::cache::tree::PlannerInput;
 use crate::cache::tree::TreeEvent;
 use crate::cache::tree::TreeEventKind;
 use crate::cache::tree::TreeEventOutcome;
@@ -58,19 +57,9 @@ impl TreeStructure {
     ///
     /// # Panics
     ///
-    /// Panics if:
-    ///
-    /// * The state of the event's job, which is in the tree, is not in `collected`.
-    /// * An accepted [`TreeEventKind::Start`] does not come with [`PlannerInput::Start`], or an
-    ///   accepted [`TreeEventKind::RegularTasksDone`] does not come with
-    ///   [`PlannerInput::RegularTasksDone`].
+    /// Panics if the state of the event's job, which is in the tree, is not in `collected`.
     #[must_use]
-    pub fn plan_event(
-        &self,
-        collected: &HashMap<JobId, JobState>,
-        event: &TreeEvent,
-        input: PlannerInput,
-    ) -> Plan {
+    pub fn plan_event(&self, collected: &HashMap<JobId, JobState>, event: TreeEvent) -> Plan {
         let job_id = event.job_id;
         let Some(node) = self.nodes.get(&job_id) else {
             return Plan::new(TreeEventOutcome::Untracked);
@@ -81,12 +70,18 @@ impl TreeStructure {
         if let Err(error) = event.kind.ensure_accepts(from) {
             return Plan::new(TreeEventOutcome::Stale(error));
         }
-        match &event.kind {
-            TreeEventKind::Start => Plan::start_root(job_id, input),
-            TreeEventKind::RegularTasksDone => Plan::complete_regular_tasks(job_id, node, input),
+        match event.kind {
+            TreeEventKind::Start { ready_task_indices } => {
+                Plan::start_root(job_id, ready_task_indices)
+            }
+            TreeEventKind::RegularTasksDone { outputs } => {
+                Plan::complete_regular_tasks(job_id, node, outputs)
+            }
             TreeEventKind::CommitDone => Plan::complete_commit(job_id),
             TreeEventKind::CleanupDone => Plan::complete_cleanup(job_id),
-            TreeEventKind::TerminalFailure { message, .. } => Plan::fail_job(job_id, from, message),
+            TreeEventKind::TerminalFailure { message, .. } => {
+                Plan::fail_job(job_id, from, &message)
+            }
             TreeEventKind::CancelRoot => Plan::cancel_root(job_id, from, node),
         }
     }
@@ -125,7 +120,6 @@ mod tests {
     use crate::cache::error::StaleStateError;
     use crate::cache::tree::Lane;
     use crate::cache::tree::Plan;
-    use crate::cache::tree::PlannerInput;
     use crate::cache::tree::Publication;
     use crate::cache::tree::TreeEvent;
     use crate::cache::tree::TreeEventKind;
@@ -148,28 +142,19 @@ mod tests {
     /// # Returns
     ///
     /// The plan.
-    fn plan_root_event(
-        node: TreeNode,
-        state: JobState,
-        kind: TreeEventKind,
-        input: PlannerInput,
-    ) -> Plan {
-        TreeStructure::new_root(ROOT_ID, node).plan_event(
-            &HashMap::from([(ROOT_ID, state)]),
-            &root_event(kind),
-            input,
-        )
+    fn plan_root_event(node: TreeNode, state: JobState, kind: TreeEventKind) -> Plan {
+        TreeStructure::new_root(ROOT_ID, node)
+            .plan_event(&HashMap::from([(ROOT_ID, state)]), root_event(kind))
     }
 
     #[test]
     fn an_event_of_a_job_not_in_the_tree_is_untracked_without_reading_its_state() {
         let plan = TreeStructure::new_root(ROOT_ID, PLAIN_NODE).plan_event(
             &HashMap::new(),
-            &TreeEvent {
+            TreeEvent {
                 job_id: JobId::from(2),
                 kind: TreeEventKind::CommitDone,
             },
-            PlannerInput::Empty,
         );
         assert!(
             matches!(plan.outcome, TreeEventOutcome::Untracked),
@@ -187,7 +172,6 @@ mod tests {
             },
             JobState::CleanupReady,
             TreeEventKind::CancelRoot,
-            PlannerInput::Empty,
         );
         assert!(
             matches!(
@@ -206,8 +190,7 @@ mod tests {
         let plan = plan_root_event(
             PLAIN_NODE,
             JobState::Ready,
-            TreeEventKind::Start,
-            PlannerInput::Start {
+            TreeEventKind::Start {
                 ready_task_indices: vec![0, 2],
             },
         );
@@ -250,8 +233,7 @@ mod tests {
                     ..PLAIN_NODE
                 },
                 JobState::Running,
-                TreeEventKind::RegularTasksDone,
-                PlannerInput::RegularTasksDone {
+                TreeEventKind::RegularTasksDone {
                     outputs: outputs.clone(),
                 },
             );
@@ -275,7 +257,6 @@ mod tests {
             },
             JobState::CommitReady,
             TreeEventKind::CommitDone,
-            PlannerInput::Empty,
         );
         assert_eq!(
             plan.updates,
@@ -297,7 +278,6 @@ mod tests {
             },
             JobState::CleanupReady,
             TreeEventKind::CleanupDone,
-            PlannerInput::Empty,
         );
         assert_eq!(
             plan.updates,
@@ -324,7 +304,6 @@ mod tests {
                 },
                 state,
                 failure(lane, "boom"),
-                PlannerInput::Empty,
             );
             assert_eq!(
                 plan.updates,
@@ -347,7 +326,6 @@ mod tests {
                 PLAIN_NODE,
                 JobState::Running,
                 failure(Lane::Regular, &"é".repeat(message_chars)),
-                PlannerInput::Empty,
             );
             let stored_message = plan
                 .updates
@@ -377,7 +355,6 @@ mod tests {
                     },
                     state,
                     TreeEventKind::CancelRoot,
-                    PlannerInput::Empty,
                 );
                 assert_eq!(
                     plan.updates,

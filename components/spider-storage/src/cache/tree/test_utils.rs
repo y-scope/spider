@@ -15,6 +15,12 @@ pub(super) const fn root_event(kind: TreeEventKind) -> TreeEvent {
     }
 }
 
+pub(super) const fn start() -> TreeEventKind {
+    TreeEventKind::Start {
+        ready_task_indices: Vec::new(),
+    }
+}
+
 pub(super) fn failure(lane: Lane, message: &str) -> TreeEventKind {
     TreeEventKind::TerminalFailure {
         lane,

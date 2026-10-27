@@ -1,4 +1,4 @@
-//! The input and the plan of planning a job-tree event.
+//! The plan of a job-tree event.
 
 use spider_core::job::JobState;
 use spider_core::task::TaskIndex;
@@ -9,20 +9,6 @@ use crate::cache::tree::TreeEventOutcome;
 use crate::cache::tree::TreeNode;
 use crate::db::JobStateUpdate;
 use crate::limits::MAX_ERROR_MESSAGE_CHARS;
-
-/// The input, besides the job states, that the committer collects to plan an event.
-#[derive(Debug)]
-pub enum PlannerInput {
-    /// The ready task indices of a [`JobState::Ready`] root.
-    Start { ready_task_indices: Vec<TaskIndex> },
-
-    /// The outputs of a [`JobState::Running`] job whose regular tasks are done.
-    RegularTasksDone { outputs: Vec<TaskOutput> },
-
-    /// Nothing, because the event needs nothing or its job is no longer in the state that the
-    /// event expects.
-    Empty,
-}
 
 /// The plan of one event.
 #[derive(Debug)]
@@ -56,15 +42,8 @@ impl Plan {
     /// # Returns
     ///
     /// The plan of starting the root `root_id`: [`JobState::Ready`] to [`JobState::Running`],
-    /// with the ready tasks of `input` published.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `input` is not [`PlannerInput::Start`].
-    pub(super) fn start_root(root_id: JobId, input: PlannerInput) -> Self {
-        let PlannerInput::Start { ready_task_indices } = input else {
-            panic!("a ready root's start should carry its ready task indices");
-        };
+    /// with the tasks of `ready_task_indices` published.
+    pub(super) fn start_root(root_id: JobId, ready_task_indices: Vec<TaskIndex>) -> Self {
         Self {
             publications: vec![Publication::Ready {
                 job_id: root_id,
@@ -82,21 +61,14 @@ impl Plan {
     ///
     /// # Returns
     ///
-    /// The plan of the regular tasks of `job_id` being done: the job stores the outputs of `input`
-    /// and moves from [`JobState::Running`] to [`JobState::CommitReady`], with its commit task
-    /// published, if `node` has a commit task, otherwise to [`JobState::Succeeded`].
-    ///
-    /// # Panics
-    ///
-    /// Panics if `input` is not [`PlannerInput::RegularTasksDone`].
+    /// The plan of the regular tasks of `job_id` being done: the job stores `outputs` and moves
+    /// from [`JobState::Running`] to [`JobState::CommitReady`], with its commit task published, if
+    /// `node` has a commit task, otherwise to [`JobState::Succeeded`].
     pub(super) fn complete_regular_tasks(
         job_id: JobId,
         node: &TreeNode,
-        input: PlannerInput,
+        outputs: Vec<TaskOutput>,
     ) -> Self {
-        let PlannerInput::RegularTasksDone { outputs } = input else {
-            panic!("a running job's regular-tasks-done event should carry its outputs");
-        };
         let to = if node.has_commit {
             JobState::CommitReady
         } else {
