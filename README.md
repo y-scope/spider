@@ -1,5 +1,10 @@
 # Spider
 
+[![Open bug reports](https://img.shields.io/github/issues/y-scope/spider/bug?label=bugs)](https://github.com/y-scope/spider/issues?q=is%3Aissue+is%3Aopen+label%3Abug)
+[![Open feature requests](https://img.shields.io/github/issues/y-scope/spider/enhancement?label=feature-requests)](https://github.com/y-scope/spider/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement)
+[![Discord][badge-discord]][yscope-community-discord]
+[![Slack][badge-slack]][yscope-community-slack]
+
 Spider is a distributed system for executing user-defined tasks, built for low latency, high
 throughput, and robust fault tolerance.
 
@@ -38,3 +43,21 @@ pub fn add(_ctx: TaskContext, a: ComplexVec, b: ComplexVec) -> Result<ComplexVec
 
 > [!WARNING]
 > 🚧 The docs are still under construction.
+
+## Providing Feedback
+
+You can use GitHub issues to [report a bug][bug-report] or [request a feature][feature-req].
+
+## Community
+
+Need help? Join us on one of our community servers:
+
+* [![Discord][badge-discord]][yscope-community-discord]
+* [![Slack][badge-slack]][yscope-community-slack]
+
+[badge-discord]: https://img.shields.io/discord/1377353873068392580?style=flat&logo=discord&logoColor=white&label=Discord&labelColor=5561f5
+[badge-slack]: https://img.shields.io/badge/Slack-yscope--community-1e724f?style=flat&logo=slack&logoColor=white&labelColor=4A154B
+[bug-report]: https://github.com/y-scope/spider/issues/new?assignees=&labels=bug&template=bug-report.yaml
+[feature-req]: https://github.com/y-scope/spider/issues/new?assignees=&labels=enhancement&template=feature-request.yaml
+[yscope-community-discord]: https://discord.gg/7kZA2m5G87
+[yscope-community-slack]: https://inviter.co/clp-community
