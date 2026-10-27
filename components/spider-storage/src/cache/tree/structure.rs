@@ -9,7 +9,7 @@ use crate::cache::tree::Plan;
 use crate::cache::tree::TreeEvent;
 use crate::cache::tree::TreeEventKind;
 
-/// The structure of a tree: its non-terminal jobs. It holds no job states.
+/// The structure of a tree: its non-terminal jobs and their states.
 #[derive(Debug)]
 pub struct TreeStructure {
     nodes: HashMap<JobId, TreeNode>,
@@ -28,7 +28,7 @@ impl TreeStructure {
         }
     }
 
-    /// Plans one event against the tree's structure and the collected states of its jobs.
+    /// Plans one event against the tree's structure and the states of its jobs.
     ///
     /// # Returns
     ///
@@ -53,19 +53,13 @@ impl TreeStructure {
     ///   * [`TreeEventKind::CancelRoot`]: the root moves to [`JobState::Cancelled`] if it is
     ///     [`JobState::Ready`] or has no cleanup task, otherwise to [`JobState::CleanupReady`],
     ///     with its cleanup task published.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the state of the event's job, which is in the tree, is not in `collected`.
     #[must_use]
-    pub fn plan_event(&self, collected: &HashMap<JobId, JobState>, event: TreeEvent) -> Plan {
+    pub fn plan_event(&self, event: TreeEvent) -> Plan {
         let job_id = event.job_id;
         let Some(node) = self.nodes.get(&job_id) else {
             return Plan::Untracked;
         };
-        let from = *collected
-            .get(&job_id)
-            .expect("the state of the event's job should be collected");
+        let from = node.state;
         if let Err(error) = event.kind.ensure_accepts(from) {
             return Plan::Stale(error);
         }
@@ -89,6 +83,7 @@ impl TreeStructure {
 /// A non-terminal job of a tree, as the planner sees it.
 #[derive(Debug)]
 pub struct TreeNode {
+    pub state: JobState,
     pub has_commit: bool,
     pub has_cleanup: bool,
 }
@@ -111,8 +106,6 @@ impl TreeNode {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use spider_core::job::JobState;
     use spider_core::types::id::JobId;
 
@@ -131,18 +124,18 @@ mod tests {
     use crate::limits::MAX_ERROR_MESSAGE_CHARS;
 
     const PLAIN_NODE: TreeNode = TreeNode {
+        state: JobState::Ready,
         has_commit: false,
         has_cleanup: false,
     };
 
-    /// Plans an event of the root of a tree that holds only `node` as its root, in `state`.
+    /// Plans an event of the root of a tree that holds only `node` as its root.
     ///
     /// # Returns
     ///
     /// The plan.
-    fn plan_root_event(node: TreeNode, state: JobState, kind: TreeEventKind) -> Plan {
-        TreeStructure::new_root(ROOT_ID, node)
-            .plan_event(&HashMap::from([(ROOT_ID, state)]), root_event(kind))
+    fn plan_root_event(node: TreeNode, kind: TreeEventKind) -> Plan {
+        TreeStructure::new_root(ROOT_ID, node).plan_event(root_event(kind))
     }
 
     /// # Returns
@@ -164,14 +157,11 @@ mod tests {
     }
 
     #[test]
-    fn an_event_of_a_job_not_in_the_tree_is_untracked_without_reading_its_state() {
-        let plan = TreeStructure::new_root(ROOT_ID, PLAIN_NODE).plan_event(
-            &HashMap::new(),
-            TreeEvent {
-                job_id: JobId::from(2),
-                kind: TreeEventKind::CommitDone,
-            },
-        );
+    fn an_event_of_a_job_not_in_the_tree_is_untracked() {
+        let plan = TreeStructure::new_root(ROOT_ID, PLAIN_NODE).plan_event(TreeEvent {
+            job_id: JobId::from(2),
+            kind: TreeEventKind::CommitDone,
+        });
         assert!(
             matches!(plan, Plan::Untracked),
             "an event of a job not in the tree gave {plan:?}"
@@ -182,10 +172,10 @@ mod tests {
     fn an_event_that_its_jobs_state_does_not_accept_plans_nothing() {
         let plan = plan_root_event(
             TreeNode {
+                state: JobState::CleanupReady,
                 has_cleanup: true,
                 ..PLAIN_NODE
             },
-            JobState::CleanupReady,
             TreeEventKind::CancelRoot,
         );
         assert!(
@@ -201,7 +191,6 @@ mod tests {
     fn start_moves_a_ready_root_to_running_and_publishes_its_ready_tasks() {
         let (updates, publications, new_state) = unwrap_apply(plan_root_event(
             PLAIN_NODE,
-            JobState::Ready,
             TreeEventKind::Start {
                 ready_task_indices: vec![0, 2],
             },
@@ -237,10 +226,10 @@ mod tests {
         ] {
             let (updates, publications, _) = unwrap_apply(plan_root_event(
                 TreeNode {
+                    state: JobState::Running,
                     has_commit,
                     ..PLAIN_NODE
                 },
-                JobState::Running,
                 TreeEventKind::RegularTasksDone {
                     outputs: outputs.clone(),
                 },
@@ -260,10 +249,10 @@ mod tests {
     fn commit_done_succeeds_a_commit_ready_job_without_storing_outputs() {
         let (updates, publications, _) = unwrap_apply(plan_root_event(
             TreeNode {
+                state: JobState::CommitReady,
                 has_commit: true,
                 ..PLAIN_NODE
             },
-            JobState::CommitReady,
             TreeEventKind::CommitDone,
         ));
         assert_eq!(
@@ -281,10 +270,10 @@ mod tests {
     fn cleanup_done_cancels_a_cleanup_ready_job() {
         let (updates, publications, _) = unwrap_apply(plan_root_event(
             TreeNode {
+                state: JobState::CleanupReady,
                 has_cleanup: true,
                 ..PLAIN_NODE
             },
-            JobState::CleanupReady,
             TreeEventKind::CleanupDone,
         ));
         assert_eq!(
@@ -307,10 +296,10 @@ mod tests {
         ] {
             let (updates, publications, _) = unwrap_apply(plan_root_event(
                 TreeNode {
+                    state,
                     has_commit: true,
                     has_cleanup: true,
                 },
-                state,
                 failure(lane, "boom"),
             ));
             assert_eq!(
@@ -331,8 +320,10 @@ mod tests {
             (MAX_ERROR_MESSAGE_CHARS, MAX_ERROR_MESSAGE_CHARS),
         ] {
             let (updates, ..) = unwrap_apply(plan_root_event(
-                PLAIN_NODE,
-                JobState::Running,
+                TreeNode {
+                    state: JobState::Running,
+                    ..PLAIN_NODE
+                },
                 failure(Lane::Regular, &"é".repeat(message_chars)),
             ));
             let stored_message = updates
@@ -357,10 +348,10 @@ mod tests {
                 };
                 let (updates, publications, _) = unwrap_apply(plan_root_event(
                     TreeNode {
+                        state,
                         has_cleanup,
                         ..PLAIN_NODE
                     },
-                    state,
                     TreeEventKind::CancelRoot,
                 ));
                 assert_eq!(

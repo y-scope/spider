@@ -2,9 +2,9 @@
 //!
 //! A job tree is a root job and its descendants. Every job of a tree submits its job-level events
 //! through the tree's control block to the tree's committer, the single owner of the tree's event
-//! receivers and structure. The committer plans each event against the tree's structure and its
-//! jobs' collected states. Cancels and terminal failures travel on the fast-forward channel, which
-//! the committer reads first; every other event travels on the regular channel.
+//! receivers and structure. The committer plans each event against the tree's structure. Cancels
+//! and terminal failures travel on the fast-forward channel, which the committer reads first; every
+//! other event travels on the regular channel.
 
 mod control_block;
 mod event;
