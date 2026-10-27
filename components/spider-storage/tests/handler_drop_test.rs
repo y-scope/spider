@@ -16,6 +16,9 @@ use spider_storage::test_hooks::HookPoint;
 use crate::runtime_infra::TestEnv;
 use crate::runtime_infra::build_chain_task_graph;
 
+/// How long a test waits for a request to reach a paused hook.
+const HOOK_TIMEOUT: Duration = Duration::from_secs(10);
+
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 async fn dropped_report_after_the_tcb_flip_still_finishes_the_job() -> anyhow::Result<()> {
@@ -41,7 +44,10 @@ async fn dropped_report_after_the_tcb_flip_still_finishes_the_job() -> anyhow::R
             )
             .await
     });
-    env.wait_for_hook(&pause, 1).await;
+    pause.reached(1, HOOK_TIMEOUT).await.expect(
+        "the hook should be reached within the timeout; the request may have failed before \
+         reaching the hook point",
+    );
     report.abort();
     assert!(report.await.is_err_and(|e| e.is_cancelled()));
     pause.release();
@@ -78,7 +84,10 @@ async fn dropped_report_at_the_successor_lock_publishes_the_successor_once() -> 
             )
             .await
     });
-    env.wait_for_hook(&pause, 1).await;
+    pause.reached(1, HOOK_TIMEOUT).await.expect(
+        "the hook should be reached within the timeout; the request may have failed before \
+         reaching the hook point",
+    );
     report.abort();
     assert!(report.await.is_err_and(|e| e.is_cancelled()));
     pause.release();
@@ -154,7 +163,10 @@ async fn dropped_instance_creation_still_hands_the_instance_to_the_pool() -> any
             )
             .await
     });
-    env.wait_for_hook(&pause, 1).await;
+    pause.reached(1, HOOK_TIMEOUT).await.expect(
+        "the hook should be reached within the timeout; the request may have failed before \
+         reaching the hook point",
+    );
     let instance_id = pause
         .last_context()
         .and_then(|context| context.task_instance_id)

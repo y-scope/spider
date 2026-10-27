@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use spider_core::types::id::JobId;
 use spider_utils::shutdown::ShutdownHandle;
@@ -182,17 +183,31 @@ pub struct ArmedHook {
 }
 
 impl ArmedHook {
-    /// Waits until the hook has fired `num_hits` times.
-    pub async fn reached(&self, num_hits: usize) {
-        loop {
-            let notified = self.state.notify.notified();
-            tokio::pin!(notified);
-            notified.as_mut().enable();
-            if self.hits() >= num_hits {
-                return;
+    /// Waits until the hook has fired `num_hits` times, for at most `timeout`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`tokio::time::timeout`]'s return values on failure, if the hook has not fired
+    ///   `num_hits` times within `timeout`.
+    pub async fn reached(
+        &self,
+        num_hits: usize,
+        timeout: Duration,
+    ) -> Result<(), tokio::time::error::Elapsed> {
+        tokio::time::timeout(timeout, async {
+            loop {
+                let notified = self.state.notify.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if self.hits() >= num_hits {
+                    return;
+                }
+                notified.await;
             }
-            notified.await;
-        }
+        })
+        .await
     }
 
     /// Lets one paused hit continue. A release before the hit is not lost.
