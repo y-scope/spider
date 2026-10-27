@@ -14,6 +14,7 @@ use spider_core::task::ValueTypeDescriptor;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::TaskId;
 use spider_core::types::io::TaskGraphInput;
 use spider_core::types::io::TaskGraphInputBuilder;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
@@ -168,6 +169,69 @@ impl TestEnv {
             .expect("job registration should succeed")
     }
 
+    /// Registers a chain job of `num_tasks` tasks and starts it.
+    ///
+    /// # Returns
+    ///
+    /// The job ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the registration or the start fails, or if the first task is not published.
+    pub async fn start_chain_job(&self, num_tasks: usize, max_num_instances: u32) -> JobId {
+        let (graph, inputs) = build_chain_task_graph(
+            num_tasks,
+            ExecutionPolicy {
+                max_num_instances,
+                ..ExecutionPolicy::default()
+            },
+        );
+        self.start_job(&graph, &inputs).await
+    }
+
+    /// Registers a job and starts it.
+    ///
+    /// # Returns
+    ///
+    /// The job ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the registration or the start fails, or if exactly task 0 is not published.
+    pub async fn start_job(
+        &self,
+        task_graph: &SubmittedTaskGraph,
+        task_graph_input: &TaskGraphInput,
+    ) -> JobId {
+        let job_id = self.register_job(task_graph, task_graph_input).await;
+        self.service
+            .start_job(job_id)
+            .await
+            .expect("the job should start");
+        assert_eq!(self.poll_ready_tasks(job_id, 1).await, vec![0]);
+        job_id
+    }
+
+    /// # Returns
+    ///
+    /// The ID of the created instance.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the instance creation fails.
+    pub async fn create_instance(&self, job_id: JobId, task_id: TaskId) -> u64 {
+        self.service
+            .create_task_instance(
+                self.service.session_id(),
+                job_id,
+                task_id,
+                self.execution_manager_id,
+            )
+            .await
+            .expect("the instance creation should succeed")
+            .task_instance_id
+    }
+
     /// Polls the task lane until it has returned `num_entries` ready tasks of `job_id`, ignoring
     /// other jobs' entries.
     ///
@@ -200,6 +264,28 @@ impl TestEnv {
         task_indices
     }
 
+    /// Waits until the job's cached state is `expected`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the job state is unreadable, or if it does not become `expected` within 10
+    /// seconds.
+    pub async fn wait_for_job_state(&self, job_id: JobId, expected: JobState) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while self
+                .service
+                .get_job_state(job_id)
+                .await
+                .expect("the job state should be readable")
+                != expected
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the job should reach the expected state");
+    }
+
     /// # Returns
     ///
     /// The state of `job_id`'s row in the database.
@@ -213,6 +299,20 @@ impl TestEnv {
             .fetch_one(&self.pool)
             .await
             .expect("the row state query should succeed")
+    }
+
+    /// Asserts that the job's cached and persisted states are both `expected`, and that the service
+    /// has not shut down fatally.
+    pub async fn assert_job_state(&self, job_id: JobId, expected: JobState) {
+        assert_eq!(
+            self.service
+                .get_job_state(job_id)
+                .await
+                .expect("the job state should be readable"),
+            expected
+        );
+        assert_eq!(self.row_state(job_id).await, expected);
+        assert!(!self.is_fatal());
     }
 }
 
