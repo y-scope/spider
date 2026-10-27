@@ -8,7 +8,6 @@ use spider_core::types::id::JobId;
 use crate::cache::tree::Plan;
 use crate::cache::tree::TreeEvent;
 use crate::cache::tree::TreeEventKind;
-use crate::cache::tree::TreeEventOutcome;
 
 /// The structure of a tree: its non-terminal jobs. It holds no job states.
 #[derive(Debug)]
@@ -35,10 +34,10 @@ impl TreeStructure {
     ///
     /// The plan of `event`:
     ///
-    /// * [`TreeEventOutcome::Untracked`] with no update if the event's job is not in the tree.
-    /// * [`TreeEventOutcome::Stale`] with no update if the job's state does not accept the event
-    ///   (see [`TreeEventKind::ensure_accepts`]).
-    /// * Otherwise, the event's update and publications:
+    /// * [`Plan::Untracked`] if the event's job is not in the tree.
+    /// * [`Plan::Stale`] if the job's state does not accept the event (see
+    ///   [`TreeEventKind::ensure_accepts`]).
+    /// * Otherwise, a [`Plan::Apply`] with the event's update and publications:
     ///   * [`TreeEventKind::Start`]: the root moves from [`JobState::Ready`] to
     ///     [`JobState::Running`], and its ready tasks are published.
     ///   * [`TreeEventKind::RegularTasksDone`]: the job stores its outputs and moves from
@@ -62,13 +61,13 @@ impl TreeStructure {
     pub fn plan_event(&self, collected: &HashMap<JobId, JobState>, event: TreeEvent) -> Plan {
         let job_id = event.job_id;
         let Some(node) = self.nodes.get(&job_id) else {
-            return Plan::new(TreeEventOutcome::Untracked);
+            return Plan::Untracked;
         };
         let from = *collected
             .get(&job_id)
             .expect("the state of the event's job should be collected");
         if let Err(error) = event.kind.ensure_accepts(from) {
-            return Plan::new(TreeEventOutcome::Stale(error));
+            return Plan::Stale(error);
         }
         match event.kind {
             TreeEventKind::Start { ready_task_indices } => {
@@ -123,7 +122,6 @@ mod tests {
     use crate::cache::tree::Publication;
     use crate::cache::tree::TreeEvent;
     use crate::cache::tree::TreeEventKind;
-    use crate::cache::tree::TreeEventOutcome;
     use crate::cache::tree::TreeNode;
     use crate::cache::tree::TreeStructure;
     use crate::cache::tree::test_utils::ROOT_ID;
@@ -147,6 +145,24 @@ mod tests {
             .plan_event(&HashMap::from([(ROOT_ID, state)]), root_event(kind))
     }
 
+    /// # Returns
+    ///
+    /// The updates, the publications and the new state of `plan`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `plan` is not [`Plan::Apply`].
+    fn unwrap_apply(plan: Plan) -> (Vec<JobStateUpdate>, Vec<Publication>, JobState) {
+        match plan {
+            Plan::Apply {
+                updates,
+                publications,
+                new_state,
+            } => (updates, publications, new_state),
+            plan => panic!("the plan should apply its event, got {plan:?}"),
+        }
+    }
+
     #[test]
     fn an_event_of_a_job_not_in_the_tree_is_untracked_without_reading_its_state() {
         let plan = TreeStructure::new_root(ROOT_ID, PLAIN_NODE).plan_event(
@@ -157,9 +173,8 @@ mod tests {
             },
         );
         assert!(
-            matches!(plan.outcome, TreeEventOutcome::Untracked),
-            "an event of a job not in the tree gave {:?}",
-            plan.outcome
+            matches!(plan, Plan::Untracked),
+            "an event of a job not in the tree gave {plan:?}"
         );
     }
 
@@ -175,27 +190,24 @@ mod tests {
         );
         assert!(
             matches!(
-                plan.outcome,
-                TreeEventOutcome::Stale(StaleStateError::JobCancellationAlreadyRequested)
+                plan,
+                Plan::Stale(StaleStateError::JobCancellationAlreadyRequested)
             ),
-            "a cancel of a cleanup-ready root gave {:?}",
-            plan.outcome
+            "a cancel of a cleanup-ready root gave {plan:?}"
         );
-        assert_eq!(plan.updates, []);
-        assert_eq!(plan.publications, []);
     }
 
     #[test]
     fn start_moves_a_ready_root_to_running_and_publishes_its_ready_tasks() {
-        let plan = plan_root_event(
+        let (updates, publications, new_state) = unwrap_apply(plan_root_event(
             PLAIN_NODE,
             JobState::Ready,
             TreeEventKind::Start {
                 ready_task_indices: vec![0, 2],
             },
-        );
+        ));
         assert_eq!(
-            plan.updates,
+            updates,
             [JobStateUpdate::new(
                 ROOT_ID,
                 JobState::Ready,
@@ -203,23 +215,19 @@ mod tests {
             )]
         );
         assert_eq!(
-            plan.publications,
+            publications,
             [Publication::Ready {
                 job_id: ROOT_ID,
                 task_indices: vec![0, 2],
             }]
         );
-        assert!(
-            matches!(plan.outcome, TreeEventOutcome::Applied(JobState::Running)),
-            "a start of a ready root gave {:?}",
-            plan.outcome
-        );
+        assert_eq!(new_state, JobState::Running);
     }
 
     #[test]
     fn regular_tasks_done_stores_the_outputs_and_commits_only_a_job_with_a_commit_task() {
         let outputs = vec![vec![1u8, 2, 3]];
-        for (has_commit, to, publications) in [
+        for (has_commit, to, expected_publications) in [
             (
                 true,
                 JobState::CommitReady,
@@ -227,7 +235,7 @@ mod tests {
             ),
             (false, JobState::Succeeded, Vec::new()),
         ] {
-            let plan = plan_root_event(
+            let (updates, publications, _) = unwrap_apply(plan_root_event(
                 TreeNode {
                     has_commit,
                     ..PLAIN_NODE
@@ -236,58 +244,58 @@ mod tests {
                 TreeEventKind::RegularTasksDone {
                     outputs: outputs.clone(),
                 },
-            );
+            ));
             assert_eq!(
-                plan.updates,
+                updates,
                 [JobStateUpdate {
                     outputs: Some(outputs.clone()),
                     ..JobStateUpdate::new(ROOT_ID, JobState::Running, to)
                 }]
             );
-            assert_eq!(plan.publications, publications);
+            assert_eq!(publications, expected_publications);
         }
     }
 
     #[test]
     fn commit_done_succeeds_a_commit_ready_job_without_storing_outputs() {
-        let plan = plan_root_event(
+        let (updates, publications, _) = unwrap_apply(plan_root_event(
             TreeNode {
                 has_commit: true,
                 ..PLAIN_NODE
             },
             JobState::CommitReady,
             TreeEventKind::CommitDone,
-        );
+        ));
         assert_eq!(
-            plan.updates,
+            updates,
             [JobStateUpdate::new(
                 ROOT_ID,
                 JobState::CommitReady,
                 JobState::Succeeded
             )]
         );
-        assert_eq!(plan.publications, []);
+        assert_eq!(publications, []);
     }
 
     #[test]
     fn cleanup_done_cancels_a_cleanup_ready_job() {
-        let plan = plan_root_event(
+        let (updates, publications, _) = unwrap_apply(plan_root_event(
             TreeNode {
                 has_cleanup: true,
                 ..PLAIN_NODE
             },
             JobState::CleanupReady,
             TreeEventKind::CleanupDone,
-        );
+        ));
         assert_eq!(
-            plan.updates,
+            updates,
             [JobStateUpdate::new(
                 ROOT_ID,
                 JobState::CleanupReady,
                 JobState::Cancelled
             )]
         );
-        assert_eq!(plan.publications, []);
+        assert_eq!(publications, []);
     }
 
     #[test]
@@ -297,22 +305,22 @@ mod tests {
             (Lane::Commit, JobState::CommitReady),
             (Lane::Cleanup, JobState::CleanupReady),
         ] {
-            let plan = plan_root_event(
+            let (updates, publications, _) = unwrap_apply(plan_root_event(
                 TreeNode {
                     has_commit: true,
                     has_cleanup: true,
                 },
                 state,
                 failure(lane, "boom"),
-            );
+            ));
             assert_eq!(
-                plan.updates,
+                updates,
                 [JobStateUpdate {
                     error_message: Some("boom".to_owned()),
                     ..JobStateUpdate::new(ROOT_ID, state, JobState::Failed)
                 }]
             );
-            assert_eq!(plan.publications, []);
+            assert_eq!(publications, []);
         }
     }
 
@@ -322,13 +330,12 @@ mod tests {
             (MAX_ERROR_MESSAGE_CHARS + 1, MAX_ERROR_MESSAGE_CHARS),
             (MAX_ERROR_MESSAGE_CHARS, MAX_ERROR_MESSAGE_CHARS),
         ] {
-            let plan = plan_root_event(
+            let (updates, ..) = unwrap_apply(plan_root_event(
                 PLAIN_NODE,
                 JobState::Running,
                 failure(Lane::Regular, &"é".repeat(message_chars)),
-            );
-            let stored_message = plan
-                .updates
+            ));
+            let stored_message = updates
                 .first()
                 .and_then(|update| update.error_message.as_deref());
             assert_eq!(
@@ -343,26 +350,26 @@ mod tests {
     fn cancel_moves_the_root_to_its_abort_target_and_publishes_a_cleanup() {
         for has_cleanup in [false, true] {
             for state in [JobState::Ready, JobState::Running, JobState::CommitReady] {
-                let (to, publications) = if has_cleanup && state != JobState::Ready {
+                let (to, expected_publications) = if has_cleanup && state != JobState::Ready {
                     (JobState::CleanupReady, vec![Publication::Cleanup(ROOT_ID)])
                 } else {
                     (JobState::Cancelled, Vec::new())
                 };
-                let plan = plan_root_event(
+                let (updates, publications, _) = unwrap_apply(plan_root_event(
                     TreeNode {
                         has_cleanup,
                         ..PLAIN_NODE
                     },
                     state,
                     TreeEventKind::CancelRoot,
-                );
+                ));
                 assert_eq!(
-                    plan.updates,
+                    updates,
                     [JobStateUpdate::new(ROOT_ID, state, to)],
                     "a cancel in {state} with has_cleanup {has_cleanup}"
                 );
                 assert_eq!(
-                    plan.publications, publications,
+                    publications, expected_publications,
                     "a cancel in {state} with has_cleanup {has_cleanup}"
                 );
             }

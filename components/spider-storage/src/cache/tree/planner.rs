@@ -5,22 +5,31 @@ use spider_core::task::TaskIndex;
 use spider_core::types::id::JobId;
 use spider_core::types::io::TaskOutput;
 
-use crate::cache::tree::TreeEventOutcome;
+use crate::cache::error::StaleStateError;
 use crate::cache::tree::TreeNode;
 use crate::db::JobStateUpdate;
 use crate::limits::MAX_ERROR_MESSAGE_CHARS;
 
 /// The plan of one event.
 #[derive(Debug)]
-pub struct Plan {
-    /// The guarded row updates to write, at most one per job.
-    pub updates: Vec<JobStateUpdate>,
+pub enum Plan {
+    /// The event is applied: write `updates`, then publish `publications`.
+    Apply {
+        /// The guarded row updates to write, at most one per job.
+        updates: Vec<JobStateUpdate>,
 
-    /// The ready work to publish after the updates are applied.
-    pub publications: Vec<Publication>,
+        /// The ready work to publish after the updates are applied.
+        publications: Vec<Publication>,
 
-    /// The outcome of the event.
-    pub outcome: TreeEventOutcome,
+        /// The new state of the event's job.
+        new_state: JobState,
+    },
+
+    /// The job's state does not accept the event; nothing is written.
+    Stale(StaleStateError),
+
+    /// The event's job is not in the tree; nothing is written.
+    Untracked,
 }
 
 impl Plan {
@@ -28,33 +37,16 @@ impl Plan {
     ///
     /// # Returns
     ///
-    /// A plan with no update and no publication whose event has `outcome`.
-    pub(super) const fn new(outcome: TreeEventOutcome) -> Self {
-        Self {
-            updates: Vec::new(),
-            publications: Vec::new(),
-            outcome,
-        }
-    }
-
-    /// Factory function.
-    ///
-    /// # Returns
-    ///
     /// The plan of starting the root `root_id`: [`JobState::Ready`] to [`JobState::Running`],
     /// with the tasks of `ready_task_indices` published.
     pub(super) fn start_root(root_id: JobId, ready_task_indices: Vec<TaskIndex>) -> Self {
-        Self {
-            publications: vec![Publication::Ready {
+        Self::applying_and_publishing(
+            JobStateUpdate::new(root_id, JobState::Ready, JobState::Running),
+            vec![Publication::Ready {
                 job_id: root_id,
                 task_indices: ready_task_indices,
             }],
-            ..Self::applying(JobStateUpdate::new(
-                root_id,
-                JobState::Ready,
-                JobState::Running,
-            ))
-        }
+        )
     }
 
     /// Factory function.
@@ -74,14 +66,18 @@ impl Plan {
         } else {
             JobState::Succeeded
         };
-        let mut plan = Self::applying(JobStateUpdate {
-            outputs: Some(outputs),
-            ..JobStateUpdate::new(job_id, JobState::Running, to)
-        });
-        if to == JobState::CommitReady {
-            plan.publications.push(Publication::Commit(job_id));
-        }
-        plan
+        let publications = if to == JobState::CommitReady {
+            vec![Publication::Commit(job_id)]
+        } else {
+            Vec::new()
+        };
+        Self::applying_and_publishing(
+            JobStateUpdate {
+                outputs: Some(outputs),
+                ..JobStateUpdate::new(job_id, JobState::Running, to)
+            },
+            publications,
+        )
     }
 
     /// Factory function.
@@ -134,24 +130,35 @@ impl Plan {
     /// [`JobState::CleanupReady`].
     pub(super) fn cancel_root(root_id: JobId, from: JobState, node: &TreeNode) -> Self {
         let to = node.abort_target(from);
-        let mut plan = Self::applying(JobStateUpdate::new(root_id, from, to));
-        if to == JobState::CleanupReady {
-            plan.publications.push(Publication::Cleanup(root_id));
-        }
-        plan
+        let publications = if to == JobState::CleanupReady {
+            vec![Publication::Cleanup(root_id)]
+        } else {
+            Vec::new()
+        };
+        Self::applying_and_publishing(JobStateUpdate::new(root_id, from, to), publications)
     }
 
     /// Factory function.
     ///
     /// # Returns
     ///
-    /// A plan that writes `update` alone, publishes nothing, and whose event is applied with the
-    /// state that `update` moves its job to.
+    /// A [`Plan::Apply`] that writes `update` alone, publishes nothing, and whose event's job
+    /// moves to the state that `update` moves it to.
     fn applying(update: JobStateUpdate) -> Self {
-        Self {
-            outcome: TreeEventOutcome::Applied(update.to),
+        Self::applying_and_publishing(update, Vec::new())
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A [`Plan::Apply`] that writes `update` alone, then publishes `publications`, and whose
+    /// event's job moves to the state that `update` moves it to.
+    fn applying_and_publishing(update: JobStateUpdate, publications: Vec<Publication>) -> Self {
+        Self::Apply {
+            new_state: update.to,
             updates: vec![update],
-            publications: Vec::new(),
+            publications,
         }
     }
 }
