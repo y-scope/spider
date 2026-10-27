@@ -41,7 +41,7 @@ async fn dropped_report_after_the_tcb_flip_still_finishes_the_job() -> anyhow::R
             )
             .await
     });
-    pause.reached(1).await;
+    env.wait_for_hook(&pause, 1).await;
     report.abort();
     assert!(report.await.is_err_and(|e| e.is_cancelled()));
     pause.release();
@@ -78,7 +78,7 @@ async fn dropped_report_at_the_successor_lock_publishes_the_successor_once() -> 
             )
             .await
     });
-    pause.reached(1).await;
+    env.wait_for_hook(&pause, 1).await;
     report.abort();
     assert!(report.await.is_err_and(|e| e.is_cancelled()));
     pause.release();
@@ -154,7 +154,7 @@ async fn dropped_instance_creation_still_hands_the_instance_to_the_pool() -> any
             )
             .await
     });
-    pause.reached(1).await;
+    env.wait_for_hook(&pause, 1).await;
     let instance_id = pause
         .last_context()
         .and_then(|context| context.task_instance_id)

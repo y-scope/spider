@@ -27,6 +27,7 @@ use spider_storage::state::create_runtime_with_hooks;
 use spider_storage::state::runtime::RuntimeConfig;
 use spider_storage::task_instance_pool::TaskInstancePoolConfig;
 use spider_storage::task_instance_pool::TaskInstancePoolHandle;
+use spider_storage::test_hooks::ArmedHook;
 use spider_storage::test_hooks::TestHooks;
 use sqlx::MySqlPool;
 
@@ -284,6 +285,21 @@ impl TestEnv {
         })
         .await
         .expect("the job should reach the expected state");
+    }
+
+    /// Waits until `hook` has fired `num_hits` times.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `hook` does not fire `num_hits` times within 10 seconds, which may mean the
+    /// request failed before reaching the hook point.
+    pub async fn wait_for_hook(&self, hook: &ArmedHook, num_hits: usize) {
+        tokio::time::timeout(Duration::from_secs(10), hook.reached(num_hits))
+            .await
+            .expect(
+                "the hook should be reached within 10 seconds; the request may have failed before \
+                 reaching the hook point",
+            );
     }
 
     /// # Returns
