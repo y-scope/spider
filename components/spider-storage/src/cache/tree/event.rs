@@ -139,26 +139,16 @@ pub type TreeEventReply = Result<TreeEventOutcome, CacheError>;
 #[cfg(test)]
 mod tests {
     use spider_core::job::JobState;
+    use strum::IntoEnumIterator;
 
     use crate::cache::error::StaleStateError;
     use crate::cache::tree::Lane;
     use crate::cache::tree::TreeEventKind;
     use crate::cache::tree::test_utils::failure;
 
-    // `BlockingOnChildren` is left out: no job can be in it until a tree has children.
-    const STATES: [JobState; 7] = [
-        JobState::Ready,
-        JobState::Running,
-        JobState::CommitReady,
-        JobState::CleanupReady,
-        JobState::Succeeded,
-        JobState::Failed,
-        JobState::Cancelled,
-    ];
-
     #[test]
     fn start_is_accepted_only_by_a_ready_job() {
-        for state in STATES {
+        for state in JobState::iter() {
             let result = TreeEventKind::Start.ensure_accepts(state);
             let is_expected = if state == JobState::Ready {
                 matches!(result, Ok(()))
@@ -205,7 +195,7 @@ mod tests {
                 StaleStateError::JobNoLongerCleanupReady,
             ),
         ] {
-            for state in STATES {
+            for state in JobState::iter() {
                 let result = kind.ensure_accepts(state);
                 let is_expected = if state == lane_state {
                     matches!(result, Ok(()))
@@ -227,7 +217,12 @@ mod tests {
 
     #[test]
     fn cancel_root_is_accepted_until_the_root_is_cleanup_ready_or_terminal() {
-        for state in [JobState::Ready, JobState::Running, JobState::CommitReady] {
+        for state in [
+            JobState::Ready,
+            JobState::Running,
+            JobState::BlockingOnChildren,
+            JobState::CommitReady,
+        ] {
             let result = TreeEventKind::CancelRoot.ensure_accepts(state);
             assert!(
                 matches!(result, Ok(())),
