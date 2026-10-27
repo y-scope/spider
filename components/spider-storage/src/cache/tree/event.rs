@@ -18,6 +18,9 @@ pub struct TreeEvent {
 }
 
 /// The kind of a job-level event.
+///
+/// A variant may carry the inputs that planning the event needs, e.g., the outputs of a job whose
+/// regular tasks are done.
 pub enum TreeEventKind {
     /// The root is started. Carries the root's ready task indices.
     Start { ready_task_indices: Vec<TaskIndex> },
