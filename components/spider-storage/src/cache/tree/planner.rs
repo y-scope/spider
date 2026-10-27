@@ -188,6 +188,18 @@ pub enum Publication {
     Cleanup(JobId),
 }
 
+impl Publication {
+    /// # Returns
+    ///
+    /// The job whose work the publication makes available.
+    #[must_use]
+    pub const fn job_id(&self) -> JobId {
+        match self {
+            Self::Ready { job_id, .. } | Self::Commit(job_id) | Self::Cleanup(job_id) => *job_id,
+        }
+    }
+}
+
 /// # Returns
 ///
 /// The first `max_chars` characters of `message`.
