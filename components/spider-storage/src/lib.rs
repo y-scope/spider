@@ -7,6 +7,7 @@ pub mod job_submission;
 pub mod limits;
 pub mod state;
 pub mod task_instance_pool;
+pub mod test_hooks;
 
 #[cfg(test)]
 #[path = "../tests/mariadb_infra.rs"]

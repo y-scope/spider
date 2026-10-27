@@ -33,6 +33,24 @@ pub enum StorageServerError {
     Serde(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
+impl StorageServerError {
+    /// # Returns
+    ///
+    /// Whether the error leaves the storage service unable to continue, which is the case for:
+    ///
+    /// * [`CacheError::Internal`].
+    /// * [`DbError::CorruptedDbState`].
+    /// * [`DbError::Fenced`].
+    #[must_use]
+    pub const fn is_fatal(&self) -> bool {
+        matches!(
+            self,
+            Self::Cache(CacheError::Internal(_))
+                | Self::Db(DbError::CorruptedDbState(_) | DbError::Fenced { .. })
+        )
+    }
+}
+
 impl From<CacheError> for StorageServerError {
     fn from(error: CacheError) -> Self {
         match error {

@@ -1,55 +1,63 @@
-# Docs
+# Spider
 
-You can find our docs [online][spider-docs].
+[![Open bug reports](https://img.shields.io/github/issues/y-scope/spider/bug?label=bugs)](https://github.com/y-scope/spider/issues?q=is%3Aissue+is%3Aopen+label%3Abug)
+[![Open feature requests](https://img.shields.io/github/issues/y-scope/spider/enhancement?label=feature-requests)](https://github.com/y-scope/spider/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement)
+[![Discord][badge-discord]][yscope-community-discord]
+[![Slack][badge-slack]][yscope-community-slack]
 
-# Contributing
-Follow the steps below to develop and contribute to the project.
+Spider is a distributed system for executing user-defined tasks, built for low latency, high
+throughput, and robust fault tolerance.
 
-## Requirements
-* Python >= 3.10
-* [Task] >= 3.49.1
-* [uv] >= 0.11.3
+A Spider job is a task graph: a directed acyclic graph of tasks connected by typed data flow.
+Tasks are plain Rust functions compiled into task definition library (TDL) packages that Spider's
+workers load and execute. Spider handles dependency resolution, scheduling, retries, and recovery,
+so tasks run as soon as their inputs are ready and worker capacity is available.
 
-## Set up
-Build Huntsman (this also installs the Rust toolchain):
-```shell
-task build:rust
+```rust
+#[task(name = "complex::add")]
+pub fn add(_ctx: TaskContext, a: ComplexVec, b: ComplexVec) -> Result<ComplexVec, TdlError> {
+    // ...
+}
 ```
 
-## Adding files
-Certain file types need to be added to our linting rules manually:
+## Why Spider?
 
-* **YAML**. If adding a YAML file (regardless of its extension), add it as an argument to the
-  `yamllint` command in [taskfiles/lint.yaml](taskfiles/lint.yaml).
+* **Low latency**: Spider keeps the state of every running job in memory, eliminating database
+  queries for dependency resolution and task dispatch. A MariaDB/MySQL backend serves as the
+  durable source of truth.
+* **Fault tolerance**:
+  * Failed tasks are retried up to a per-task limit.
+  * Tasks assigned to failed workers are automatically detected and rescheduled.
+  * After a crash or restart, unfinished jobs are recovered from the database and resume
+    automatically.
+* **Isolation**: Tasks run in separate processes, protecting workers from task-level crashes.
+* **Multi-tenancy**: Jobs belong to resource groups, and workers can be dedicated to a single
+  resource group.
+* **Fair scheduling**: Spider uses round-robin scheduling across resource groups and across jobs
+  within each group, preventing any single tenant or job from starving the others.
+* **Easy deployment**: Deploy a Spider cluster with
+  [Docker Compose](tools/deployment/spider-compose) or on Kubernetes with the
+  [Helm chart](tools/deployment/spider-helm).
 
-## Linting
-Before submitting a pull request, ensure you’ve run the linting commands below and either fixed any
-violations or suppressed the warning.
+## Docs
 
-To run all linting checks:
-```shell
-task lint:check
-```
+> [!WARNING]
+> 🚧 The docs are still under construction.
 
-To run all linting checks AND automatically fix any fixable issues:
-```shell
-task lint:fix
-```
+## Providing Feedback
 
-### Running specific linters
-The commands above run all linting checks, but for performance you may want to run a subset (e.g.,
-if you only changed Rust files, you don't need to run the YAML linting checks) using one of the tasks
-in the table below.
+You can use GitHub issues to [report a bug][bug-report] or [request a feature][feature-req].
 
-| Task                    | Description                                                      |
-|-------------------------|------------------------------------------------------------------|
-| `lint:check-rust`       | Runs Rust formatting and Clippy checks.                         |
-| `lint:fix-rust`         | Formats Rust and applies Clippy fixes.                          |
-| `lint:toml-check`       | Runs the TOML linters and formatter.                             |
-| `lint:toml-fix`         | Runs the TOML linters and formatter and fixes some violations.   |
-| `lint:yml-check`        | Runs the YAML linters.                                           |
-| `lint:yml-fix`          | Runs the YAML linters.                                           |
+## Community
 
-[spider-docs]: https://docs.yscope.com/spider/main/
-[Task]: https://taskfile.dev
-[uv]: https://docs.astral.sh/uv/
+Need help? Join us on one of our community servers:
+
+* [![Discord][badge-discord]][yscope-community-discord]
+* [![Slack][badge-slack]][yscope-community-slack]
+
+[badge-discord]: https://img.shields.io/discord/1377353873068392580?style=flat&logo=discord&logoColor=white&label=Discord&labelColor=5561f5
+[badge-slack]: https://img.shields.io/badge/Slack-yscope--community-1e724f?style=flat&logo=slack&logoColor=white&labelColor=4A154B
+[bug-report]: https://github.com/y-scope/spider/issues/new?assignees=&labels=bug&template=bug-report.yaml
+[feature-req]: https://github.com/y-scope/spider/issues/new?assignees=&labels=enhancement&template=feature-request.yaml
+[yscope-community-discord]: https://discord.gg/7kZA2m5G87
+[yscope-community-slack]: https://inviter.co/clp-community

@@ -15,6 +15,7 @@ path = "src/bin/grpc_server.rs"
 [[test]]
 name = "test_spider_storage"
 path = "tests/test_spider_storage.rs"
+required-features = ["test-hooks"]
 
 [dependencies]
 async-channel = { workspace = true }
@@ -37,6 +38,7 @@ tokio = {
   workspace = true,
   features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"]
 }
+tokio-util = { workspace = true, features = ["rt"] }
 tonic = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
 
@@ -48,4 +50,6 @@ serde_json = { workspace = true }
 serial_test = { workspace = true }
 tabled = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
-tokio-util = { workspace = true, features = ["rt"] }
+
+[features]
+test-hooks = []
