@@ -1,5 +1,8 @@
 use std::net::IpAddr;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::Context;
+use std::task::Poll;
 use std::time::Duration;
 
 use spider_core::job::JobState;
@@ -19,6 +22,9 @@ use spider_core::types::scheduler::RegisteredScheduler;
 use spider_tdl::error::TdlError;
 use spider_utils::config::Host;
 use spider_utils::shutdown::ShutdownHandle;
+use tokio::task::JoinError;
+use tokio::task::JoinHandle;
+use tokio_util::task::TaskTracker;
 
 use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
@@ -35,6 +41,7 @@ use crate::state::JobCache;
 use crate::state::JobCacheGcHandle;
 use crate::state::StorageServerError;
 use crate::task_instance_pool::TaskInstancePoolConnector;
+use crate::test_hooks::TestHooks;
 
 /// Bundle of constructor parameters for [`ServiceState::new`].
 ///
@@ -58,6 +65,7 @@ pub struct ServiceStateParams<
     pub task_instance_pool_connector: TaskInstancePoolConnectorType,
     pub job_cache_gc_handle: JobCacheGcHandle,
     pub shutdown_handle: ShutdownHandle,
+    pub hooks: TestHooks,
 }
 
 /// Per-request service state providing access to the storage layer.
@@ -109,7 +117,9 @@ impl<
             task_instance_pool_connector,
             job_cache_gc_handle,
             shutdown_handle,
+            hooks,
         } = params;
+        hooks.register_runtime(&shutdown_handle);
         Self {
             inner: Arc::new(ServiceStateInner {
                 db,
@@ -121,6 +131,8 @@ impl<
                 job_cache_gc_handle,
                 has_previous_scheduler_connection: tokio::sync::Mutex::new(false),
                 shutdown_handle,
+                task_tracker: TaskTracker::new(),
+                hooks,
             }),
         }
     }
@@ -131,6 +143,14 @@ impl<
     #[must_use]
     pub fn session_id(&self) -> SessionId {
         self.inner.session_id
+    }
+
+    /// # Returns
+    ///
+    /// The tracker of the service's spawned handler bodies.
+    #[must_use]
+    pub(crate) fn task_tracker(&self) -> &TaskTracker {
+        &self.inner.task_tracker
     }
 
     /// Registers a job in the database and inserts its control block into the cache.
@@ -148,6 +168,7 @@ impl<
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
     /// * Forwards [`JobCache::insert`]'s return values on failure.
+    /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn register_job(
         &self,
         resource_group_id: ResourceGroupId,
@@ -160,35 +181,40 @@ impl<
         )
         .map_err(|e| StorageServerError::BadRequest(e.to_string()))?;
 
-        let job_id = self
-            .inner
-            .db
-            .register(resource_group_id, &job_submission)
+        let this = self.clone();
+        self.spawn_body(async move {
+            let job_id = this
+                .inner
+                .db
+                .register(resource_group_id, &job_submission)
+                .await?;
+            tracing::info!(
+                job_id = ? job_id,
+                rg_id = ? resource_group_id,
+                "Job registered in DB."
+            );
+
+            let jcb = SharedJobControlBlock::create(
+                job_id,
+                resource_group_id,
+                job_submission,
+                this.inner.inbound_queue_sender.clone(),
+                this.inner.db.clone(),
+                this.inner.task_instance_pool_connector.clone(),
+                this.inner.hooks.clone(),
+            )
             .await?;
-        tracing::info!(
-            job_id = ? job_id,
-            rg_id = ? resource_group_id,
-            "Job registered in DB."
-        );
 
-        let jcb = SharedJobControlBlock::create(
-            job_id,
-            resource_group_id,
-            job_submission,
-            self.inner.inbound_queue_sender.clone(),
-            self.inner.db.clone(),
-            self.inner.task_instance_pool_connector.clone(),
-        )
-        .await?;
+            this.inner.job_cache.insert(jcb).await?;
+            tracing::info!(
+                job_id = ? job_id,
+                rg_id = ? resource_group_id,
+                "Job inserted in cache.",
+            );
 
-        self.inner.job_cache.insert(jcb).await?;
-        tracing::info!(
-            job_id = ? job_id,
-            rg_id = ? resource_group_id,
-            "Job inserted in cache.",
-        );
-
-        Ok(job_id)
+            Ok(job_id)
+        })
+        .await
     }
 
     /// Starts a job for execution.
@@ -203,24 +229,29 @@ impl<
     ///   terminal state in the database.
     /// * Forwards [`SharedJobControlBlock::start`]'s return values on failure.
     /// * Forwards [`ExternalJobOrchestration::get_state`]'s return values on failure.
+    /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn start_job(&self, job_id: JobId) -> Result<(), StorageServerError> {
-        if let Some(jcb) = self.inner.job_cache.get(job_id).await {
-            jcb.start().await?;
-            tracing::info!(
-                job_id = ? job_id,
-                "Job started.",
-            );
-            return Ok(());
-        }
-        let state = self.inner.db.get_state(job_id).await?;
-        if !state.is_terminal() {
-            return Err(StorageServerError::Cache(CacheError::Internal(
-                InternalError::JobNotFound(job_id),
-            )));
-        }
-        Err(StorageServerError::Cache(CacheError::StaleState(
-            StaleStateError::JobAlreadyTerminated(state),
-        )))
+        let this = self.clone();
+        self.spawn_body(async move {
+            if let Some(jcb) = this.inner.job_cache.get(job_id).await {
+                jcb.start().await?;
+                tracing::info!(
+                    job_id = ? job_id,
+                    "Job started.",
+                );
+                return Ok(());
+            }
+            let state = this.inner.db.get_state(job_id).await?;
+            if !state.is_terminal() {
+                return Err(StorageServerError::Cache(CacheError::Internal(
+                    InternalError::JobNotFound(job_id),
+                )));
+            }
+            Err(StorageServerError::Cache(CacheError::StaleState(
+                StaleStateError::JobAlreadyTerminated(state),
+            )))
+        })
+        .await
     }
 
     /// Cancels a job.
@@ -238,28 +269,33 @@ impl<
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache and not in a terminal
     ///   state in the database.
     /// * Forwards [`SharedJobControlBlock::cancel`]'s return values on failure.
+    /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
-        if let Some(jcb) = self.inner.job_cache.get(job_id).await {
-            let state = jcb.cancel().await?;
-            self.enqueue_for_gc_if_terminal(job_id, state);
-            tracing::info!(
-                job_id = ? job_id,
-                "Job cancelled.",
-            );
-            return Ok(state);
-        }
-        match self.inner.db.get_state(job_id).await {
-            Ok(state) => {
-                if !state.is_terminal() {
-                    // If the job is not terminated, it should always exist in the cache.
-                    return Err(StorageServerError::Cache(CacheError::Internal(
-                        InternalError::JobNotFound(job_id),
-                    )));
-                }
-                Ok(state)
+        let this = self.clone();
+        self.spawn_body(async move {
+            if let Some(jcb) = this.inner.job_cache.get(job_id).await {
+                let state = jcb.cancel().await?;
+                this.enqueue_for_gc_if_terminal(job_id, state);
+                tracing::info!(
+                    job_id = ? job_id,
+                    "Job cancelled.",
+                );
+                return Ok(state);
             }
-            _ => Err(StorageServerError::JobNotFound(job_id)),
-        }
+            match this.inner.db.get_state(job_id).await {
+                Ok(state) => {
+                    if !state.is_terminal() {
+                        // If the job is not terminated, it should always exist in the cache.
+                        return Err(StorageServerError::Cache(CacheError::Internal(
+                            InternalError::JobNotFound(job_id),
+                        )));
+                    }
+                    Ok(state)
+                }
+                _ => Err(StorageServerError::JobNotFound(job_id)),
+            }
+        })
+        .await
     }
 
     /// Gets the state of a job.
@@ -342,6 +378,7 @@ impl<
     /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
+    /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn create_task_instance(
         &self,
         session_id: SessionId,
@@ -350,23 +387,27 @@ impl<
         execution_manager_id: ExecutionManagerId,
     ) -> Result<ExecutionContext, StorageServerError> {
         self.validate_session(session_id)?;
-        let jcb = self
-            .inner
-            .job_cache
-            .get(job_id)
-            .await
-            .ok_or(StorageServerError::JobNotFound(job_id))?;
-        let exe_context = jcb
-            .create_task_instance(task_id, execution_manager_id)
-            .await?;
-        tracing::info!(
-            job_id = ? job_id,
-            task_id = ? task_id,
-            execution_manager_id = ? execution_manager_id,
-            task_instance_id = ? exe_context.task_instance_id,
-            "Task instance created.",
-        );
-        Ok(exe_context)
+        let this = self.clone();
+        self.spawn_body(async move {
+            let jcb = this
+                .inner
+                .job_cache
+                .get(job_id)
+                .await
+                .ok_or(StorageServerError::JobNotFound(job_id))?;
+            let exe_context = jcb
+                .create_task_instance(task_id, execution_manager_id)
+                .await?;
+            tracing::info!(
+                job_id = ? job_id,
+                task_id = ? task_id,
+                execution_manager_id = ? execution_manager_id,
+                task_instance_id = ? exe_context.task_instance_id,
+                "Task instance created.",
+            );
+            Ok(exe_context)
+        })
+        .await
     }
 
     /// Marks a task instance as succeeded.
@@ -384,6 +425,7 @@ impl<
     /// * Forwards [`spider_core::types::io::TaskOutputsSerializer::deserialize`]'s return values on
     ///   failure.
     /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
+    /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn succeed_task_instance(
         &self,
         session_id: SessionId,
@@ -395,24 +437,28 @@ impl<
         self.validate_session(session_id)?;
         let task_outputs = TaskOutputsSerializer::deserialize(&serialized_outputs)
             .map_err(|e| StorageServerError::Tdl(TdlError::DeserializationError(e.to_string())))?;
-        let jcb = self
-            .inner
-            .job_cache
-            .get(job_id)
-            .await
-            .ok_or(StorageServerError::JobNotFound(job_id))?;
-        let state = jcb
-            .succeed_task_instance(task_instance_id, task_index, task_outputs)
-            .await?;
-        self.enqueue_for_gc_if_terminal(job_id, state);
-        tracing::info!(
-            job_id = ? job_id,
-            task_id = ? TaskId::Index(task_index),
-            task_instance_id = ? task_instance_id,
-            job_state = ? state,
-            "Task instance succeeded.",
-        );
-        Ok(state)
+        let this = self.clone();
+        self.spawn_body(async move {
+            let jcb = this
+                .inner
+                .job_cache
+                .get(job_id)
+                .await
+                .ok_or(StorageServerError::JobNotFound(job_id))?;
+            let state = jcb
+                .succeed_task_instance(task_instance_id, task_index, task_outputs)
+                .await?;
+            this.enqueue_for_gc_if_terminal(job_id, state);
+            tracing::info!(
+                job_id = ? job_id,
+                task_id = ? TaskId::Index(task_index),
+                task_instance_id = ? task_instance_id,
+                job_state = ? state,
+                "Task instance succeeded.",
+            );
+            Ok(state)
+        })
+        .await
     }
 
     /// Marks a commit task instance as succeeded.
@@ -429,6 +475,7 @@ impl<
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values on
     ///   failure.
+    /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn succeed_commit_task_instance(
         &self,
         session_id: SessionId,
@@ -436,22 +483,26 @@ impl<
         task_instance_id: TaskInstanceId,
     ) -> Result<JobState, StorageServerError> {
         self.validate_session(session_id)?;
-        let jcb = self
-            .inner
-            .job_cache
-            .get(job_id)
-            .await
-            .ok_or(StorageServerError::JobNotFound(job_id))?;
-        let state = jcb.succeed_commit_task_instance(task_instance_id).await?;
-        self.enqueue_for_gc_if_terminal(job_id, state);
-        tracing::info!(
-            job_id = ? job_id,
-            task_id = ? TaskId::Commit,
-            task_instance_id = ? task_instance_id,
-            job_state = ? state,
-            "Task instance succeeded.",
-        );
-        Ok(state)
+        let this = self.clone();
+        self.spawn_body(async move {
+            let jcb = this
+                .inner
+                .job_cache
+                .get(job_id)
+                .await
+                .ok_or(StorageServerError::JobNotFound(job_id))?;
+            let state = jcb.succeed_commit_task_instance(task_instance_id).await?;
+            this.enqueue_for_gc_if_terminal(job_id, state);
+            tracing::info!(
+                job_id = ? job_id,
+                task_id = ? TaskId::Commit,
+                task_instance_id = ? task_instance_id,
+                job_state = ? state,
+                "Task instance succeeded.",
+            );
+            Ok(state)
+        })
+        .await
     }
 
     /// Marks a cleanup task instance as succeeded.
@@ -468,6 +519,7 @@ impl<
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values on
     ///   failure.
+    /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn succeed_cleanup_task_instance(
         &self,
         session_id: SessionId,
@@ -475,22 +527,26 @@ impl<
         task_instance_id: TaskInstanceId,
     ) -> Result<JobState, StorageServerError> {
         self.validate_session(session_id)?;
-        let jcb = self
-            .inner
-            .job_cache
-            .get(job_id)
-            .await
-            .ok_or(StorageServerError::JobNotFound(job_id))?;
-        let state = jcb.succeed_cleanup_task_instance(task_instance_id).await?;
-        self.enqueue_for_gc_if_terminal(job_id, state);
-        tracing::info!(
-            job_id = ? job_id,
-            task_id = ? TaskId::Cleanup,
-            task_instance_id = ? task_instance_id,
-            job_state = ? state,
-            "Task instance succeeded.",
-        );
-        Ok(state)
+        let this = self.clone();
+        self.spawn_body(async move {
+            let jcb = this
+                .inner
+                .job_cache
+                .get(job_id)
+                .await
+                .ok_or(StorageServerError::JobNotFound(job_id))?;
+            let state = jcb.succeed_cleanup_task_instance(task_instance_id).await?;
+            this.enqueue_for_gc_if_terminal(job_id, state);
+            tracing::info!(
+                job_id = ? job_id,
+                task_id = ? TaskId::Cleanup,
+                task_instance_id = ? task_instance_id,
+                job_state = ? state,
+                "Task instance succeeded.",
+            );
+            Ok(state)
+        })
+        .await
     }
 
     /// Marks a task instance as failed.
@@ -506,6 +562,7 @@ impl<
     /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
+    /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn fail_task_instance(
         &self,
         session_id: SessionId,
@@ -515,24 +572,28 @@ impl<
         error: String,
     ) -> Result<JobState, StorageServerError> {
         self.validate_session(session_id)?;
-        let jcb = self
-            .inner
-            .job_cache
-            .get(job_id)
-            .await
-            .ok_or(StorageServerError::JobNotFound(job_id))?;
-        let state = jcb
-            .fail_task_instance(task_instance_id, task_id, error)
-            .await?;
-        self.enqueue_for_gc_if_terminal(job_id, state);
-        tracing::info!(
-            job_id = ? job_id,
-            task_id = ? task_id,
-            task_instance_id = ? task_instance_id,
-            job_state = ? state,
-            "Task instance failed.",
-        );
-        Ok(state)
+        let this = self.clone();
+        self.spawn_body(async move {
+            let jcb = this
+                .inner
+                .job_cache
+                .get(job_id)
+                .await
+                .ok_or(StorageServerError::JobNotFound(job_id))?;
+            let state = jcb
+                .fail_task_instance(task_instance_id, task_id, error)
+                .await?;
+            this.enqueue_for_gc_if_terminal(job_id, state);
+            tracing::info!(
+                job_id = ? job_id,
+                task_id = ? task_id,
+                task_instance_id = ? task_instance_id,
+                job_state = ? state,
+                "Task instance failed.",
+            );
+            Ok(state)
+        })
+        .await
     }
 
     /// Adds a resource group with the given credentials.
@@ -826,6 +887,76 @@ impl<
                 .enqueue_terminated_job(job_id);
         }
     }
+
+    /// Runs a handler body as a task in the service's task tracker, so that dropping the caller's
+    /// future does not cut the body short, and waits for its result, raced against the service's
+    /// shutdown.
+    ///
+    /// If the caller stops waiting for the result, a panic of the body still shuts the service down
+    /// fatally, and so does a fatal error (see [`StorageServerError::is_fatal`]) unless the service
+    /// is already shutting down gracefully.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `ReturnType` - The type of the value that the body returns on success.
+    ///
+    /// # Returns
+    ///
+    /// The body's result on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageServerError::Stopping`] if:
+    ///   * The service is already shutting down when called, in which case the body is not run.
+    ///   * The service is shutting down before the body finishes.
+    ///   * The body fails while the service is shutting down without a fatal error.
+    /// * [`InternalError::HandlerBodyFailed`] if the body panicked.
+    /// * Forwards `body`'s return values on failure.
+    async fn spawn_body<ReturnType: Send + 'static>(
+        &self,
+        body: impl Future<Output = Result<ReturnType, StorageServerError>> + Send + 'static,
+    ) -> Result<ReturnType, StorageServerError> {
+        let shutdown_handle = &self.inner.shutdown_handle;
+        // Keeps the tracker non-empty between the shutdown check and the spawn, so that
+        // `Runtime::stop`'s `wait()` cannot return in that gap and miss the body.
+        let task_tracker_token = self.inner.task_tracker.token();
+        if shutdown_handle.is_cancelled() {
+            return Err(Self::stopping_error());
+        }
+        let join_handle = self.inner.task_tracker.spawn(body);
+        drop(task_tracker_token);
+        let mut handler_body_join_guard = HandlerBodyJoinGuard {
+            join_handle: Some(join_handle),
+            task_tracker: self.inner.task_tracker.clone(),
+            shutdown_handle: shutdown_handle.clone(),
+        };
+        tokio::select! {
+            biased;
+            result = &mut handler_body_join_guard => match result {
+                Ok(Err(e)) if shutdown_handle.is_cancelled() && !shutdown_handle.is_fatal() => {
+                    tracing::warn!(
+                        error = % e,
+                        "Handler body failed while the service is shutting down."
+                    );
+                    Err(Self::stopping_error())
+                }
+                Ok(result) => result,
+                Err(e) => Err(
+                    CacheError::Internal(InternalError::HandlerBodyFailed(e.to_string())).into()
+                ),
+            },
+            () = shutdown_handle.cancelled() => Err(Self::stopping_error()),
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The error of a handler that the service's shutdown stopped.
+    fn stopping_error() -> StorageServerError {
+        StorageServerError::Stopping("storage is shutting down".to_owned())
+    }
 }
 
 /// Inner data for [`ServiceState`], holding all storage services.
@@ -849,10 +980,80 @@ struct ServiceStateInner<
     job_cache_gc_handle: JobCacheGcHandle,
     has_previous_scheduler_connection: tokio::sync::Mutex<bool>,
     shutdown_handle: ShutdownHandle,
+    task_tracker: TaskTracker,
+    hooks: TestHooks,
+}
+
+/// The [`JoinHandle`] of a handler body spawned by [`ServiceState::spawn_body`], which resolves to
+/// the body's result.
+///
+/// If dropped before the result is read, it spawns a task into the task tracker that waits for the
+/// body and shuts the service down fatally on a panic, or on a fatal error unless the service is
+/// already shutting down gracefully.
+///
+/// # Type Parameters
+///
+/// * `ReturnType` - The type of the value that the body returns on success.
+struct HandlerBodyJoinGuard<ReturnType: Send + 'static> {
+    join_handle: Option<JoinHandle<Result<ReturnType, StorageServerError>>>,
+    task_tracker: TaskTracker,
+    shutdown_handle: ShutdownHandle,
+}
+
+impl<ReturnType: Send + 'static> Future for HandlerBodyJoinGuard<ReturnType> {
+    type Output = Result<Result<ReturnType, StorageServerError>, JoinError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let join_handle = self
+            .join_handle
+            .as_mut()
+            .expect("the handler body's result should not be read twice");
+        let output = std::task::ready!(Pin::new(join_handle).poll(cx));
+        self.join_handle = None;
+        Poll::Ready(output)
+    }
+}
+
+impl<ReturnType: Send + 'static> Drop for HandlerBodyJoinGuard<ReturnType> {
+    fn drop(&mut self) {
+        let Some(join_handle) = self.join_handle.take() else {
+            return;
+        };
+        let shutdown_handle = self.shutdown_handle.clone();
+        self.task_tracker.spawn(async move {
+            match join_handle.await {
+                Ok(Err(e)) if e.is_fatal() => {
+                    if shutdown_handle.is_cancelled() && !shutdown_handle.is_fatal() {
+                        tracing::warn!(
+                            error = % e,
+                            "Abandoned handler body failed while the service is shutting down."
+                        );
+                    } else {
+                        tracing::error!(
+                            error = % e,
+                            "Abandoned handler body failed with a fatal error. Cancelling service."
+                        );
+                        shutdown_handle.shut_down_fatally();
+                    }
+                }
+                Err(e) if e.is_panic() => {
+                    tracing::error!(
+                        error = % e,
+                        "Abandoned handler body panicked. Cancelling service."
+                    );
+                    shutdown_handle.shut_down_fatally();
+                }
+                _ => {}
+            }
+        });
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
+
     use spider_core::compression::encode_zstd_bytes;
     use spider_core::job::JobState;
     use spider_core::task::DataTypeDescriptor;
@@ -912,6 +1113,7 @@ mod tests {
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
             shutdown_handle: ShutdownHandle::new(),
+            hooks: TestHooks::default(),
         })
     }
 
@@ -940,6 +1142,7 @@ mod tests {
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
             shutdown_handle: ShutdownHandle::new(),
+            hooks: TestHooks::default(),
         });
         (service, sender)
     }
@@ -1022,6 +1225,7 @@ mod tests {
             MockInboundQueueSender,
             MockDbConnector::default(),
             MockTaskInstancePoolConnector,
+            TestHooks::default(),
         )
         .await
         .expect("JCB creation should succeed")
@@ -1239,6 +1443,7 @@ mod tests {
             sender,
             db,
             MockTaskInstancePoolConnector,
+            TestHooks::default(),
         )
         .await?;
         service.inner.job_cache.insert(jcb).await?;
@@ -1595,6 +1800,7 @@ mod tests {
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
             shutdown_handle: ShutdownHandle::new(),
+            hooks: TestHooks::default(),
         });
         let job_id = JobId::random();
         let jcb = create_test_jcb(job_id).await;
@@ -1622,6 +1828,7 @@ mod tests {
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
             shutdown_handle: ShutdownHandle::new(),
+            hooks: TestHooks::default(),
         });
         let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
             create_test_job_submission();
@@ -1672,6 +1879,7 @@ mod tests {
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
             shutdown_handle: ShutdownHandle::new(),
+            hooks: TestHooks::default(),
         });
         let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
             create_test_job_submission();
@@ -2118,5 +2326,154 @@ mod tests {
             "update heartbeat should fail for unregistered execution manager"
         );
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_body_failing_during_a_graceful_shutdown_is_stopped() {
+        let service = create_test_service();
+        let shutdown_handle = service.inner.shutdown_handle.clone();
+
+        let result = service
+            .spawn_body(async move {
+                shutdown_handle.shut_down_gracefully();
+                Err::<(), _>(StorageServerError::from(CacheError::Internal(
+                    InternalError::InboundQueueChannelClosed,
+                )))
+            })
+            .await;
+
+        assert!(
+            matches!(result, Err(StorageServerError::Stopping(_))),
+            "a body failing during a graceful shutdown should be stopped, got {result:?}"
+        );
+        assert!(!service.inner.shutdown_handle.is_fatal());
+    }
+
+    #[tokio::test]
+    async fn a_body_failing_with_a_fatal_shutdown_keeps_its_error() {
+        let service = create_test_service();
+        let shutdown_handle = service.inner.shutdown_handle.clone();
+
+        let result = service
+            .spawn_body(async move {
+                shutdown_handle.shut_down_fatally();
+                Err::<(), _>(StorageServerError::from(CacheError::Internal(
+                    InternalError::InboundQueueChannelClosed,
+                )))
+            })
+            .await;
+
+        assert!(
+            matches!(
+                result,
+                Err(StorageServerError::Cache(CacheError::Internal(
+                    InternalError::InboundQueueChannelClosed
+                )))
+            ),
+            "a body failing with a fatal shutdown should keep its error, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_body_failing_fatally_after_its_caller_is_dropped_shuts_down_fatally() {
+        let service = create_test_service();
+        let (release_sender, release_receiver) = tokio::sync::oneshot::channel();
+
+        let mut caller = Box::pin(service.spawn_body(async move {
+            release_receiver
+                .await
+                .expect("the release sender should not be dropped");
+            Err::<(), _>(StorageServerError::from(CacheError::Internal(
+                InternalError::InboundQueueChannelClosed,
+            )))
+        }));
+        assert!(
+            std::future::poll_fn(|cx| Poll::Ready(caller.as_mut().poll(cx).is_pending())).await
+        );
+        drop(caller);
+        release_sender
+            .send(())
+            .expect("the body should still wait for the release");
+        service.inner.task_tracker.close();
+        service.inner.task_tracker.wait().await;
+
+        assert!(service.inner.shutdown_handle.is_fatal());
+    }
+
+    #[tokio::test]
+    async fn a_body_panicking_after_its_caller_is_dropped_shuts_down_fatally() {
+        let service = create_test_service();
+        let (release_sender, release_receiver) = tokio::sync::oneshot::channel();
+
+        let mut caller = Box::pin(service.spawn_body::<()>(async move {
+            release_receiver
+                .await
+                .expect("the release sender should not be dropped");
+            panic!("injected handler body panic")
+        }));
+        assert!(
+            std::future::poll_fn(|cx| Poll::Ready(caller.as_mut().poll(cx).is_pending())).await
+        );
+        drop(caller);
+        release_sender
+            .send(())
+            .expect("the body should still wait for the release");
+        service.inner.task_tracker.close();
+        service.inner.task_tracker.wait().await;
+
+        assert!(service.inner.shutdown_handle.is_fatal());
+    }
+
+    #[tokio::test]
+    async fn a_body_failing_fatally_without_a_caller_during_a_graceful_shutdown_is_not_fatal() {
+        let service = create_test_service();
+        let shutdown_handle = service.inner.shutdown_handle.clone();
+        let (release_sender, release_receiver) = tokio::sync::oneshot::channel();
+
+        let mut caller = Box::pin(service.spawn_body(async move {
+            release_receiver
+                .await
+                .expect("the release sender should not be dropped");
+            shutdown_handle.shut_down_gracefully();
+            Err::<(), _>(StorageServerError::from(CacheError::Internal(
+                InternalError::InboundQueueChannelClosed,
+            )))
+        }));
+        assert!(
+            std::future::poll_fn(|cx| Poll::Ready(caller.as_mut().poll(cx).is_pending())).await
+        );
+        drop(caller);
+        release_sender
+            .send(())
+            .expect("the body should still wait for the release");
+        service.inner.task_tracker.close();
+        service.inner.task_tracker.wait().await;
+
+        assert!(service.inner.shutdown_handle.is_cancelled());
+        assert!(!service.inner.shutdown_handle.is_fatal());
+    }
+
+    #[tokio::test]
+    async fn a_body_requested_after_shutdown_starts_is_not_run() {
+        let service = create_test_service();
+        service.inner.shutdown_handle.shut_down_gracefully();
+        let body_ran = Arc::new(AtomicBool::new(false));
+        let body_ran_in_body = Arc::clone(&body_ran);
+
+        let result = service
+            .spawn_body(async move {
+                body_ran_in_body.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+            .await;
+
+        assert!(
+            matches!(result, Err(StorageServerError::Stopping(_))),
+            "a body requested after shutdown starts should be stopped, got {result:?}"
+        );
+        assert_eq!(service.inner.task_tracker.len(), 0);
+        service.inner.task_tracker.close();
+        service.inner.task_tracker.wait().await;
+        assert!(!body_ran.load(Ordering::SeqCst));
     }
 }

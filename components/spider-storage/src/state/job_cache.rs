@@ -178,6 +178,7 @@ mod tests {
     use crate::state::test_utils::MockDbConnector;
     use crate::state::test_utils::MockInboundQueueSender;
     use crate::state::test_utils::MockTaskInstancePoolConnector;
+    use crate::test_hooks::TestHooks;
 
     type TestJcb = SharedJobControlBlock<
         MockInboundQueueSender,
@@ -215,6 +216,7 @@ mod tests {
             MockInboundQueueSender,
             MockDbConnector::default(),
             MockTaskInstancePoolConnector,
+            TestHooks::default(),
         )
         .await
         .expect("JCB creation should succeed")
@@ -452,6 +454,7 @@ mod tests {
             sender,
             MockDbConnector::default(),
             MockTaskInstancePoolConnector,
+            TestHooks::default(),
         )
         .await
         .expect("JCB creation should succeed");
