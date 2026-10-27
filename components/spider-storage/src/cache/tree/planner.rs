@@ -115,8 +115,17 @@ impl Plan {
     /// The plan of failing `job_id` from `from`: the job moves to [`JobState::Failed`] and stores
     /// `message`, cut to [`MAX_ERROR_MESSAGE_CHARS`] characters.
     pub(super) fn fail_job(job_id: JobId, from: JobState, message: &str) -> Self {
+        let stored_message = truncate_chars(message, MAX_ERROR_MESSAGE_CHARS);
+        if stored_message.len() < message.len() {
+            tracing::warn!(
+                job_id = job_id.get(),
+                message_bytes = message.len(),
+                max_chars = MAX_ERROR_MESSAGE_CHARS,
+                "A job's failure message exceeds the maximum length and is truncated."
+            );
+        }
         Self::applying(JobStateUpdate {
-            error_message: Some(truncate_chars(message, MAX_ERROR_MESSAGE_CHARS).to_owned()),
+            error_message: Some(stored_message.to_owned()),
             ..JobStateUpdate::new(job_id, from, JobState::Failed)
         })
     }
