@@ -75,7 +75,7 @@ impl TreeStructure {
             TreeEventKind::TerminalFailure { message, .. } => {
                 Plan::fail_job(job_id, from, &message)
             }
-            TreeEventKind::CancelRoot => Plan::cancel_root(job_id, from, node),
+            TreeEventKind::CancelRoot => Plan::cancel_root(job_id, node),
         }
     }
 }
@@ -91,12 +91,12 @@ pub struct TreeNode {
 impl TreeNode {
     /// # Returns
     ///
-    /// The state that a cancel moves the job from `state` to: [`JobState::Cancelled`] if the job
+    /// The state that a cancel moves the job from its state to: [`JobState::Cancelled`] if the job
     /// is [`JobState::Ready`] or has no cleanup task, otherwise [`JobState::CleanupReady`]. A
     /// [`JobState::Ready`] job never moves to [`JobState::CleanupReady`]: none of its tasks ran,
     /// and the edge is not a valid job state transition.
-    pub(super) const fn abort_target(&self, state: JobState) -> JobState {
-        if matches!(state, JobState::Ready) || !self.has_cleanup {
+    pub(super) const fn abort_target(&self) -> JobState {
+        if matches!(self.state, JobState::Ready) || !self.has_cleanup {
             JobState::Cancelled
         } else {
             JobState::CleanupReady

@@ -134,11 +134,12 @@ impl Plan {
     ///
     /// # Returns
     ///
-    /// The plan of cancelling the root `root_id` from `from`: the root moves to its abort target
-    /// (see [`TreeNode::abort_target`]), with its cleanup task published if that is
-    /// [`JobState::CleanupReady`].
-    pub(super) fn cancel_root(root_id: JobId, from: JobState, node: &TreeNode) -> Self {
-        let to = node.abort_target(from);
+    /// The plan of cancelling the root `root_id`, whose node is `node`: the root moves from the
+    /// node's state to its abort target (see [`TreeNode::abort_target`]), with its cleanup task
+    /// published if that is [`JobState::CleanupReady`].
+    pub(super) fn cancel_root(root_id: JobId, node: &TreeNode) -> Self {
+        let from = node.state;
+        let to = node.abort_target();
         let publications = if to == JobState::CleanupReady {
             vec![Publication::Cleanup(root_id)]
         } else {
