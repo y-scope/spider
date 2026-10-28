@@ -1,12 +1,13 @@
 //! The committer of a job tree.
 //!
-//! Each tree has one committer: a task that is the only writer of its jobs' states. It owns:
+//! Each tree has one committer, a coroutine that is the only writer of its jobs' states. It owns:
 //!
 //! * The tree's event receivers.
 //! * The tree's structure.
 //! * The control blocks of the tree's non-terminal jobs.
 //!
-//! The committer takes one event at a time, fast-forward events first, and runs a *round* for it:
+//! The committer takes one event at a time (fast-forward events first) and runs a *round* for it,
+//! where each round executes the following steps:
 //!
 //! 1. Plans the event against the tree's structure.
 //! 2. Writes the plan to the database.
