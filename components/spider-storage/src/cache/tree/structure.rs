@@ -28,7 +28,7 @@ impl TreeStructure {
         }
     }
 
-    /// Plans one event against the tree's structure and the states of its jobs.
+    /// Plans one event against the tree's structure.
     ///
     /// # Returns
     ///
@@ -91,8 +91,8 @@ pub struct TreeNode {
 impl TreeNode {
     /// # Returns
     ///
-    /// The state that a cancel moves the job from its state to: [`JobState::Cancelled`] if the job
-    /// is [`JobState::Ready`] or has no cleanup task, otherwise [`JobState::CleanupReady`]. A
+    /// The state that a cancel moves the job to: [`JobState::Cancelled`] if the job is
+    /// [`JobState::Ready`] or has no cleanup task, otherwise [`JobState::CleanupReady`]. A
     /// [`JobState::Ready`] job never moves to [`JobState::CleanupReady`]: none of its tasks ran,
     /// and the edge is not a valid job state transition.
     pub(super) const fn abort_target(&self) -> JobState {
