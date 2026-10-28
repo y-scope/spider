@@ -90,17 +90,18 @@ pub fn spawn_committer<
     task_tracker.spawn(run_committer(env, root, receivers));
 }
 
-/// The committer's received events not yet taken, one buffer per event channel.
+/// The committer's queue of received events that are not yet planned, whose [`Self::take`] returns
+/// the fast-forward events first.
 #[derive(Default)]
-struct Buffers {
+struct PendingQueue {
     fast_forward: VecDeque<Pending>,
     regular: VecDeque<Pending>,
 }
 
-impl Buffers {
+impl PendingQueue {
     /// # Returns
     ///
-    /// Whether neither buffer holds an event.
+    /// Whether the queue holds no event.
     // TODO: Make this function `const` once stable Rust allows `VecDeque::is_empty` in `const fn`
     // (see #544).
     #[allow(clippy::missing_const_for_fn)]
@@ -108,7 +109,7 @@ impl Buffers {
         self.fast_forward.is_empty() && self.regular.is_empty()
     }
 
-    /// Appends `pending` to the buffer of its event's channel.
+    /// Appends `pending` to the queue, behind the queued events of its channel.
     fn push_back(&mut self, pending: Pending) {
         if pending.event.kind.is_fast_forward() {
             self.fast_forward.push_back(pending);
@@ -121,14 +122,14 @@ impl Buffers {
     ///
     /// # Returns
     ///
-    /// The taken event, or [`None`] if both buffers are empty.
+    /// The taken event, or [`None`] if the queue is empty.
     fn take(&mut self) -> Option<Pending> {
         self.fast_forward
             .pop_front()
             .or_else(|| self.regular.pop_front())
     }
 
-    /// Moves every event queued in `receivers` to the buffers without waiting: every fast-forward
+    /// Moves every event already in `receivers` to the queue without waiting: every fast-forward
     /// event, then every regular one.
     fn receive(&mut self, receivers: &mut EventReceivers) {
         while let Ok(pending) = receivers.fast_forward.try_recv() {
@@ -151,15 +152,15 @@ struct PoisonOnAbnormalExit {
 }
 
 impl PoisonOnAbnormalExit {
-    /// Closes the tree's event receivers, answers every event the committer received and every
-    /// event still queued with `make_reply()`, and disarms the guard.
+    /// Closes the tree's event receivers, answers every event in `pending_queue` and every event
+    /// still in the receivers with `make_reply()`, and disarms the guard.
     ///
     /// # Type Parameters
     ///
     /// * `MakeReplyType` - The type of the closure that builds the reply to each event.
     async fn close_and_answer<MakeReplyType: Fn() -> TreeEventReply>(
         mut self,
-        mut buffers: Buffers,
+        mut pending_queue: PendingQueue,
         make_reply: MakeReplyType,
     ) {
         self.receivers.fast_forward.close();
@@ -167,12 +168,12 @@ impl PoisonOnAbnormalExit {
         // `try_recv` can miss a send in flight after `close`; `recv` returns `None` only once none
         // is.
         while let Some(pending) = self.receivers.fast_forward.recv().await {
-            buffers.push_back(pending);
+            pending_queue.push_back(pending);
         }
         while let Some(pending) = self.receivers.regular.recv().await {
-            buffers.push_back(pending);
+            pending_queue.push_back(pending);
         }
-        while let Some(Pending { reply, .. }) = buffers.take() {
+        while let Some(Pending { reply, .. }) = pending_queue.take() {
             answer(reply, make_reply());
         }
         self.is_disarmed = true;
@@ -214,8 +215,9 @@ async fn run_committer<
 ) {
     let root_id = root.id();
     let shutdown_handle = env.shutdown_handle.clone();
-    // Declared before the guard so that they drop after it has shut the service down.
-    let mut buffers = Buffers::default();
+    // The pending queue and the in-flight reply are declared before the guard so that they drop
+    // after it has shut the service down.
+    let mut pending_queue = PendingQueue::default();
     let mut in_flight_reply: Option<oneshot::Sender<TreeEventReply>> = None;
     let mut poison_on_abnormal_exit = PoisonOnAbnormalExit {
         receivers,
@@ -225,28 +227,28 @@ async fn run_committer<
     };
     let mut committer = Committer::new_root(env, root).await;
     loop {
-        if buffers.is_empty() {
+        if pending_queue.is_empty() {
             tokio::select! {
                 biased;
                 Some(pending) = poison_on_abnormal_exit.receivers.fast_forward.recv() => {
-                    buffers.push_back(pending);
+                    pending_queue.push_back(pending);
                 }
                 Some(pending) = poison_on_abnormal_exit.receivers.regular.recv() => {
-                    buffers.push_back(pending);
+                    pending_queue.push_back(pending);
                 }
                 () = shutdown_handle.cancelled() => {}
             }
         }
-        buffers.receive(&mut poison_on_abnormal_exit.receivers);
+        pending_queue.receive(&mut poison_on_abnormal_exit.receivers);
         if shutdown_handle.is_cancelled() {
             poison_on_abnormal_exit
-                .close_and_answer(buffers, || Err(CacheError::ServiceStopping))
+                .close_and_answer(pending_queue, || Err(CacheError::ServiceStopping))
                 .await;
             return;
         }
-        let Pending { event, reply } = buffers
-            .take()
-            .expect("a buffer should hold an event once the committer wakes before a shutdown");
+        let Pending { event, reply } = pending_queue.take().expect(
+            "the pending queue should hold an event once the committer wakes before a shutdown",
+        );
         in_flight_reply.replace(reply);
         if let Err(error) = committer.run_round(event, &mut in_flight_reply).await {
             tracing::error!(
@@ -258,7 +260,7 @@ async fn run_committer<
         }
         if committer.is_quiescent() {
             poison_on_abnormal_exit
-                .close_and_answer(buffers, || Ok(TreeEventOutcome::Untracked))
+                .close_and_answer(pending_queue, || Ok(TreeEventOutcome::Untracked))
                 .await;
             return;
         }
