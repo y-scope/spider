@@ -1,11 +1,22 @@
 //! The committer of a job tree.
 //!
-//! The committer of a job tree is the one task per tree that owns the tree's event receivers, its
-//! structure and its non-terminal jobs' control blocks, and is the only writer of its jobs' states.
-//! It takes one event at a time, fast-forward events first; a *round* plans the event, writes the
-//! plan to the database, applies it to the cached jobs and the structure, enqueues newly terminal
-//! jobs for cache GC, replies, and publishes the ready work. The committer exits when its tree is
-//! quiescent or the service shuts down; any other exit shuts the service down fatally.
+//! Each tree has one committer: a task that is the only writer of its jobs' states. It owns:
+//!
+//! * The tree's event receivers.
+//! * The tree's structure.
+//! * The control blocks of the tree's non-terminal jobs.
+//!
+//! The committer takes one event at a time, fast-forward events first, and runs a *round* for it:
+//!
+//! 1. Plans the event against the tree's structure.
+//! 2. Writes the plan to the database.
+//! 3. Applies the plan to the cached jobs and the structure, and enqueues newly terminal jobs for
+//!    cache GC.
+//! 4. Replies to the event.
+//! 5. Publishes the ready work.
+//!
+//! The committer exits once its tree is quiescent or the service shuts down. Any other exit, from
+//! an error or a panic, shuts the service down fatally.
 
 mod round;
 #[cfg(test)]
