@@ -13,6 +13,9 @@ pub enum CacheError {
 
     #[error(transparent)]
     StaleState(#[from] StaleStateError),
+
+    #[error("storage service is shutting down")]
+    ServiceStopping,
 }
 
 impl From<DbError> for CacheError {
@@ -94,6 +97,9 @@ pub enum InternalError {
 
     #[error("inbound queue channel is closed")]
     InboundQueueChannelClosed,
+
+    #[error("job tree poisoned: an event was dropped without a reply")]
+    TreePoisoned,
 
     #[error("invalid recoverable job context: {0}")]
     InvalidRecoverableJobContext(String),
