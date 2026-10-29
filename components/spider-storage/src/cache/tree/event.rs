@@ -60,17 +60,13 @@ impl TreeEventKind {
     ///
     /// * [`StaleStateError::JobAlreadyStarted`] if a [`Self::Start`] finds the job not
     ///   [`JobState::Ready`].
-    /// * [`StaleStateError::JobAlreadyTerminated`] if a task event ([`Self::RegularTasksDone`],
-    ///   [`Self::CommitDone`], [`Self::CleanupDone`] or [`Self::TerminalFailure`]) finds the job
-    ///   terminal, or a [`Self::CancelRoot`] finds it [`JobState::Succeeded`] or
-    ///   [`JobState::Failed`].
-    /// * [`StaleStateError::JobNoLongerRunning`], [`StaleStateError::JobNoLongerCommitReady`] or
-    ///   [`StaleStateError::JobNoLongerCleanupReady`] if a task event finds the job non-terminal
-    ///   but not in the state that runs the event's [`Lane`].
+    /// * [`StaleStateError::JobAlreadyTerminated`] if a [`Self::CancelRoot`] finds the job
+    ///   [`JobState::Succeeded`] or [`JobState::Failed`].
     /// * [`StaleStateError::JobCancellationAlreadyRequested`] if a [`Self::CancelRoot`] finds the
     ///   job [`JobState::CleanupReady`].
     /// * [`StaleStateError::JobAlreadyCancelled`] if a [`Self::CancelRoot`] finds the job
     ///   [`JobState::Cancelled`].
+    /// * Forwards [`Lane::ensure_accepts`]'s return values on failure.
     pub const fn ensure_accepts(&self, state: JobState) -> Result<(), StaleStateError> {
         match self {
             Self::Start { .. } => match state {
@@ -135,7 +131,7 @@ impl Lane {
     /// * [`StaleStateError::JobNoLongerRunning`], [`StaleStateError::JobNoLongerCommitReady`] or
     ///   [`StaleStateError::JobNoLongerCleanupReady`], by lane, if `state` is any other state that
     ///   does not run this lane.
-    const fn ensure_accepts(self, state: JobState) -> Result<(), StaleStateError> {
+    pub const fn ensure_accepts(self, state: JobState) -> Result<(), StaleStateError> {
         match (self, state) {
             (Self::Regular, JobState::Running)
             | (Self::Commit, JobState::CommitReady)
