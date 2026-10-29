@@ -22,6 +22,7 @@ use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
 use crate::cache::error::StaleStateError;
 use crate::cache::task::TaskGraph;
+use crate::cache::tree::TreeNode;
 use crate::db::InternalJobOrchestration;
 use crate::db::RecoverableJobContext;
 use crate::inbound_queue::InboundQueueSender;
@@ -219,6 +220,29 @@ impl<
     /// The current job state.
     pub async fn state(&self) -> JobState {
         self.inner.job_execution_state.read_state().await
+    }
+
+    /// # Returns
+    ///
+    /// The ID of the resource group that owns the job.
+    #[must_use]
+    pub fn owner_id(&self) -> ResourceGroupId {
+        self.inner.owner_id
+    }
+
+    /// # Returns
+    ///
+    /// The job as a node of its tree: its state and whether it has a commit task and a cleanup
+    /// task.
+    pub(crate) async fn tree_node(&self) -> TreeNode {
+        let job = self.inner.job_execution_state.read().await;
+        let node = TreeNode {
+            state: job.state,
+            has_commit: job.task_graph.has_commit_task(),
+            has_cleanup: job.task_graph.has_cleanup_task(),
+        };
+        drop(job);
+        node
     }
 
     /// Gets the outputs of the job from the in-memory task graph.
@@ -662,6 +686,50 @@ impl<
         Ok(job.state)
     }
 
+    /// Applies a transition that the tree's committer has written to the database to the cached
+    /// job.
+    ///
+    /// A job that the transition deactivates gets its non-terminal tasks cancelled; a job that
+    /// leaves [`JobState::Running`] or is deactivated releases its regular tasks.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::CacheDbDivergence`] if the cached state is not `from`.
+    pub(crate) async fn apply_tree_state(
+        &self,
+        from: JobState,
+        to: JobState,
+    ) -> Result<(), CacheError> {
+        let jcb = &self.inner;
+        let mut job = jcb.job_execution_state.write().await;
+        if job.state != from {
+            return Err(InternalError::CacheDbDivergence {
+                job_id: jcb.id,
+                expected: from,
+                actual: job.state,
+            }
+            .into());
+        }
+        job.state = to;
+        let is_deactivated = matches!(
+            to,
+            JobState::Failed | JobState::Cancelled | JobState::CleanupReady
+        ) && matches!(
+            from,
+            JobState::Ready | JobState::Running | JobState::CommitReady
+        );
+        if is_deactivated {
+            job.task_graph.cancel_non_terminal().await;
+        }
+        if from == JobState::Running || is_deactivated {
+            job.task_graph.finalize();
+        }
+        drop(job);
+        Ok(())
+    }
+
     /// Creates a task instance for a regular task in the job and registers it in the task instance
     /// pool.
     ///
@@ -906,8 +974,8 @@ impl<
 /// A concurrency-safe handle to a job's execution state.
 ///
 /// This type wraps [`JobExecutionState`] in a read-write lock and provides controlled access to it.
-/// All accessors enforce state invariants by validating the underlying job state before returning a
-/// read or write guard.
+/// Most accessors validate the job state before returning a guard; [`Self::read_state`],
+/// [`Self::read`] and [`Self::write`] do not, for callers that check the state themselves.
 ///
 /// # Type Parameters
 ///
@@ -933,6 +1001,20 @@ impl<R: InboundQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConn
     /// The current job state.
     async fn read_state(&self) -> JobState {
         self.inner.read().await.state
+    }
+
+    /// # Returns
+    ///
+    /// A reader guard of the underlying job execution state, whatever the job state.
+    async fn read(&self) -> RwLockReadGuard<'_, JobExecutionState<R, D, T>> {
+        self.inner.read().await
+    }
+
+    /// # Returns
+    ///
+    /// A writer guard of the underlying job execution state, whatever the job state.
+    async fn write(&self) -> RwLockWriteGuard<'_, JobExecutionState<R, D, T>> {
+        self.inner.write().await
     }
 
     /// # Returns
@@ -1292,6 +1374,77 @@ impl<
     fn ensure_ready(&self) -> Result<(), CacheError> {
         if !matches!(self.state, JobState::Ready) {
             return Err(StaleStateError::JobAlreadyStarted.into());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use spider_core::job::JobState;
+    use spider_core::types::id::JobId;
+
+    use crate::cache::error::CacheError;
+    use crate::cache::error::InternalError;
+    use crate::state::test_utils::create_test_jcb;
+
+    const JOB_ID: JobId = JobId::from(1);
+
+    #[tokio::test]
+    async fn apply_tree_state_rejects_a_from_state_that_is_not_cached() {
+        let jcb = create_test_jcb(JOB_ID).await;
+
+        let result = jcb
+            .apply_tree_state(JobState::Running, JobState::Succeeded)
+            .await;
+        assert!(
+            matches!(
+                result,
+                Err(CacheError::Internal(InternalError::CacheDbDivergence {
+                    expected: JobState::Running,
+                    actual: JobState::Ready,
+                    ..
+                }))
+            ),
+            "an apply from a state that is not cached gave {result:?}"
+        );
+        assert_eq!(jcb.state().await, JobState::Ready);
+    }
+
+    #[tokio::test]
+    async fn apply_tree_state_cancels_tasks_on_deactivation_and_releases_tasks_on_leaving_running()
+    -> anyhow::Result<()> {
+        for (from, to, is_cancelled, is_released) in [
+            (JobState::Ready, JobState::Running, false, false),
+            (JobState::Running, JobState::CommitReady, false, true),
+            (JobState::Running, JobState::Failed, true, true),
+            (JobState::Ready, JobState::Cancelled, true, true),
+        ] {
+            let jcb = create_test_jcb(JOB_ID).await;
+            if from == JobState::Running {
+                jcb.apply_tree_state(JobState::Ready, JobState::Running)
+                    .await?;
+            }
+            let tcb = jcb
+                .inner
+                .job_execution_state
+                .read()
+                .await
+                .task_graph
+                .get_task_control_block(0)
+                .expect("the job should have a task 0");
+
+            jcb.apply_tree_state(from, to).await?;
+            assert_eq!(tcb.is_terminal().await, is_cancelled, "{from} to {to}");
+            let is_task_released = jcb
+                .inner
+                .job_execution_state
+                .read()
+                .await
+                .task_graph
+                .get_task_control_block(0)
+                .is_none();
+            assert_eq!(is_task_released, is_released, "{from} to {to}");
         }
         Ok(())
     }

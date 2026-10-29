@@ -78,6 +78,33 @@ impl TreeStructure {
             TreeEventKind::CancelRoot => Plan::cancel_root(job_id, node),
         }
     }
+
+    /// Sets the state of the tree's job `job_id` to `state`. A terminal state drops the job from
+    /// the structure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `job_id` is not in the tree.
+    pub fn apply_state(&mut self, job_id: JobId, state: JobState) {
+        if state.is_terminal() {
+            self.nodes
+                .remove(&job_id)
+                .expect("a job whose state is applied should be in the tree");
+        } else {
+            self.nodes
+                .get_mut(&job_id)
+                .expect("a job whose state is applied should be in the tree")
+                .state = state;
+        }
+    }
+
+    /// # Returns
+    ///
+    /// Whether the tree has no job left.
+    #[must_use]
+    pub fn is_quiescent(&self) -> bool {
+        self.nodes.is_empty()
+    }
 }
 
 /// A non-terminal job of a tree, as the planner sees it.
@@ -365,5 +392,20 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn applying_a_state_sets_the_node_state_and_a_terminal_state_drops_the_node() {
+        let mut structure = TreeStructure::new_root(ROOT_ID, PLAIN_NODE);
+
+        structure.apply_state(ROOT_ID, JobState::Running);
+        assert_eq!(
+            structure.nodes.get(&ROOT_ID).map(|node| node.state),
+            Some(JobState::Running)
+        );
+        assert!(!structure.is_quiescent());
+
+        structure.apply_state(ROOT_ID, JobState::Succeeded);
+        assert!(structure.is_quiescent());
     }
 }

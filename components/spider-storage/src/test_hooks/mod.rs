@@ -75,6 +75,9 @@ pub enum HookPoint {
     /// In an instance creation, after the task registered the instance, before the instance is sent
     /// to the task instance pool.
     CreateInstanceBeforePoolSend,
+
+    /// In a round of a tree's committer, after the round's database write, before its apply.
+    CommitterRoundAfterDbWrite,
 }
 
 /// What a hit of a hook point is about. A filter matches the fields that it sets.
