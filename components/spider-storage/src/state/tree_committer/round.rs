@@ -1,6 +1,7 @@
 //! A round of a tree's committer: one event planned, written, applied, answered and published.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use spider_core::job::JobState;
 use spider_core::types::id::JobId;
@@ -39,7 +40,7 @@ pub(super) struct Committer<
     DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
-    env: CommitterEnv<InboundQueueSenderType, DbConnectorType>,
+    env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
     structure: TreeStructure,
     jcbs: HashMap<
         JobId,
@@ -67,7 +68,7 @@ impl<
     ///
     /// Panics if `root` is terminal.
     pub(super) async fn new_root(
-        env: CommitterEnv<InboundQueueSenderType, DbConnectorType>,
+        env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
         root: SharedJobControlBlock<
             InboundQueueSenderType,
             DbConnectorType,
@@ -544,13 +545,13 @@ mod tests {
 
         spawn_committer(
             &task_tracker,
-            CommitterEnv {
+            Arc::new(CommitterEnv {
                 db: MockDbConnector::default(),
                 job_cache_gc_handle: JobCacheGcHandle::new(mpsc::unbounded_channel().0),
                 inbound_queue_sender: MockInboundQueueSender,
                 shutdown_handle: shutdown_handle.clone(),
                 hooks: TestHooks::default(),
-            },
+            }),
             root,
             receivers,
         );

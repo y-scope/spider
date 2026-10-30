@@ -1,5 +1,6 @@
 //! The fixtures shared by the tree committer's tests.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use spider_core::job::JobState;
@@ -93,13 +94,13 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
         let task_tracker = TaskTracker::new();
         spawn_committer(
             &task_tracker,
-            CommitterEnv {
+            Arc::new(CommitterEnv {
                 db: db.clone(),
                 job_cache_gc_handle: JobCacheGcHandle::new(gc_sender),
                 inbound_queue_sender,
                 shutdown_handle: shutdown_handle.clone(),
                 hooks: hooks.clone(),
-            },
+            }),
             jcb.clone(),
             receivers,
         );

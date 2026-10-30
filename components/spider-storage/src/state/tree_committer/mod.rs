@@ -24,6 +24,7 @@ mod round;
 mod test_utils;
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use spider_core::types::id::JobId;
 use spider_utils::shutdown::ShutdownHandle;
@@ -79,7 +80,7 @@ pub fn spawn_committer<
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 >(
     task_tracker: &TaskTracker,
-    env: CommitterEnv<InboundQueueSenderType, DbConnectorType>,
+    env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
     root: SharedJobControlBlock<
         InboundQueueSenderType,
         DbConnectorType,
@@ -207,7 +208,7 @@ async fn run_committer<
     DbConnectorType: InternalJobOrchestration + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 >(
-    env: CommitterEnv<InboundQueueSenderType, DbConnectorType>,
+    env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
     root: SharedJobControlBlock<
         InboundQueueSenderType,
         DbConnectorType,
