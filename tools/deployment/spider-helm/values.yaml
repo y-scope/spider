@@ -87,6 +87,8 @@ spiderConfig:
         message_channel_capacity: 128
 
   worker:
+    # Each `extra_*` value is a list, or a string of YAML list items. Both are rendered with `tpl`,
+    # and a string can also contain control structures such as `{{- if ... }}`.
     extra_envs: []
     extra_volume_mounts: []
     extra_volumes: []
