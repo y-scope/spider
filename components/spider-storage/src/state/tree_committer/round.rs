@@ -22,7 +22,6 @@ use crate::db::JobStateUpdate;
 use crate::db::TreeTransition;
 use crate::inbound_queue::InboundQueueSender;
 use crate::state::tree_committer::CommitterEnv;
-use crate::state::tree_committer::answer;
 use crate::task_instance_pool::TaskInstancePoolConnector;
 use crate::test_hooks::HookContext;
 use crate::test_hooks::HookPoint;
@@ -123,17 +122,19 @@ impl<
                 new_state,
             } => (updates, publications, new_state),
             Plan::Stale(error) => {
-                answer(
-                    in_flight_reply.take().expect(ANSWERED_ONCE),
-                    Ok(TreeEventOutcome::Stale(error)),
-                );
+                // The event's waiter may have dropped its future, which is not an error of the
+                // committer.
+                let _ = in_flight_reply
+                    .take()
+                    .expect(ANSWERED_ONCE)
+                    .send(Ok(TreeEventOutcome::Stale(error)));
                 return Ok(());
             }
             Plan::Untracked => {
-                answer(
-                    in_flight_reply.take().expect(ANSWERED_ONCE),
-                    Ok(TreeEventOutcome::Untracked),
-                );
+                let _ = in_flight_reply
+                    .take()
+                    .expect(ANSWERED_ONCE)
+                    .send(Ok(TreeEventOutcome::Untracked));
                 return Ok(());
             }
         };
@@ -159,10 +160,10 @@ impl<
         for transition in transitions {
             self.apply(transition).await?;
         }
-        answer(
-            in_flight_reply.take().expect(ANSWERED_ONCE),
-            Ok(TreeEventOutcome::Applied(new_state)),
-        );
+        let _ = in_flight_reply
+            .take()
+            .expect(ANSWERED_ONCE)
+            .send(Ok(TreeEventOutcome::Applied(new_state)));
         for publication in publications {
             self.publish(publication).await?;
         }

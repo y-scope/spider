@@ -174,7 +174,9 @@ impl PoisonOnAbnormalExit {
             pending_queue.push_back(pending);
         }
         while let Some(Pending { reply, .. }) = pending_queue.take() {
-            answer(reply, make_reply());
+            // The event's waiter may have dropped its future, which is not an error of the
+            // committer.
+            let _ = reply.send(make_reply());
         }
         self.is_disarmed = true;
     }
@@ -265,12 +267,6 @@ async fn run_committer<
             return;
         }
     }
-}
-
-/// Answers an event through its `reply` sender with `outcome`.
-fn answer(reply: oneshot::Sender<TreeEventReply>, outcome: TreeEventReply) {
-    // The event's waiter may have dropped its future, which is not an error of the committer.
-    let _ = reply.send(outcome);
 }
 
 #[cfg(test)]
