@@ -2076,6 +2076,7 @@ dependencies = [
  "spider-tdl",
  "spider-utils",
  "sqlx",
+ "strum",
  "subtle",
  "tabled",
  "thiserror",

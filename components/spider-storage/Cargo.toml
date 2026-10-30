@@ -31,6 +31,7 @@ spider-proto-rust = { workspace = true }
 spider-tdl = { workspace = true }
 spider-utils = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio"] }
+strum = { workspace = true }
 subtle = { workspace = true }
 thiserror = { workspace = true }
 tokio = {
