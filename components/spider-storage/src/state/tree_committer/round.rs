@@ -88,8 +88,8 @@ impl<
         }
     }
 
-    /// Runs one round for `event`, answering it through `in_flight_reply`, which the loop owns so
-    /// that the reply outlives the poison guard.
+    /// Runs one round for `event`, answering it through `in_flight_reply`, which
+    /// [`super::CommitterContextGuard`] owns.
     ///
     /// # Errors
     ///

@@ -142,18 +142,27 @@ impl PendingQueue {
     }
 }
 
-/// Owns the tree's event receivers. Dropping it armed shuts the service down fatally before the
-/// receivers drop; the receivers then drop every queued event's reply, which wakes its waiter with
-/// [`InternalError::TreePoisoned`](crate::cache::error::InternalError::TreePoisoned).
-struct PoisonOnAbnormalExit {
+/// The committer's context: the tree's event receivers, its received events not yet planned and
+/// the reply of the event whose round is running. Dropping it armed shuts the service down
+/// fatally before its fields drop; they then drop every unanswered event's reply, which wakes its
+/// waiter with [`InternalError::TreePoisoned`](crate::cache::error::InternalError::TreePoisoned).
+struct CommitterContextGuard {
     receivers: EventReceivers,
+    pending_queue: PendingQueue,
+
+    /// The reply of the event whose round is running, which the round takes once it answers the
+    /// event. The guard owns it, rather than the loop body, so that a round that errors or panics
+    /// before answering drops it only after [`Drop::drop`] has shut the service down: the event's
+    /// waiter never sees `TreePoisoned` before the service is fatal.
+    in_flight_reply: Option<oneshot::Sender<TreeEventReply>>,
+
     shutdown_handle: ShutdownHandle,
     root_id: JobId,
     is_disarmed: bool,
 }
 
-impl PoisonOnAbnormalExit {
-    /// Closes the tree's event receivers, answers every event in `pending_queue` and every event
+impl CommitterContextGuard {
+    /// Closes the tree's event receivers, answers every event in the pending queue and every event
     /// still in the receivers with `make_reply()`, and disarms the guard.
     ///
     /// # Type Parameters
@@ -161,7 +170,6 @@ impl PoisonOnAbnormalExit {
     /// * `MakeReplyType` - The type of the closure that builds the reply to each event.
     async fn close_and_answer<MakeReplyType: Fn() -> TreeEventReply>(
         mut self,
-        mut pending_queue: PendingQueue,
         make_reply: MakeReplyType,
     ) {
         self.receivers.fast_forward.close();
@@ -169,12 +177,12 @@ impl PoisonOnAbnormalExit {
         // `try_recv` can miss a send in flight after `close`; `recv` returns `None` only once none
         // is.
         while let Some(pending) = self.receivers.fast_forward.recv().await {
-            pending_queue.push_back(pending);
+            self.pending_queue.push_back(pending);
         }
         while let Some(pending) = self.receivers.regular.recv().await {
-            pending_queue.push_back(pending);
+            self.pending_queue.push_back(pending);
         }
-        while let Some(Pending { reply, .. }) = pending_queue.take() {
+        while let Some(Pending { reply, .. }) = self.pending_queue.take() {
             // The event's waiter may have dropped its future, which is not an error of the
             // committer.
             let _ = reply.send(make_reply());
@@ -183,7 +191,7 @@ impl PoisonOnAbnormalExit {
     }
 }
 
-impl Drop for PoisonOnAbnormalExit {
+impl Drop for CommitterContextGuard {
     fn drop(&mut self) {
         if self.is_disarmed {
             return;
@@ -218,42 +226,39 @@ async fn run_committer<
 ) {
     let root_id = root.id();
     let shutdown_handle = env.shutdown_handle.clone();
-    // The pending queue and the in-flight reply are declared before the guard so that they drop
-    // after it has shut the service down.
-    let mut pending_queue = PendingQueue::default();
-    let mut in_flight_reply: Option<oneshot::Sender<TreeEventReply>> = None;
-    let mut poison_on_abnormal_exit = PoisonOnAbnormalExit {
+    let mut ctx = CommitterContextGuard {
         receivers,
+        pending_queue: PendingQueue::default(),
+        in_flight_reply: None,
         shutdown_handle: shutdown_handle.clone(),
         root_id,
         is_disarmed: false,
     };
     let mut committer = Committer::new_root(env, root).await;
     loop {
-        if pending_queue.is_empty() {
+        if ctx.pending_queue.is_empty() {
             tokio::select! {
                 biased;
-                Some(pending) = poison_on_abnormal_exit.receivers.fast_forward.recv() => {
-                    pending_queue.push_back(pending);
+                Some(pending) = ctx.receivers.fast_forward.recv() => {
+                    ctx.pending_queue.push_back(pending);
                 }
-                Some(pending) = poison_on_abnormal_exit.receivers.regular.recv() => {
-                    pending_queue.push_back(pending);
+                Some(pending) = ctx.receivers.regular.recv() => {
+                    ctx.pending_queue.push_back(pending);
                 }
                 () = shutdown_handle.cancelled() => {}
             }
         }
-        pending_queue.receive(&mut poison_on_abnormal_exit.receivers);
+        ctx.pending_queue.receive(&mut ctx.receivers);
         if shutdown_handle.is_cancelled() {
-            poison_on_abnormal_exit
-                .close_and_answer(pending_queue, || Err(CacheError::ServiceStopping))
+            ctx.close_and_answer(|| Err(CacheError::ServiceStopping))
                 .await;
             return;
         }
-        let Pending { event, reply } = pending_queue.take().expect(
+        let Pending { event, reply } = ctx.pending_queue.take().expect(
             "the pending queue should hold an event once the committer wakes before a shutdown",
         );
-        in_flight_reply.replace(reply);
-        if let Err(error) = committer.run_round(event, &mut in_flight_reply).await {
+        ctx.in_flight_reply.replace(reply);
+        if let Err(error) = committer.run_round(event, &mut ctx.in_flight_reply).await {
             tracing::error!(
                 root_id = ? root_id,
                 error = % error,
@@ -262,8 +267,7 @@ async fn run_committer<
             return;
         }
         if committer.is_quiescent() {
-            poison_on_abnormal_exit
-                .close_and_answer(pending_queue, || Ok(TreeEventOutcome::Untracked))
+            ctx.close_and_answer(|| Ok(TreeEventOutcome::Untracked))
                 .await;
             return;
         }
@@ -333,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn an_armed_poison_guard_shuts_the_service_down_fatally_even_during_a_graceful_shutdown() {
+    fn an_armed_context_guard_shuts_the_service_down_fatally_even_during_a_graceful_shutdown() {
         for (is_gracefully_cancelled_first, is_disarmed, is_cancelled, is_fatal) in [
             (false, false, true, true),
             (true, false, true, true),
@@ -345,8 +349,10 @@ mod tests {
                 shutdown_handle.shut_down_gracefully();
             }
 
-            drop(PoisonOnAbnormalExit {
+            drop(CommitterContextGuard {
                 receivers,
+                pending_queue: PendingQueue::default(),
+                in_flight_reply: None,
                 shutdown_handle: shutdown_handle.clone(),
                 root_id: ROOT_ID,
                 is_disarmed,
