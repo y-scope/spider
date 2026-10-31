@@ -96,8 +96,8 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`fail_job_with_oversized_outputs`]'s return values on failure.
-    /// * Forwards [`Self::write`]'s return values on failure.
-    /// * Forwards [`Self::apply`]'s return values on failure.
+    /// * Forwards [`Self::write_to_db`]'s return values on failure.
+    /// * Forwards [`Self::apply_to_cache`]'s return values on failure.
     /// * Forwards [`Self::publish`]'s return values on failure.
     ///
     /// # Panics
@@ -107,7 +107,7 @@ impl<
     /// * `in_flight_reply` is empty when the round answers its event.
     /// * The failure that replaces the event of a job whose outputs are too large does not plan a
     ///   transition.
-    /// * [`Self::apply`] or [`Self::publish`] panics.
+    /// * [`Self::apply_to_cache`] or [`Self::publish`] panics.
     pub(super) async fn run_round(
         &mut self,
         event: TreeEvent,
@@ -139,7 +139,7 @@ impl<
                 return Ok(());
             }
         };
-        let (transitions, publications, new_state) = match self.write(updates).await {
+        let (transitions, publications, new_state) = match self.write_to_db(updates).await {
             Ok(transitions) => (transitions, publications, new_state),
             Err(error) => {
                 let failure = fail_job_with_oversized_outputs(job_id, error)?;
@@ -153,13 +153,13 @@ impl<
                         "a regular-lane failure of a running job should plan a transition"
                     );
                 };
-                (self.write(updates).await?, publications, new_state)
+                (self.write_to_db(updates).await?, publications, new_state)
             }
         };
         self.hit_hook(HookPoint::CommitterRoundAfterDbWrite, job_id)
             .await;
         for transition in transitions {
-            self.apply(transition).await?;
+            self.apply_to_cache(transition).await?;
         }
         let _ = in_flight_reply
             .take()
@@ -189,7 +189,7 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`InternalJobOrchestration::apply_tree_transition`]'s return values on failure.
-    async fn write(&self, updates: Vec<JobStateUpdate>) -> Result<Vec<Transition>, DbError> {
+    async fn write_to_db(&self, updates: Vec<JobStateUpdate>) -> Result<Vec<Transition>, DbError> {
         let transitions = updates.iter().map(Transition::from).collect();
         self.env
             .db
@@ -211,7 +211,7 @@ impl<
     /// # Panics
     ///
     /// Panics if [`Self::jcb`] or [`TreeStructure::apply_state`] panics.
-    async fn apply(&mut self, transition: Transition) -> Result<(), CacheError> {
+    async fn apply_to_cache(&mut self, transition: Transition) -> Result<(), CacheError> {
         let Transition { job_id, from, to } = transition;
         self.jcb(job_id).apply_tree_state(from, to).await?;
         self.structure.apply_state(job_id, to);
