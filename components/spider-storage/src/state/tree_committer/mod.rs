@@ -269,8 +269,17 @@ async fn run_committer<
             "the pending queue should hold an event once the committer wakes before a shutdown",
         );
         ctx.in_flight_reply.replace(reply);
-        let failure = match committer.run_round(event, &mut ctx.in_flight_reply).await {
-            Ok(failure) => failure,
+        match committer.run_round(event, &mut ctx.in_flight_reply).await {
+            Ok(Some(failure)) => {
+                let reply = ctx.in_flight_reply.take().expect(
+                    "a round that answered nothing should leave its event's reply in flight",
+                );
+                ctx.pending_queue.push_front(Pending {
+                    event: failure,
+                    reply,
+                });
+            }
+            Ok(None) => {}
             Err(error) => {
                 tracing::error!(
                     root_id = ? root_id,
@@ -279,16 +288,6 @@ async fn run_committer<
                 );
                 return;
             }
-        };
-        if let Some(failure) = failure {
-            let reply = ctx
-                .in_flight_reply
-                .take()
-                .expect("a round that answered nothing should leave its event's reply in flight");
-            ctx.pending_queue.push_front(Pending {
-                event: failure,
-                reply,
-            });
         }
         if committer.is_quiescent() {
             ctx.close_and_answer(|| Ok(TreeEventOutcome::Untracked))
