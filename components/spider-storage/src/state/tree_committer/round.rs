@@ -95,7 +95,7 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`fail_culprit`]'s return values on failure.
+    /// * Forwards [`fail_job_with_oversized_outputs`]'s return values on failure.
     /// * Forwards [`Self::write`]'s return values on failure.
     /// * Forwards [`Self::apply`]'s return values on failure.
     /// * Forwards [`Self::publish`]'s return values on failure.
@@ -142,7 +142,7 @@ impl<
         let (transitions, publications, new_state) = match self.write(updates).await {
             Ok(transitions) => (transitions, publications, new_state),
             Err(error) => {
-                let failure = fail_culprit(job_id, error)?;
+                let failure = fail_job_with_oversized_outputs(job_id, error)?;
                 let Plan::Apply {
                     updates,
                     publications,
@@ -307,8 +307,8 @@ impl From<&JobStateUpdate> for Transition {
     }
 }
 
-/// Turns a database error that the outputs of the round's job `job_id` cause into a failure of that
-/// job on the regular lane.
+/// Turns a [`DbError::OutputsTooLarge`] of the round's job `job_id` into a failure of that job on
+/// the regular lane.
 ///
 /// # Returns
 ///
@@ -319,7 +319,7 @@ impl From<&JobStateUpdate> for Transition {
 /// Returns an error if:
 ///
 /// * [`CacheError`] converted from `error` if it is not a [`DbError::OutputsTooLarge`] of `job_id`.
-fn fail_culprit(job_id: JobId, error: DbError) -> Result<TreeEvent, CacheError> {
+fn fail_job_with_oversized_outputs(job_id: JobId, error: DbError) -> Result<TreeEvent, CacheError> {
     let DbError::OutputsTooLarge {
         job_id: culprit_id, ..
     } = &error
