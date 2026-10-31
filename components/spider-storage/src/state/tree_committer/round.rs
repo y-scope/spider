@@ -8,7 +8,6 @@ use spider_core::types::id::JobId;
 use tokio::sync::oneshot;
 
 use crate::cache::error::CacheError;
-use crate::cache::error::InternalError;
 use crate::cache::job::SharedJobControlBlock;
 use crate::cache::tree::Lane;
 use crate::cache::tree::Plan;
@@ -93,6 +92,12 @@ impl<
     /// Runs one round for `event`, answering it through `in_flight_reply`, which
     /// [`super::CommitterContextGuard`] owns.
     ///
+    /// # Returns
+    ///
+    /// The failure to plan in place of `event`, whose reply stays in `in_flight_reply`, if the
+    /// database rejected the outputs of `event`'s job as too large; [`None`] once the round has
+    /// answered `event`.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
@@ -110,13 +115,16 @@ impl<
         &mut self,
         event: TreeEvent,
         in_flight_reply: &mut Option<oneshot::Sender<TreeEventReply>>,
-    ) -> Result<(), CacheError> {
+    ) -> Result<Option<TreeEvent>, CacheError> {
         let job_id = event.job_id;
         let (outcome, publications) = match self.structure.plan_event(event) {
-            Plan::Apply(plan) => {
-                let (new_state, publications) = self.execute_plan(job_id, plan).await?;
-                (TreeEventOutcome::Applied(new_state), publications)
-            }
+            Plan::Apply(plan) => match self.execute_plan(job_id, plan).await? {
+                Execution::Executed {
+                    new_state,
+                    publications,
+                } => (TreeEventOutcome::Applied(new_state), publications),
+                Execution::OutputsRejected(failure) => return Ok(Some(failure)),
+            },
             Plan::Stale(error) => (TreeEventOutcome::Stale(error), Vec::new()),
             Plan::Untracked => (TreeEventOutcome::Untracked, Vec::new()),
         };
@@ -130,7 +138,7 @@ impl<
         for publication in publications {
             self.publish(publication).await?;
         }
-        Ok(())
+        Ok(None)
     }
 
     /// # Returns
@@ -140,18 +148,18 @@ impl<
         self.structure.is_quiescent()
     }
 
-    /// Writes `plan` to the database and applies it to the cache. If the database rejects the
-    /// outputs of `job_id` as too large, executes the failure of `job_id` instead.
+    /// Writes `plan` to the database and applies it to the cache.
     ///
     /// # Returns
     ///
-    /// The new state of the event's job and the publications of the executed plan on success.
+    /// [`Execution::Executed`] once the plan is written and applied, or
+    /// [`Execution::OutputsRejected`] if the database rejects the outputs of `job_id` as too large.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`Self::fail_job_with_oversized_outputs`]'s return values on failure.
+    /// * Forwards [`fail_job_with_oversized_outputs`]'s return values on failure.
     /// * Forwards [`Self::write_to_db`]'s return values on failure.
     /// * Forwards [`Self::apply_to_cache`]'s return values on failure.
     ///
@@ -162,7 +170,7 @@ impl<
         &mut self,
         job_id: JobId,
         plan: PlannedUpdates,
-    ) -> Result<(JobState, Vec<Publication>), CacheError> {
+    ) -> Result<Execution, CacheError> {
         let WrittenPlan {
             transitions,
             publications,
@@ -170,8 +178,9 @@ impl<
         } = match self.write_to_db(plan).await {
             Ok(written_plan) => written_plan,
             Err(error) => {
-                let failure_plan = self.fail_job_with_oversized_outputs(job_id, error)?;
-                self.write_to_db(failure_plan).await?
+                return Ok(Execution::OutputsRejected(fail_job_with_oversized_outputs(
+                    job_id, error,
+                )?));
             }
         };
         self.hit_hook(HookPoint::CommitterRoundAfterDbWrite, job_id)
@@ -180,55 +189,10 @@ impl<
         for transition in transitions {
             self.apply_to_cache(transition).await?;
         }
-        Ok((new_state, publications))
-    }
-
-    /// Plans the failure on the regular lane of the round's job `job_id`, whose outputs the
-    /// database rejected as too large in `error`.
-    ///
-    /// # Returns
-    ///
-    /// The failure's plan on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`CacheError`] converted from `error` if it is not a [`DbError::OutputsTooLarge`] of
-    ///   `job_id`.
-    /// * [`InternalError::OversizedOutputsFailureNotPlanned`] if the failure plans no transition.
-    fn fail_job_with_oversized_outputs(
-        &self,
-        job_id: JobId,
-        error: DbError,
-    ) -> Result<PlannedUpdates, CacheError> {
-        let DbError::OutputsTooLarge {
-            job_id: culprit_id, ..
-        } = &error
-        else {
-            return Err(error.into());
-        };
-        if *culprit_id != job_id {
-            return Err(error.into());
-        }
-        tracing::warn!(
-            job_id = ? job_id,
-            error = % error,
-            "The database rejected a job's outputs. Failing the job."
-        );
-        let failure = TreeEvent {
-            job_id,
-            kind: TreeEventKind::TerminalFailure {
-                lane: Lane::Regular,
-                message: error.to_string(),
-            },
-        };
-        match self.structure.plan_event(failure) {
-            Plan::Apply(plan) => Ok(plan),
-            Plan::Stale(_) | Plan::Untracked => {
-                Err(InternalError::OversizedOutputsFailureNotPlanned(job_id).into())
-            }
-        }
+        Ok(Execution::Executed {
+            new_state,
+            publications,
+        })
     }
 
     /// Writes `plan`'s updates to the database in one transaction.
@@ -361,6 +325,19 @@ struct WrittenPlan {
     new_state: JobState,
 }
 
+/// The result of executing a plan.
+enum Execution {
+    /// The plan is written and applied. Carries the event's new state and the plan's publications.
+    Executed {
+        new_state: JobState,
+        publications: Vec<Publication>,
+    },
+
+    /// The database rejected the outputs of the event's job as too large, so nothing is written.
+    /// Carries the failure of the job to plan in place of the event.
+    OutputsRejected(TreeEvent),
+}
+
 /// The state change of one job that a round applies after its write.
 struct Transition {
     job_id: JobId,
@@ -378,6 +355,42 @@ impl From<&JobStateUpdate> for Transition {
     }
 }
 
+/// Turns a [`DbError::OutputsTooLarge`] of the round's job `job_id` into a failure of that job on
+/// the regular lane.
+///
+/// # Returns
+///
+/// The failure event on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`CacheError`] converted from `error` if it is not a [`DbError::OutputsTooLarge`] of `job_id`.
+fn fail_job_with_oversized_outputs(job_id: JobId, error: DbError) -> Result<TreeEvent, CacheError> {
+    let DbError::OutputsTooLarge {
+        job_id: culprit_id, ..
+    } = &error
+    else {
+        return Err(error.into());
+    };
+    if *culprit_id != job_id {
+        return Err(error.into());
+    }
+    tracing::warn!(
+        job_id = ? job_id,
+        error = % error,
+        "The database rejected a job's outputs. Failing the job."
+    );
+    Ok(TreeEvent {
+        job_id,
+        kind: TreeEventKind::TerminalFailure {
+            lane: Lane::Regular,
+            message: error.to_string(),
+        },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use spider_utils::shutdown::ShutdownHandle;
@@ -385,6 +398,7 @@ mod tests {
     use tokio_util::task::TaskTracker;
 
     use super::*;
+    use crate::cache::error::InternalError;
     use crate::cache::error::StaleStateError;
     use crate::cache::tree::TreeControlBlock;
     use crate::inbound_queue::CleanupTaskMarker;

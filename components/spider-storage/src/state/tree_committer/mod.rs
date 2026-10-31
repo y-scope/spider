@@ -121,6 +121,15 @@ impl PendingQueue {
         }
     }
 
+    /// Puts `pending` at the front of the queue, ahead of the queued events of its channel.
+    fn push_front(&mut self, pending: Pending) {
+        if pending.event.kind.is_fast_forward() {
+            self.fast_forward.push_front(pending);
+        } else {
+            self.regular.push_front(pending);
+        }
+    }
+
     /// Takes the oldest fast-forward event, or else the oldest regular event.
     ///
     /// # Returns
@@ -260,13 +269,26 @@ async fn run_committer<
             "the pending queue should hold an event once the committer wakes before a shutdown",
         );
         ctx.in_flight_reply.replace(reply);
-        if let Err(error) = committer.run_round(event, &mut ctx.in_flight_reply).await {
-            tracing::error!(
-                root_id = ? root_id,
-                error = % error,
-                "A round of a tree's committer failed."
-            );
-            return;
+        let failure = match committer.run_round(event, &mut ctx.in_flight_reply).await {
+            Ok(failure) => failure,
+            Err(error) => {
+                tracing::error!(
+                    root_id = ? root_id,
+                    error = % error,
+                    "A round of a tree's committer failed."
+                );
+                return;
+            }
+        };
+        if let Some(failure) = failure {
+            let reply = ctx
+                .in_flight_reply
+                .take()
+                .expect("a round that answered nothing should leave its event's reply in flight");
+            ctx.pending_queue.push_front(Pending {
+                event: failure,
+                reply,
+            });
         }
         if committer.is_quiescent() {
             ctx.close_and_answer(|| Ok(TreeEventOutcome::Untracked))
