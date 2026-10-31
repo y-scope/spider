@@ -139,6 +139,7 @@ mod tests {
     use crate::cache::error::StaleStateError;
     use crate::cache::tree::Lane;
     use crate::cache::tree::Plan;
+    use crate::cache::tree::PlannedUpdates;
     use crate::cache::tree::Publication;
     use crate::cache::tree::TreeEvent;
     use crate::cache::tree::TreeEventKind;
@@ -174,11 +175,11 @@ mod tests {
     /// Panics if `plan` is not [`Plan::Apply`].
     fn unwrap_apply(plan: Plan) -> (Vec<JobStateUpdate>, Vec<Publication>, JobState) {
         match plan {
-            Plan::Apply {
+            Plan::Apply(PlannedUpdates {
                 updates,
                 publications,
                 new_state,
-            } => (updates, publications, new_state),
+            }) => (updates, publications, new_state),
             plan => panic!("the plan should apply its event, got {plan:?}"),
         }
     }

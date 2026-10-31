@@ -83,6 +83,9 @@ pub enum InternalError {
         actual: JobState,
     },
 
+    #[error("the failure of job {0:?}, whose outputs are too large, planned no transition")]
+    OversizedOutputsFailureNotPlanned(JobId),
+
     #[error("job terminated unexpectedly")]
     UnexpectedJobTermination,
 

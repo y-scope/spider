@@ -22,6 +22,7 @@ pub use event::TreeEventKind;
 pub use event::TreeEventOutcome;
 pub use event::TreeEventReply;
 pub use planner::Plan;
+pub use planner::PlannedUpdates;
 pub use planner::Publication;
 pub use structure::TreeNode;
 pub use structure::TreeStructure;
