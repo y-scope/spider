@@ -112,15 +112,6 @@ impl PendingQueue {
         self.fast_forward.is_empty() && self.regular.is_empty()
     }
 
-    /// Appends `pending` to the queue, behind the queued events of its channel.
-    fn push_back(&mut self, pending: Pending) {
-        if pending.event.kind.is_fast_forward() {
-            self.fast_forward.push_back(pending);
-        } else {
-            self.regular.push_back(pending);
-        }
-    }
-
     /// Puts `pending` at the front of the queue, ahead of the queued events of its channel.
     fn push_front(&mut self, pending: Pending) {
         if pending.event.kind.is_fast_forward() {
@@ -145,10 +136,10 @@ impl PendingQueue {
     /// event, then every regular one.
     fn receive(&mut self, receivers: &mut EventReceivers) {
         while let Ok(pending) = receivers.fast_forward.try_recv() {
-            self.push_back(pending);
+            self.fast_forward.push_back(pending);
         }
         while let Ok(pending) = receivers.regular.try_recv() {
-            self.push_back(pending);
+            self.regular.push_back(pending);
         }
     }
 }
@@ -188,10 +179,10 @@ impl CommitterContextGuard {
         // `try_recv` can miss a send in flight after `close`; `recv` returns `None` only once none
         // is.
         while let Some(pending) = self.receivers.fast_forward.recv().await {
-            self.pending_queue.push_back(pending);
+            self.pending_queue.fast_forward.push_back(pending);
         }
         while let Some(pending) = self.receivers.regular.recv().await {
-            self.pending_queue.push_back(pending);
+            self.pending_queue.regular.push_back(pending);
         }
         while let Some(Pending { reply, .. }) = self.pending_queue.take() {
             // The event's waiter may have dropped its future, which is not an error of the
@@ -251,10 +242,10 @@ async fn run_committer<
             tokio::select! {
                 biased;
                 Some(pending) = ctx.receivers.fast_forward.recv() => {
-                    ctx.pending_queue.push_back(pending);
+                    ctx.pending_queue.fast_forward.push_back(pending);
                 }
                 Some(pending) = ctx.receivers.regular.recv() => {
-                    ctx.pending_queue.push_back(pending);
+                    ctx.pending_queue.regular.push_back(pending);
                 }
                 () = shutdown_handle.cancelled() => {}
             }
