@@ -268,7 +268,7 @@ async fn run_committer<
         let Pending { event, reply } = ctx.pending_queue.take().expect(
             "the pending queue should hold an event once the committer wakes before a shutdown",
         );
-        ctx.in_flight_reply.replace(reply);
+        ctx.in_flight_reply = Some(reply);
         match committer.run_round(event, &mut ctx.in_flight_reply).await {
             Ok(Some(failure)) => {
                 let reply = ctx.in_flight_reply.take().expect(
