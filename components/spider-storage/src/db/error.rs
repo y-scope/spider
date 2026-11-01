@@ -73,6 +73,9 @@ pub enum DbError {
         limit: u64,
     },
 
+    #[error("`max_allowed_packet` of {size} bytes is below the minimum of {min_size} bytes")]
+    MaxAllowedPacketTooSmall { size: u64, min_size: u64 },
+
     #[error(transparent)]
     Sql(#[from] sqlx::error::Error),
 }

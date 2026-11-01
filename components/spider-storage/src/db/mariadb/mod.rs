@@ -27,6 +27,7 @@ use crate::db::mariadb::schema::STORAGE_FENCE_TABLE_NAME;
 use crate::db::mariadb::schema::create_tables;
 use crate::db::mariadb::tree_transition::MAX_STATEMENT_OVERHEAD;
 use crate::db::mariadb::tree_transition::MAX_STATEMENT_PAYLOAD;
+use crate::limits::MAX_ERROR_MESSAGE_CHARS;
 
 /// A cloneable storage connector for `MariaDB` database that implements Spider's DB protocols.
 #[derive(Clone)]
@@ -39,8 +40,9 @@ pub struct MariaDbStorageConnector {
 }
 
 impl MariaDbStorageConnector {
-    /// Connects to database, initializes tables, and fences off every storage session that
-    /// connected earlier with the same fence ID.
+    /// Connects to database, checks that the server can store any job's failure message,
+    /// initializes tables, and fences off every storage session that connected earlier with the
+    /// same fence ID.
     ///
     /// # Returns
     ///
@@ -51,10 +53,11 @@ impl MariaDbStorageConnector {
     /// Returns an error if:
     ///
     /// * Forwards [`sqlx::pool::PoolOptions::connect_with`]'s return values on failure.
+    /// * Forwards [`sqlx::query::QueryScalar::fetch_one`]'s return values on failure.
+    /// * Forwards [`validate_max_allowed_packet`]'s return values on failure.
     /// * Forwards [`create_tables`]'s return values on failure.
     /// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
     /// * Forwards [`bump_fence`]'s return values on failure.
-    /// * Forwards [`sqlx::query::QueryScalar::fetch_one`]'s return values on failure.
     pub async fn connect(config: &DatabaseConfig) -> Result<Self, DbError> {
         const SET_WAIT_TIMEOUT_QUERY: &str =
             formatcp!("SET SESSION wait_timeout = {SESSION_WAIT_TIMEOUT_SEC};");
@@ -87,6 +90,11 @@ impl MariaDbStorageConnector {
             .connect_with(mysql_options)
             .await?;
 
+        let max_allowed_packet: u64 = sqlx::query_scalar(SELECT_MAX_ALLOWED_PACKET_QUERY)
+            .fetch_one(&pool)
+            .await?;
+        validate_max_allowed_packet(max_allowed_packet)?;
+
         create_tables(&pool).await?;
 
         let fence_id = config.fence_id.unwrap_or(DEFAULT_FENCE_ID);
@@ -102,9 +110,6 @@ impl MariaDbStorageConnector {
                 .last_insert_id(),
         );
         bump_fence(&pool, fence_id, session_id).await?;
-        let max_allowed_packet: u64 = sqlx::query_scalar(SELECT_MAX_ALLOWED_PACKET_QUERY)
-            .fetch_one(&pool)
-            .await?;
 
         Ok(Self {
             pool,
@@ -148,6 +153,33 @@ const SESSION_WAIT_TIMEOUT_SEC: u64 = 900;
 /// this lifetime, so a pooled connection can idle on the server for up to twice this lifetime.
 const UNPINGED_CONNECTION_MAX_LIFETIME_SEC: u64 = 300;
 const _: () = assert!(2 * UNPINGED_CONNECTION_MAX_LIFETIME_SEC < SESSION_WAIT_TIMEOUT_SEC);
+
+/// The maximum number of bytes that one character takes in the `utf8mb4` character set.
+const UTF8MB4_MAX_CHAR_SIZE: u64 = 4;
+
+/// The minimum `max_allowed_packet` of a server that can store any job's failure message, which
+/// is cut to [`MAX_ERROR_MESSAGE_CHARS`] characters, in one statement.
+const MIN_MAX_ALLOWED_PACKET: u64 =
+    MAX_ERROR_MESSAGE_CHARS as u64 * UTF8MB4_MAX_CHAR_SIZE + MAX_STATEMENT_OVERHEAD;
+
+/// Validates that a server whose `max_allowed_packet` is `max_allowed_packet` can store any job's
+/// failure message.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`DbError::MaxAllowedPacketTooSmall`] if `max_allowed_packet` is below
+///   [`MIN_MAX_ALLOWED_PACKET`].
+const fn validate_max_allowed_packet(max_allowed_packet: u64) -> Result<(), DbError> {
+    if max_allowed_packet < MIN_MAX_ALLOWED_PACKET {
+        return Err(DbError::MaxAllowedPacketTooSmall {
+            size: max_allowed_packet,
+            min_size: MIN_MAX_ALLOWED_PACKET,
+        });
+    }
+    Ok(())
+}
 
 /// Runs `tx` on a freshly acquired pooled connection whose next transaction uses the `READ
 /// COMMITTED` isolation level.
@@ -204,12 +236,15 @@ mod tests {
     use serial_test::serial;
     use sqlx::mysql::MySqlPoolOptions;
 
+    use super::MIN_MAX_ALLOWED_PACKET;
     use super::MariaDbStorageConnector;
     use super::SESSION_WAIT_TIMEOUT_SEC;
     use super::UNPINGED_CONNECTION_MAX_LIFETIME_SEC;
+    use super::validate_max_allowed_packet;
     use crate::config::DatabaseConfig;
     use crate::config::DatabaseCredentials;
     use crate::config::DatabasePoolConfig;
+    use crate::db::DbError;
 
     /// # Returns
     ///
@@ -287,6 +322,33 @@ mod tests {
         assert_eq!(
             options.get_max_lifetime(),
             Some(Duration::from_secs(UNPINGED_CONNECTION_MAX_LIFETIME_SEC))
+        );
+    }
+
+    #[test]
+    fn max_allowed_packet_at_or_above_the_minimum_is_accepted() {
+        const DEFAULT_MAX_ALLOWED_PACKET: u64 = 16 * 1024 * 1024;
+
+        for max_allowed_packet in [MIN_MAX_ALLOWED_PACKET, DEFAULT_MAX_ALLOWED_PACKET] {
+            let result = validate_max_allowed_packet(max_allowed_packet);
+            assert!(
+                result.is_ok(),
+                "`max_allowed_packet` of {max_allowed_packet} bytes should be accepted, got \
+                 {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn max_allowed_packet_below_the_minimum_is_rejected() {
+        let result = validate_max_allowed_packet(MIN_MAX_ALLOWED_PACKET - 1);
+        assert!(
+            matches!(
+                result,
+                Err(DbError::MaxAllowedPacketTooSmall { size, min_size })
+                    if size == MIN_MAX_ALLOWED_PACKET - 1 && min_size == MIN_MAX_ALLOWED_PACKET
+            ),
+            "`max_allowed_packet` below the minimum should be rejected, got {result:?}"
         );
     }
 
