@@ -1056,17 +1056,13 @@ mod tests {
 
     use spider_core::compression::encode_zstd_bytes;
     use spider_core::job::JobState;
-    use spider_core::task::DataTypeDescriptor;
     use spider_core::task::ExecutionPolicy;
-    use spider_core::task::TaskDescriptor;
     use spider_core::task::TaskGraph as SubmittedTaskGraph;
     use spider_core::task::TdlContext;
     use spider_core::task::TerminationTaskDescriptor;
-    use spider_core::task::ValueTypeDescriptor;
     use spider_core::types::id::ExecutionManagerId;
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
-    use spider_core::types::io::TaskGraphInput;
     use spider_core::types::io::TaskGraphInputBuilder;
     use spider_core::types::io::TaskOutput;
 
@@ -1083,6 +1079,10 @@ mod tests {
     use crate::state::test_utils::MockDbConnector;
     use crate::state::test_utils::MockInboundQueueSender;
     use crate::state::test_utils::MockTaskInstancePoolConnector;
+    use crate::state::test_utils::create_test_jcb;
+    use crate::state::test_utils::create_test_task_graph;
+    use crate::state::test_utils::create_test_task_graph_input;
+    use crate::state::test_utils::create_test_task_graph_with_termination_tasks;
 
     type TestServiceState =
         ServiceState<MockInboundQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
@@ -1147,48 +1147,6 @@ mod tests {
         (service, sender)
     }
 
-    fn create_test_task_graph() -> SubmittedTaskGraph {
-        create_test_task_graph_with_termination_tasks(None, None)
-    }
-
-    fn create_test_task_graph_with_termination_tasks(
-        commit_task: Option<TerminationTaskDescriptor>,
-        cleanup_task: Option<TerminationTaskDescriptor>,
-    ) -> SubmittedTaskGraph {
-        let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
-        let mut task_graph = SubmittedTaskGraph::new(commit_task, cleanup_task)
-            .expect("task graph creation should succeed");
-        task_graph
-            .insert_task(TaskDescriptor {
-                tdl_context: TdlContext {
-                    package: "test_pkg".to_owned(),
-                    task_func: "test_fn".to_owned(),
-                },
-                execution_policy: Some(ExecutionPolicy::default()),
-                inputs: vec![bytes_type.clone()],
-                outputs: vec![bytes_type],
-                input_sources: None,
-            })
-            .expect("task insertion should succeed");
-        task_graph
-    }
-
-    /// # Returns
-    ///
-    /// A task graph input whose only positional input is the msgpack serialization of a 4-byte zero
-    /// array.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the input serialization fails.
-    fn create_test_task_graph_input() -> TaskGraphInput {
-        let mut builder = TaskGraphInputBuilder::new();
-        builder
-            .append_task_input(&[0u8; 4])
-            .expect("task input appending should succeed");
-        builder.build()
-    }
-
     fn create_test_job_submission() -> (Vec<u8>, Vec<u8>) {
         let task_graph = create_test_task_graph();
         (
@@ -1205,30 +1163,6 @@ mod tests {
 
     fn create_empty_compressed_serialized_task_graph_input() -> Vec<u8> {
         compress_job_inputs(&TaskGraphInputBuilder::new().build())
-    }
-
-    type TestJcb = SharedJobControlBlock<
-        MockInboundQueueSender,
-        MockDbConnector,
-        MockTaskInstancePoolConnector,
-    >;
-
-    async fn create_test_jcb(job_id: JobId) -> TestJcb {
-        let task_graph = create_test_task_graph();
-        let job_submission =
-            create_validated_submission(task_graph, create_test_task_graph_input());
-
-        SharedJobControlBlock::create(
-            job_id,
-            ResourceGroupId::random(),
-            job_submission,
-            MockInboundQueueSender,
-            MockDbConnector::default(),
-            MockTaskInstancePoolConnector,
-            TestHooks::default(),
-        )
-        .await
-        .expect("JCB creation should succeed")
     }
 
     #[tokio::test]

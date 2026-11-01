@@ -6,17 +6,27 @@ use std::sync::atomic::Ordering;
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
 use spider_core::job::JobState;
+use spider_core::task::DataTypeDescriptor;
+use spider_core::task::ExecutionPolicy;
+use spider_core::task::TaskDescriptor;
+use spider_core::task::TaskGraph as SubmittedTaskGraph;
+use spider_core::task::TdlContext;
+use spider_core::task::TerminationTaskDescriptor;
+use spider_core::task::ValueTypeDescriptor;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SchedulerId;
 use spider_core::types::id::SessionId;
 use spider_core::types::id::TaskInstanceId;
+use spider_core::types::io::TaskGraphInput;
+use spider_core::types::io::TaskGraphInputBuilder;
 use spider_core::types::io::TaskOutput;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_core::types::scheduler::RegisteredScheduler;
 
 use crate::cache::error::InternalError;
+use crate::cache::job::SharedJobControlBlock;
 use crate::cache::task::SharedTaskControlBlock;
 use crate::cache::task::SharedTerminationTaskControlBlock;
 use crate::db::DbError;
@@ -31,12 +41,17 @@ use crate::db::SessionManagement;
 use crate::db::TreeTransition;
 use crate::inbound_queue::InboundQueueSender;
 use crate::job_submission::ValidatedJobSubmission;
+use crate::job_submission::create_validated_submission;
 use crate::task_instance_pool::TaskInstanceMetadata;
 use crate::task_instance_pool::TaskInstancePoolConnector;
+use crate::test_hooks::TestHooks;
 
 /// The maximum total size of one job's outputs that [`MockDbConnector`] accepts in a tree
 /// transition.
 pub const MOCK_MAX_OUTPUTS_SIZE: u64 = 4 * 1024 * 1024;
+
+pub type TestJcb =
+    SharedJobControlBlock<MockInboundQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
 
 /// A mock inbound queue sender for testing.
 #[derive(Clone, Default)]
@@ -402,4 +417,63 @@ impl TaskInstancePoolConnector for MockTaskInstancePoolConnector {
     ) -> Result<(), InternalError> {
         Ok(())
     }
+}
+
+pub fn create_test_task_graph() -> SubmittedTaskGraph {
+    create_test_task_graph_with_termination_tasks(None, None)
+}
+
+pub fn create_test_task_graph_with_termination_tasks(
+    commit_task: Option<TerminationTaskDescriptor>,
+    cleanup_task: Option<TerminationTaskDescriptor>,
+) -> SubmittedTaskGraph {
+    let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
+    let mut task_graph = SubmittedTaskGraph::new(commit_task, cleanup_task)
+        .expect("task graph creation should succeed");
+    task_graph
+        .insert_task(TaskDescriptor {
+            tdl_context: TdlContext {
+                package: "test_pkg".to_owned(),
+                task_func: "test_fn".to_owned(),
+            },
+            execution_policy: Some(ExecutionPolicy::default()),
+            inputs: vec![bytes_type.clone()],
+            outputs: vec![bytes_type],
+            input_sources: None,
+        })
+        .expect("task insertion should succeed");
+    task_graph
+}
+
+/// # Returns
+///
+/// A task graph input whose only positional input is the msgpack serialization of a 4-byte zero
+/// array.
+///
+/// # Panics
+///
+/// Panics if the input serialization fails.
+pub fn create_test_task_graph_input() -> TaskGraphInput {
+    let mut builder = TaskGraphInputBuilder::new();
+    builder
+        .append_task_input(&[0u8; 4])
+        .expect("task input appending should succeed");
+    builder.build()
+}
+
+pub async fn create_test_jcb(job_id: JobId) -> TestJcb {
+    let task_graph = create_test_task_graph();
+    let job_submission = create_validated_submission(task_graph, create_test_task_graph_input());
+
+    SharedJobControlBlock::create(
+        job_id,
+        ResourceGroupId::random(),
+        job_submission,
+        MockInboundQueueSender,
+        MockDbConnector::default(),
+        MockTaskInstancePoolConnector,
+        TestHooks::default(),
+    )
+    .await
+    .expect("JCB creation should succeed")
 }

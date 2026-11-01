@@ -78,6 +78,33 @@ impl TreeStructure {
             TreeEventKind::CancelRoot => Plan::cancel_root(job_id, node),
         }
     }
+
+    /// Sets the state of the tree's job `job_id` to `state`. A terminal state drops the job from
+    /// the structure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `job_id` is not in the tree.
+    pub fn apply_state(&mut self, job_id: JobId, state: JobState) {
+        if state.is_terminal() {
+            self.nodes
+                .remove(&job_id)
+                .expect("a job whose state is applied should be in the tree");
+        } else {
+            self.nodes
+                .get_mut(&job_id)
+                .expect("a job whose state is applied should be in the tree")
+                .state = state;
+        }
+    }
+
+    /// # Returns
+    ///
+    /// Whether the tree has no job left.
+    #[must_use]
+    pub fn is_quiescent(&self) -> bool {
+        self.nodes.is_empty()
+    }
 }
 
 /// A non-terminal job of a tree, as the planner sees it.
@@ -112,6 +139,7 @@ mod tests {
     use crate::cache::error::StaleStateError;
     use crate::cache::tree::Lane;
     use crate::cache::tree::Plan;
+    use crate::cache::tree::PlannedUpdates;
     use crate::cache::tree::Publication;
     use crate::cache::tree::TreeEvent;
     use crate::cache::tree::TreeEventKind;
@@ -140,18 +168,14 @@ mod tests {
 
     /// # Returns
     ///
-    /// The updates, the publications and the new state of `plan`.
+    /// The planned updates of `plan`.
     ///
     /// # Panics
     ///
     /// Panics if `plan` is not [`Plan::Apply`].
-    fn unwrap_apply(plan: Plan) -> (Vec<JobStateUpdate>, Vec<Publication>, JobState) {
+    fn unwrap_apply(plan: Plan) -> PlannedUpdates {
         match plan {
-            Plan::Apply {
-                updates,
-                publications,
-                new_state,
-            } => (updates, publications, new_state),
+            Plan::Apply(planned_updates) => planned_updates,
             plan => panic!("the plan should apply its event, got {plan:?}"),
         }
     }
@@ -189,7 +213,11 @@ mod tests {
 
     #[test]
     fn start_moves_a_ready_root_to_running_and_publishes_its_ready_tasks() {
-        let (updates, publications, new_state) = unwrap_apply(plan_root_event(
+        let PlannedUpdates {
+            updates,
+            publications,
+            new_state,
+        } = unwrap_apply(plan_root_event(
             PLAIN_NODE,
             TreeEventKind::Start {
                 ready_task_indices: vec![0, 2],
@@ -224,7 +252,11 @@ mod tests {
             ),
             (false, JobState::Succeeded, Vec::new()),
         ] {
-            let (updates, publications, _) = unwrap_apply(plan_root_event(
+            let PlannedUpdates {
+                updates,
+                publications,
+                ..
+            } = unwrap_apply(plan_root_event(
                 TreeNode {
                     state: JobState::Running,
                     has_commit,
@@ -247,7 +279,11 @@ mod tests {
 
     #[test]
     fn commit_done_succeeds_a_commit_ready_job_without_storing_outputs() {
-        let (updates, publications, _) = unwrap_apply(plan_root_event(
+        let PlannedUpdates {
+            updates,
+            publications,
+            ..
+        } = unwrap_apply(plan_root_event(
             TreeNode {
                 state: JobState::CommitReady,
                 has_commit: true,
@@ -268,7 +304,11 @@ mod tests {
 
     #[test]
     fn cleanup_done_cancels_a_cleanup_ready_job() {
-        let (updates, publications, _) = unwrap_apply(plan_root_event(
+        let PlannedUpdates {
+            updates,
+            publications,
+            ..
+        } = unwrap_apply(plan_root_event(
             TreeNode {
                 state: JobState::CleanupReady,
                 has_cleanup: true,
@@ -294,7 +334,11 @@ mod tests {
             (Lane::Commit, JobState::CommitReady),
             (Lane::Cleanup, JobState::CleanupReady),
         ] {
-            let (updates, publications, _) = unwrap_apply(plan_root_event(
+            let PlannedUpdates {
+                updates,
+                publications,
+                ..
+            } = unwrap_apply(plan_root_event(
                 TreeNode {
                     state,
                     has_commit: true,
@@ -319,7 +363,7 @@ mod tests {
             (MAX_ERROR_MESSAGE_CHARS + 1, MAX_ERROR_MESSAGE_CHARS),
             (MAX_ERROR_MESSAGE_CHARS, MAX_ERROR_MESSAGE_CHARS),
         ] {
-            let (updates, ..) = unwrap_apply(plan_root_event(
+            let PlannedUpdates { updates, .. } = unwrap_apply(plan_root_event(
                 TreeNode {
                     state: JobState::Running,
                     ..PLAIN_NODE
@@ -346,7 +390,11 @@ mod tests {
                 } else {
                     (JobState::Cancelled, Vec::new())
                 };
-                let (updates, publications, _) = unwrap_apply(plan_root_event(
+                let PlannedUpdates {
+                    updates,
+                    publications,
+                    ..
+                } = unwrap_apply(plan_root_event(
                     TreeNode {
                         state,
                         has_cleanup,
@@ -365,5 +413,20 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn applying_a_state_sets_the_node_state_and_a_terminal_state_drops_the_node() {
+        let mut structure = TreeStructure::new_root(ROOT_ID, PLAIN_NODE);
+
+        structure.apply_state(ROOT_ID, JobState::Running);
+        assert_eq!(
+            structure.nodes.get(&ROOT_ID).map(|node| node.state),
+            Some(JobState::Running)
+        );
+        assert!(!structure.is_quiescent());
+
+        structure.apply_state(ROOT_ID, JobState::Succeeded);
+        assert!(structure.is_quiescent());
     }
 }

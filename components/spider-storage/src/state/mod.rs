@@ -3,6 +3,7 @@ pub mod job_cache;
 pub mod job_cache_gc;
 pub mod runtime;
 pub mod service;
+pub mod tree_committer;
 
 pub use error::StorageServerError;
 pub use job_cache::JobCache;

@@ -13,17 +13,8 @@ use crate::limits::MAX_ERROR_MESSAGE_CHARS;
 /// The plan of one event.
 #[derive(Debug)]
 pub enum Plan {
-    /// The event is applied: write `updates`, then publish `publications`.
-    Apply {
-        /// The guarded row updates to write, at most one per job.
-        updates: Vec<JobStateUpdate>,
-
-        /// The ready work to publish after the updates are applied.
-        publications: Vec<Publication>,
-
-        /// The new state of the event's job.
-        new_state: JobState,
-    },
+    /// The event is applied: write the updates, then publish the publications.
+    Apply(PlannedUpdates),
 
     /// The job's state does not accept the event; nothing is written.
     Stale(StaleStateError),
@@ -165,12 +156,26 @@ impl Plan {
     /// A [`Plan::Apply`] that writes `update` alone, then publishes `publications`, and whose
     /// event's job moves to the state that `update` moves it to.
     fn applying_and_publishing(update: JobStateUpdate, publications: Vec<Publication>) -> Self {
-        Self::Apply {
+        Self::Apply(PlannedUpdates {
             new_state: update.to,
             updates: vec![update],
             publications,
-        }
+        })
     }
+}
+
+/// The guarded row updates, the publications and the event's new state of a plan that applies its
+/// event.
+#[derive(Debug)]
+pub struct PlannedUpdates {
+    /// The guarded row updates to write, at most one per job.
+    pub updates: Vec<JobStateUpdate>,
+
+    /// The ready work to publish after the updates are applied.
+    pub publications: Vec<Publication>,
+
+    /// The new state of the event's job.
+    pub new_state: JobState,
 }
 
 /// Ready work that a plan makes available once its updates are applied.
@@ -187,6 +192,18 @@ pub enum Publication {
 
     /// The cleanup task of a job.
     Cleanup(JobId),
+}
+
+impl Publication {
+    /// # Returns
+    ///
+    /// The job whose work the publication makes available.
+    #[must_use]
+    pub const fn job_id(&self) -> JobId {
+        match self {
+            Self::Ready { job_id, .. } | Self::Commit(job_id) | Self::Cleanup(job_id) => *job_id,
+        }
+    }
 }
 
 /// # Returns

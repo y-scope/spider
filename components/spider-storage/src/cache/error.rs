@@ -76,6 +76,13 @@ pub enum InternalError {
     #[error("job has no cleanup task")]
     UndefinedCleanupTask,
 
+    #[error("job {job_id:?} is cached as {actual}, but a committed transition expects {expected}")]
+    CacheDbDivergence {
+        job_id: JobId,
+        expected: JobState,
+        actual: JobState,
+    },
+
     #[error("job terminated unexpectedly")]
     UnexpectedJobTermination,
 
