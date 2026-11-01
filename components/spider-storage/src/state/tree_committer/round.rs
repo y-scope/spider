@@ -445,7 +445,7 @@ mod tests {
         }
         .to_string();
         assert_eq!(
-            tree.db.errors.get(&ROOT_ID).map(|message| message.clone()),
+            tree.db.errors.get(&ROOT_ID).as_deref(),
             Some(expected_message)
         );
         assert!(
