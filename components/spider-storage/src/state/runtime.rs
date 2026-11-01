@@ -8,6 +8,8 @@ use tokio_util::task::TaskTracker;
 use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
 use crate::cache::job::SharedJobControlBlock;
+use crate::cache::tree::EventReceivers;
+use crate::cache::tree::TreeControlBlock;
 use crate::config::DatabaseConfig;
 use crate::db::DbStorage;
 use crate::db::MariaDbStorageConnector;
@@ -185,8 +187,9 @@ pub async fn create_runtime(
 ///
 /// * Forwards [`MariaDbStorageConnector::connect`]'s return values on failure.
 /// * Forwards [`create_task_instance_pool`]'s return values on failure.
-/// * Forwards [`recover_job_cache`]'s return values on failure.
+/// * Forwards [`recover_trees`]'s return values on failure.
 /// * Forwards [`create_job_cache_gc`]'s return values on failure.
+/// * Forwards [`ServiceState::insert_tree`]'s return values on failure.
 pub async fn create_runtime_with_hooks(
     config: &RuntimeConfig,
     hooks: TestHooks,
@@ -206,13 +209,15 @@ pub async fn create_runtime_with_hooks(
     )
     .map_err(CacheError::from)?;
 
-    let job_cache = recover_job_cache(
+    let recovered_trees = recover_trees(
         &db,
+        &shutdown_handle,
         inbound_queue_sender.clone(),
         task_instance_pool_connector.clone(),
         &hooks,
     )
     .await?;
+    let job_cache = JobCache::new();
     let (job_cache_gc_handle, job_cache_gc_join_handle) = create_job_cache_gc(
         job_cache.clone(),
         shutdown_handle.clone(),
@@ -230,6 +235,9 @@ pub async fn create_runtime_with_hooks(
         shutdown_handle: shutdown_handle.clone(),
         hooks,
     });
+    for (root, receivers) in recovered_trees {
+        service_state.insert_tree(root, receivers).await?;
+    }
 
     Ok(Runtime {
         task_tracker: service_state.task_tracker().clone(),
@@ -243,11 +251,18 @@ pub async fn create_runtime_with_hooks(
 
 const STOP_BACKGROUND_TASKS_TIMEOUT_SEC: u64 = 30;
 
-/// Recovers jobs from persistent storage into the cache, with `hooks` as their test hooks.
+/// Recovers every recoverable job from the database as the root of its own one-job tree, with
+/// `hooks` as their test hooks.
+///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The inbound queue sender type.
+/// * `DbConnectorType` - The database connector type.
+/// * `TaskInstancePoolConnectorType` - The task instance pool connector type.
 ///
 /// # Returns
 ///
-/// A [`JobCache`] containing all recoverable jobs on success.
+/// Each recovered job's control block, paired with its tree's event receivers, on success.
 ///
 /// # Errors
 ///
@@ -255,40 +270,44 @@ const STOP_BACKGROUND_TASKS_TIMEOUT_SEC: u64 = 30;
 ///
 /// * Forwards [`DbStorage::get_recoverable_jobs`]'s return values on failure.
 /// * Forwards [`SharedJobControlBlock::recover`]'s return values on failure.
-/// * Forwards [`JobCache::insert`]'s return values on failure.
-async fn recover_job_cache<
+async fn recover_trees<
     InboundQueueSenderType: InboundQueueSender,
     DbConnectorType: DbStorage,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 >(
     db: &DbConnectorType,
+    shutdown_handle: &ShutdownHandle,
     inbound_queue_sender: InboundQueueSenderType,
     task_instance_pool_connector: TaskInstancePoolConnectorType,
     hooks: &TestHooks,
 ) -> Result<
-    JobCache<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    Vec<(
+        SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
+        EventReceivers,
+    )>,
     StorageServerError,
 > {
-    let job_cache = JobCache::new();
+    let mut recovered_trees = Vec::new();
     for recoverable_job in db.get_recoverable_jobs().await? {
         let id = recoverable_job.id;
         let state = recoverable_job.state;
+        let (tree, receivers) = TreeControlBlock::new(shutdown_handle.clone());
         let jcb = SharedJobControlBlock::recover(
             recoverable_job,
             inbound_queue_sender.clone(),
-            db.clone(),
             task_instance_pool_connector.clone(),
             hooks.clone(),
+            tree,
         )
         .await?;
-        job_cache.insert(jcb).await?;
+        recovered_trees.push((jcb, receivers));
         tracing::info!(
             job_id = ? id,
             job_state = ? state,
-            "Job recovered into cache.",
+            "Job recovered.",
         );
     }
-    Ok(job_cache)
+    Ok(recovered_trees)
 }
 
 #[cfg(test)]

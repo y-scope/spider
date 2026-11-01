@@ -83,11 +83,7 @@ pub fn spawn_committer<
 >(
     task_tracker: &TaskTracker,
     env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
-    root: SharedJobControlBlock<
-        InboundQueueSenderType,
-        DbConnectorType,
-        TaskInstancePoolConnectorType,
-    >,
+    root: SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
     receivers: EventReceivers,
 ) {
     task_tracker.spawn(run_committer(env, root, receivers));
@@ -219,11 +215,7 @@ async fn run_committer<
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 >(
     env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
-    root: SharedJobControlBlock<
-        InboundQueueSenderType,
-        DbConnectorType,
-        TaskInstancePoolConnectorType,
-    >,
+    root: SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
     receivers: EventReceivers,
 ) {
     let root_id = root.id();

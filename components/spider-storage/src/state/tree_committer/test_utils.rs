@@ -45,11 +45,7 @@ pub(super) const TIMEOUT: Duration = Duration::from_secs(5);
 /// A one-job tree whose committer runs in its own task tracker.
 pub(super) struct TestTree<InboundQueueSenderType: InboundQueueSender + 'static> {
     pub(super) control_block: TreeControlBlock,
-    pub(super) jcb: SharedJobControlBlock<
-        InboundQueueSenderType,
-        MockDbConnector,
-        MockTaskInstancePoolConnector,
-    >,
+    pub(super) jcb: SharedJobControlBlock<InboundQueueSenderType, MockTaskInstancePoolConnector>,
     pub(super) owner_id: ResourceGroupId,
     pub(super) db: MockDbConnector,
     pub(super) task_tracker: TaskTracker,
@@ -88,19 +84,19 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
             has_commit.then(termination_task),
             has_cleanup.then(termination_task),
         );
+        let (control_block, receivers) = TreeControlBlock::new(shutdown_handle.clone());
         let jcb = SharedJobControlBlock::create(
             ROOT_ID,
             owner_id,
             create_validated_submission(task_graph, create_test_task_graph_input()),
             inbound_queue_sender.clone(),
-            db.clone(),
             MockTaskInstancePoolConnector,
             hooks.clone(),
+            control_block.clone(),
         )
         .await
         .expect("the root's control block should be created");
         let (gc_sender, gc_receiver) = mpsc::unbounded_channel();
-        let (control_block, receivers) = TreeControlBlock::new(shutdown_handle.clone());
         let task_tracker = TaskTracker::new();
         spawn_committer(
             &task_tracker,

@@ -83,9 +83,6 @@ pub enum InternalError {
         actual: JobState,
     },
 
-    #[error("job terminated unexpectedly")]
-    UnexpectedJobTermination,
-
     #[error("spawned handler body failed: {0}")]
     HandlerBodyFailed(String),
 
@@ -107,6 +104,9 @@ pub enum InternalError {
 
     #[error("job tree poisoned: an event was dropped without a reply")]
     TreePoisoned,
+
+    #[error("job {job_id:?} is cached as {state}, but its tree no longer tracks it")]
+    UntrackedLiveJob { job_id: JobId, state: JobState },
 
     #[error("invalid recoverable job context: {0}")]
     InvalidRecoverableJobContext(String),

@@ -45,11 +45,7 @@ pub(super) struct Committer<
     structure: TreeStructure,
     jcbs: HashMap<
         JobId,
-        SharedJobControlBlock<
-            InboundQueueSenderType,
-            DbConnectorType,
-            TaskInstancePoolConnectorType,
-        >,
+        SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
     >,
 }
 
@@ -70,11 +66,7 @@ impl<
     /// Panics if `root` is terminal.
     pub(super) async fn new_root(
         env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
-        root: SharedJobControlBlock<
-            InboundQueueSenderType,
-            DbConnectorType,
-            TaskInstancePoolConnectorType,
-        >,
+        root: SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
     ) -> Self {
         let node = root.tree_node().await;
         assert!(
@@ -299,11 +291,7 @@ impl<
     fn jcb(
         &self,
         job_id: JobId,
-    ) -> &SharedJobControlBlock<
-        InboundQueueSenderType,
-        DbConnectorType,
-        TaskInstancePoolConnectorType,
-    > {
+    ) -> &SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType> {
         self.jcbs
             .get(&job_id)
             .expect("a job of the tree's structure should have its control block in the committer")
@@ -400,7 +388,6 @@ mod tests {
     use super::*;
     use crate::cache::error::InternalError;
     use crate::cache::error::StaleStateError;
-    use crate::cache::tree::TreeControlBlock;
     use crate::inbound_queue::CleanupTaskMarker;
     use crate::inbound_queue::CommitTaskMarker;
     use crate::inbound_queue::InboundQueueEntry;
@@ -584,11 +571,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_committer_started_with_a_terminal_root_poisons_the_service() -> anyhow::Result<()> {
-        let root = create_test_jcb(ROOT_ID).await;
+        let (root, receivers) = create_test_jcb(ROOT_ID).await;
         root.apply_tree_state(JobState::Ready, JobState::Cancelled)
             .await?;
         let shutdown_handle = ShutdownHandle::new();
-        let (_control_block, receivers) = TreeControlBlock::new(shutdown_handle.clone());
         let task_tracker = TaskTracker::new();
 
         spawn_committer(
