@@ -26,6 +26,16 @@ use crate::state::test_utils::create_test_task_graph_input;
 use crate::state::test_utils::create_test_task_graph_with_termination_tasks;
 use crate::state::tree_committer::CommitterEnv;
 use crate::state::tree_committer::spawn_committer;
+#[cfg(feature = "test-hooks")]
+use crate::test_hooks::ArmedHook;
+#[cfg(feature = "test-hooks")]
+use crate::test_hooks::HookAction;
+#[cfg(feature = "test-hooks")]
+use crate::test_hooks::HookCount;
+#[cfg(feature = "test-hooks")]
+use crate::test_hooks::HookFilter;
+#[cfg(feature = "test-hooks")]
+use crate::test_hooks::HookPoint;
 use crate::test_hooks::TestHooks;
 
 pub(super) const ROOT_ID: JobId = JobId::from(1);
@@ -142,6 +152,22 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
         tokio::time::timeout(TIMEOUT, self.task_tracker.wait())
             .await
             .expect("the committer should exit within 5 seconds");
+    }
+
+    /// Arms a pause, for one hit, of the rounds of the tree's committer after their database
+    /// write.
+    ///
+    /// # Returns
+    ///
+    /// The armed pause.
+    #[cfg(feature = "test-hooks")]
+    pub(super) fn arm_pause(&self) -> ArmedHook {
+        self.hooks.arm(
+            HookPoint::CommitterRoundAfterDbWrite,
+            HookFilter::job(ROOT_ID),
+            HookAction::Pause,
+            HookCount::Once,
+        )
     }
 }
 

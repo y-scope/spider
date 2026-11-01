@@ -102,11 +102,6 @@ mod hooked {
     use crate::inbound_queue::create_inbound_queue;
     use crate::state::tree_committer::test_utils::TIMEOUT;
     use crate::state::tree_committer::test_utils::regular_tasks_done;
-    use crate::test_hooks::ArmedHook;
-    use crate::test_hooks::HookAction;
-    use crate::test_hooks::HookCount;
-    use crate::test_hooks::HookFilter;
-    use crate::test_hooks::HookPoint;
 
     /// An inbound queue sender that panics on every send.
     #[derive(Clone)]
@@ -140,23 +135,6 @@ mod hooked {
         }
     }
 
-    /// Arms a pause, for one hit, of the rounds of `tree`'s committer after their database
-    /// write.
-    ///
-    /// # Returns
-    ///
-    /// The armed pause.
-    fn arm_pause<InboundQueueSenderType: InboundQueueSender + 'static>(
-        tree: &TestTree<InboundQueueSenderType>,
-    ) -> ArmedHook {
-        tree.hooks.arm(
-            HookPoint::CommitterRoundAfterDbWrite,
-            HookFilter::job(ROOT_ID),
-            HookAction::Pause,
-            HookCount::Once,
-        )
-    }
-
     #[tokio::test]
     async fn committer_exits_once_its_tree_is_quiescent_and_answers_waiting_events_untracked()
     -> anyhow::Result<()> {
@@ -167,7 +145,7 @@ mod hooked {
             "a start gave {start:?}"
         );
 
-        let pause = arm_pause(&tree);
+        let pause = tree.arm_pause();
         let regular_tasks_done = tree.submit(regular_tasks_done());
         let commit_done = tree.submit(TreeEventKind::CommitDone);
         pause.reached(1, TIMEOUT).await?;
@@ -200,7 +178,7 @@ mod hooked {
     -> anyhow::Result<()> {
         let (inbound_queue_sender, inbound_queue_receiver) = create_inbound_queue();
         let tree = TestTree::spawn(false, false, inbound_queue_sender).await;
-        let pause = arm_pause(&tree);
+        let pause = tree.arm_pause();
         let start = tree.submit(start());
         tokio::pin!(start);
         pause.reached(1, TIMEOUT).await?;
@@ -256,7 +234,7 @@ mod hooked {
     async fn a_panic_in_a_round_poisons_the_service_even_during_a_graceful_shutdown()
     -> anyhow::Result<()> {
         let tree = TestTree::spawn(false, false, PanickingInboundQueueSender).await;
-        let pause = arm_pause(&tree);
+        let pause = tree.arm_pause();
         let start = tree.submit(start());
         pause.reached(1, TIMEOUT).await?;
         let cancel = tree.submit(TreeEventKind::CancelRoot);
