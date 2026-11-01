@@ -446,7 +446,7 @@ mod tests {
         .to_string();
         assert_eq!(
             tree.db.errors.get(&ROOT_ID).as_deref(),
-            Some(expected_message)
+            Some(&expected_message)
         );
         assert!(
             !tree.db.outputs.contains_key(&ROOT_ID),
