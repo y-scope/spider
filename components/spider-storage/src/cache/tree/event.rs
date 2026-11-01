@@ -52,38 +52,30 @@ impl TreeEventKind {
         matches!(self, Self::CancelRoot | Self::TerminalFailure { .. })
     }
 
+    /// # Returns
+    ///
+    /// The job state that an event of this kind requires.
+    #[must_use]
+    pub const fn state_requirement(&self) -> StateRequirement {
+        match self {
+            Self::Start { .. } => StateRequirement::Ready,
+            Self::RegularTasksDone { .. } => StateRequirement::Lane(Lane::Regular),
+            Self::CommitDone => StateRequirement::Lane(Lane::Commit),
+            Self::CleanupDone => StateRequirement::Lane(Lane::Cleanup),
+            Self::TerminalFailure { lane, .. } => StateRequirement::Lane(*lane),
+            Self::CancelRoot => StateRequirement::Cancellable,
+        }
+    }
+
     /// Checks that a job in `state` accepts an event of this kind.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`StaleStateError::JobAlreadyStarted`] if a [`Self::Start`] finds the job not
-    ///   [`JobState::Ready`].
-    /// * [`StaleStateError::JobAlreadyTerminated`] if a [`Self::CancelRoot`] finds the job
-    ///   [`JobState::Succeeded`] or [`JobState::Failed`].
-    /// * [`StaleStateError::JobCancellationAlreadyRequested`] if a [`Self::CancelRoot`] finds the
-    ///   job [`JobState::CleanupReady`].
-    /// * [`StaleStateError::JobAlreadyCancelled`] if a [`Self::CancelRoot`] finds the job
-    ///   [`JobState::Cancelled`].
-    /// * Forwards [`Lane::ensure_accepts`]'s return values on failure.
+    /// * Forwards [`StateRequirement::ensure_met`]'s return values on failure.
     pub const fn ensure_accepts(&self, state: JobState) -> Result<(), StaleStateError> {
-        match self {
-            Self::Start { .. } => match state {
-                JobState::Ready => Ok(()),
-                _ => Err(StaleStateError::JobAlreadyStarted),
-            },
-            Self::RegularTasksDone { .. } => Lane::Regular.ensure_accepts(state),
-            Self::CommitDone => Lane::Commit.ensure_accepts(state),
-            Self::CleanupDone => Lane::Cleanup.ensure_accepts(state),
-            Self::TerminalFailure { lane, .. } => lane.ensure_accepts(state),
-            Self::CancelRoot => match state {
-                JobState::CleanupReady => Err(StaleStateError::JobCancellationAlreadyRequested),
-                JobState::Cancelled => Err(StaleStateError::JobAlreadyCancelled),
-                state if state.is_terminal() => Err(StaleStateError::JobAlreadyTerminated(state)),
-                _ => Ok(()),
-            },
-        }
+        self.state_requirement().ensure_met(state)
     }
 }
 
@@ -140,6 +132,53 @@ impl Lane {
             (Self::Regular, _) => Err(StaleStateError::JobNoLongerRunning),
             (Self::Commit, _) => Err(StaleStateError::JobNoLongerCommitReady),
             (Self::Cleanup, _) => Err(StaleStateError::JobNoLongerCleanupReady),
+        }
+    }
+}
+
+/// The job state that an event requires.
+#[derive(Debug, Clone, Copy)]
+pub enum StateRequirement {
+    /// The job is [`JobState::Ready`]: a start.
+    Ready,
+
+    /// The job is in the state that runs the tasks of the lane.
+    Lane(Lane),
+
+    /// The job is in any state that a cancel can leave, i.e., neither [`JobState::CleanupReady`]
+    /// nor terminal.
+    Cancellable,
+}
+
+impl StateRequirement {
+    /// Checks that a job in `state` meets this requirement.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StaleStateError::JobAlreadyStarted`] if [`Self::Ready`] finds the job not
+    ///   [`JobState::Ready`].
+    /// * [`StaleStateError::JobAlreadyTerminated`] if [`Self::Cancellable`] finds the job
+    ///   [`JobState::Succeeded`] or [`JobState::Failed`].
+    /// * [`StaleStateError::JobCancellationAlreadyRequested`] if [`Self::Cancellable`] finds the
+    ///   job [`JobState::CleanupReady`].
+    /// * [`StaleStateError::JobAlreadyCancelled`] if [`Self::Cancellable`] finds the job
+    ///   [`JobState::Cancelled`].
+    /// * Forwards [`Lane::ensure_accepts`]'s return values on failure.
+    pub const fn ensure_met(self, state: JobState) -> Result<(), StaleStateError> {
+        match self {
+            Self::Ready => match state {
+                JobState::Ready => Ok(()),
+                _ => Err(StaleStateError::JobAlreadyStarted),
+            },
+            Self::Lane(lane) => lane.ensure_accepts(state),
+            Self::Cancellable => match state {
+                JobState::CleanupReady => Err(StaleStateError::JobCancellationAlreadyRequested),
+                JobState::Cancelled => Err(StaleStateError::JobAlreadyCancelled),
+                state if state.is_terminal() => Err(StaleStateError::JobAlreadyTerminated(state)),
+                _ => Ok(()),
+            },
         }
     }
 }

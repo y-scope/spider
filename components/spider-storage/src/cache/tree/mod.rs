@@ -17,6 +17,7 @@ pub use control_block::EventReceivers;
 pub use control_block::Pending;
 pub use control_block::TreeControlBlock;
 pub use event::Lane;
+pub use event::StateRequirement;
 pub use event::TreeEvent;
 pub use event::TreeEventKind;
 pub use event::TreeEventOutcome;
