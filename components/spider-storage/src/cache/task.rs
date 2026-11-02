@@ -312,13 +312,16 @@ impl SharedTaskControlBlock {
 
     /// Marks a task instance as succeeded.
     ///
-    /// `partial_mutation_guard` is armed once the task has succeeded. `hooks` fire at
-    /// [`HookPoint::TaskSuccessBeforeSuccessorLock`] with the context that `context` builds, after
-    /// the outputs are written.
+    /// `new_partial_mutation_guard` creates the guard over the mutation once the task has
+    /// succeeded. `hooks` fire at [`HookPoint::TaskSuccessBeforeSuccessorLock`] with the context
+    /// that `context` builds, after the outputs are written.
     ///
     /// # Returns
     ///
-    /// A vector of indices of the child tasks that become ready after the task instance succeeds.
+    /// A tuple on success, containing:
+    ///
+    /// * A vector of indices of the child tasks that become ready after the task instance succeeds.
+    /// * The guard that `new_partial_mutation_guard` created.
     ///
     /// # Errors
     ///
@@ -334,14 +337,14 @@ impl SharedTaskControlBlock {
     /// * Forwards [`TaskControlBlockBase::succeed_task_instance`]'s return values on failure.
     /// * Forwards [`TaskControlBlock::write_outputs`]'s return values on failure.
     /// * Forwards [`TestHooks::hit`]'s return values on failure.
-    pub async fn succeed_task_instance(
+    pub async fn succeed_task_instance<'guard>(
         &self,
         instance_id: TaskInstanceId,
         task_outputs: Vec<TaskOutput>,
-        partial_mutation_guard: &mut PartialMutationGuard<'_>,
+        new_partial_mutation_guard: impl FnOnce() -> PartialMutationGuard<'guard>,
         hooks: &TestHooks,
         context: impl FnOnce() -> HookContext,
-    ) -> Result<Vec<TaskIndex>, CacheError> {
+    ) -> Result<(Vec<TaskIndex>, PartialMutationGuard<'guard>), CacheError> {
         let mut tcb = self.inner.lock().await;
         if task_outputs.len() != tcb.outputs.len() {
             return Err(CacheError::TaskOutputsLengthMismatch {
@@ -350,7 +353,7 @@ impl SharedTaskControlBlock {
             });
         }
         tcb.base.succeed_task_instance(instance_id)?;
-        partial_mutation_guard.arm();
+        let partial_mutation_guard = new_partial_mutation_guard();
 
         // NOTE: The following execution can only fail due to internal errors because the cache
         // state has already been updated.
@@ -393,7 +396,7 @@ impl SharedTaskControlBlock {
 
             Ok(ready_child_indices)
         };
-        result.map_err(CacheError::from)
+        Ok((result?, partial_mutation_guard))
     }
 
     /// Marks a task instance as failed.
@@ -1067,19 +1070,17 @@ mod tests {
         task_outputs: Vec<TaskOutput>,
     ) -> Result<Vec<TaskIndex>, CacheError> {
         let shutdown_handle = ShutdownHandle::new();
-        let mut partial_mutation_guard =
-            PartialMutationGuard::new(&shutdown_handle, JobId::random());
-        let result = tcb
+        let (ready_task_indices, partial_mutation_guard) = tcb
             .succeed_task_instance(
                 id,
                 task_outputs,
-                &mut partial_mutation_guard,
+                || PartialMutationGuard::new(&shutdown_handle, JobId::random()),
                 &TestHooks::default(),
                 HookContext::default,
             )
-            .await;
+            .await?;
         partial_mutation_guard.disarm();
-        result
+        Ok(ready_task_indices)
     }
 
     /// # Returns

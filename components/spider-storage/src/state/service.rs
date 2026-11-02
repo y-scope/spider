@@ -232,9 +232,8 @@ impl<
                 .db
                 .register(resource_group_id, &job_submission)
                 .await?;
-            let mut partial_mutation_guard =
+            let partial_mutation_guard =
                 PartialMutationGuard::new(&this.inner.shutdown_handle, job_id);
-            partial_mutation_guard.arm();
             tracing::info!(
                 job_id = ? job_id,
                 rg_id = ? resource_group_id,
