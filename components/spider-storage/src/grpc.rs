@@ -115,9 +115,7 @@ impl<
                 Status::not_found("job not found")
             }
 
-            error @ StorageServerError::Db(
-                DbError::InvalidJobStateTransition { .. } | DbError::UnexpectedJobState { .. },
-            ) => {
+            error @ StorageServerError::Db(DbError::UnexpectedJobState { .. }) => {
                 tracing::warn!(
                     error = % error,
                     service = SERVICE_NAME,
