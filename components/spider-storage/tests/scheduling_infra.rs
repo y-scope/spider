@@ -32,9 +32,8 @@
 //!
 //! * [`MockInboundQueueSender`] -- backed by `async_channel` (true MPMC). Task-ready batches from
 //!   the JCB are flattened to one message per task index for maximum execution manager concurrency.
-//! * [`NoopDbConnector`] -- stateless stub returning appropriate state transitions based on
-//!   commit/cleanup task presence. [`run_workload`] is generic over `DbConnectorType` so a real
-//!   connector can be swapped in as the committer's DB.
+//! * [`NoopDbConnector`] -- stateless stub that accepts every write. [`run_workload`] is generic
+//!   over `DbConnectorType` so a real connector can be swapped in as the committer's DB.
 //! * [`MockTaskInstancePool`] -- atomic counter for ID allocation, no-op registration.
 //!
 //! # Execution manager architecture
@@ -163,31 +162,6 @@ pub struct NoopDbConnector {}
 #[async_trait]
 impl InternalJobOrchestration for NoopDbConnector {
     async fn apply_tree_transition(&self, _transition: TreeTransition) -> Result<(), DbError> {
-        Ok(())
-    }
-
-    async fn start(&self, _job_id: JobId) -> Result<(), DbError> {
-        Ok(())
-    }
-
-    async fn set_state(&self, _job_id: JobId, _state: JobState) -> Result<(), DbError> {
-        Ok(())
-    }
-
-    async fn commit_outputs(
-        &self,
-        _job_id: JobId,
-        _job_outputs: Vec<TaskOutput>,
-        _has_commit_task: bool,
-    ) -> Result<(), DbError> {
-        Ok(())
-    }
-
-    async fn cancel(&self, _job_id: JobId, _has_cleanup_task: bool) -> Result<(), DbError> {
-        Ok(())
-    }
-
-    async fn fail(&self, _job_id: JobId, _error_message: String) -> Result<(), DbError> {
         Ok(())
     }
 
