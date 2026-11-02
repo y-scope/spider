@@ -15,6 +15,8 @@ pub use runtime::create_runtime;
 pub use runtime::create_runtime_with_hooks;
 pub use service::ServiceState;
 pub use service::ServiceStateParams;
+pub use tree_committer::CommitterEnv;
+pub use tree_committer::spawn_committer;
 
 #[cfg(test)]
 pub(crate) mod test_utils;

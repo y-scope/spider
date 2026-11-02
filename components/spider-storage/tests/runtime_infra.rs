@@ -10,6 +10,7 @@ use spider_core::task::TaskDescriptor;
 use spider_core::task::TaskIndex;
 use spider_core::task::TaskInputOutputIndex;
 use spider_core::task::TdlContext;
+use spider_core::task::TerminationTaskDescriptor;
 use spider_core::task::ValueTypeDescriptor;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
@@ -23,10 +24,15 @@ use spider_storage::inbound_queue::InboundQueueSenderHandle;
 use spider_storage::state::JobCacheGcConfig;
 use spider_storage::state::Runtime;
 use spider_storage::state::ServiceState;
+use spider_storage::state::StorageServerError;
 use spider_storage::state::create_runtime_with_hooks;
 use spider_storage::state::runtime::RuntimeConfig;
 use spider_storage::task_instance_pool::TaskInstancePoolConfig;
 use spider_storage::task_instance_pool::TaskInstancePoolHandle;
+use spider_storage::test_hooks::HookAction;
+use spider_storage::test_hooks::HookCount;
+use spider_storage::test_hooks::HookFilter;
+use spider_storage::test_hooks::HookPoint;
 use spider_storage::test_hooks::TestHooks;
 use sqlx::MySqlPool;
 
@@ -35,6 +41,10 @@ use crate::mariadb_infra::create_raw_pool;
 use crate::task_graph_builder::SubmittedTaskGraph;
 use crate::task_graph_builder::compress_job_inputs;
 use crate::task_graph_builder::compress_task_graph;
+
+/// How long a test waits for a request to reach a paused hook, or for a request that must not wait
+/// on a paused hook to return.
+pub const HOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The runtime type that [`TestEnv`] runs.
 pub type TestRuntime =
@@ -212,6 +222,93 @@ impl TestEnv {
         job_id
     }
 
+    /// Registers and starts a job of [`build_independent_job`].
+    ///
+    /// # Returns
+    ///
+    /// The job ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the registration or the start fails, or if the job's tasks are not published.
+    pub async fn start_independent_job(
+        &self,
+        num_tasks: usize,
+        execution_policy: ExecutionPolicy,
+        with_cleanup: bool,
+    ) -> JobId {
+        let (graph, inputs) = build_independent_job(num_tasks, execution_policy, with_cleanup);
+        let job_id = self.register_job(&graph, &inputs).await;
+        self.service
+            .start_job(job_id)
+            .await
+            .expect("the job should start");
+        let mut task_indices = self.poll_ready_tasks(job_id, num_tasks).await;
+        task_indices.sort_unstable();
+        assert_eq!(task_indices, (0..num_tasks).collect::<Vec<_>>());
+        job_id
+    }
+
+    /// Fails the only task of `job_id`, which has no retry left, cancels the job while the failure
+    /// is paused before its submit, and then lets the failure go on.
+    ///
+    /// # Returns
+    ///
+    /// The job state that the failure returns on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ServiceState::fail_task_instance`]'s return values on failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the failure does not reach its hook or panics, or if the cancel does not move the
+    /// job to `cancelled_state`.
+    pub async fn race_terminal_failure_with_cancel(
+        &self,
+        job_id: JobId,
+        cancelled_state: JobState,
+    ) -> Result<JobState, StorageServerError> {
+        let task_instance_id = self.create_instance(job_id, TaskId::Index(0)).await;
+        let pause = self.hooks.arm(
+            HookPoint::TaskFailureBeforeSubmit,
+            HookFilter::job(job_id),
+            HookAction::Pause,
+            HookCount::Once,
+        );
+
+        let service = self.service.clone();
+        let failure = tokio::spawn(async move {
+            service
+                .fail_task_instance(
+                    service.session_id(),
+                    job_id,
+                    task_instance_id,
+                    TaskId::Index(0),
+                    "failure".to_owned(),
+                )
+                .await
+        });
+        pause.reached(1, HOOK_TIMEOUT).await.expect(
+            "the hook should be reached within the timeout; the request may have failed before \
+             reaching the hook point",
+        );
+        assert_eq!(
+            self.service
+                .cancel_job(job_id)
+                .await
+                .expect("the cancel should succeed"),
+            cancelled_state
+        );
+
+        pause.release();
+        let result = failure.await.expect("the failure's task should not panic");
+        drop(pause);
+        result
+    }
+
     /// # Returns
     ///
     /// The ID of the created instance.
@@ -301,6 +398,23 @@ impl TestEnv {
             .expect("the row state query should succeed")
     }
 
+    /// # Returns
+    ///
+    /// Whether `job_id`'s row in the database has job outputs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the query fails.
+    pub async fn has_outputs(&self, job_id: JobId) -> bool {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT `serialized_job_outputs` IS NOT NULL FROM `jobs` WHERE `id` = ?;",
+        )
+        .bind(job_id)
+        .fetch_one(&self.pool)
+        .await
+        .expect("the outputs query should succeed")
+    }
+
     /// Asserts that the job's cached and persisted states are both `expected`, and that the service
     /// has not shut down fatally.
     pub async fn assert_job_state(&self, job_id: JobId, expected: JobState) {
@@ -358,5 +472,53 @@ pub fn build_chain_task_graph(
     inputs
         .append_task_input(&[0u8; 4])
         .expect("task input appending should succeed");
+    (graph, inputs.build())
+}
+
+/// Builds a job of `num_tasks` independent tasks under `execution_policy`, each taking and
+/// returning one byte-typed value, with a cleanup task if `with_cleanup`.
+///
+/// # Returns
+///
+/// The task graph and its inputs.
+///
+/// # Panics
+///
+/// Panics if the graph fails to build.
+#[must_use]
+pub fn build_independent_job(
+    num_tasks: usize,
+    execution_policy: ExecutionPolicy,
+    with_cleanup: bool,
+) -> (SubmittedTaskGraph, TaskGraphInput) {
+    let execution_policy = Some(execution_policy);
+    let cleanup_task = with_cleanup.then(|| TerminationTaskDescriptor {
+        tdl_context: TdlContext {
+            package: "test".to_owned(),
+            task_func: "cleanup".to_owned(),
+        },
+        execution_policy: execution_policy.clone(),
+    });
+    let mut graph =
+        SubmittedTaskGraph::new(None, cleanup_task).expect("task graph creation should succeed");
+    let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
+    let mut inputs = TaskGraphInputBuilder::new();
+    for task_index in 0..num_tasks {
+        graph
+            .insert_task(TaskDescriptor {
+                tdl_context: TdlContext {
+                    package: "test".to_owned(),
+                    task_func: format!("task{task_index}"),
+                },
+                execution_policy: execution_policy.clone(),
+                inputs: vec![bytes_type.clone()],
+                outputs: vec![bytes_type.clone()],
+                input_sources: None,
+            })
+            .expect("task insertion should succeed");
+        inputs
+            .append_task_input(&[0u8; 4])
+            .expect("task input appending should succeed");
+    }
     (graph, inputs.build())
 }

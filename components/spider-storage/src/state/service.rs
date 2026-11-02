@@ -30,6 +30,8 @@ use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
 use crate::cache::error::StaleStateError;
 use crate::cache::job::SharedJobControlBlock;
+use crate::cache::tree::EventReceivers;
+use crate::cache::tree::TreeControlBlock;
 use crate::db::DbStorage;
 use crate::inbound_queue::CleanupTaskMarker;
 use crate::inbound_queue::CommitTaskMarker;
@@ -37,9 +39,11 @@ use crate::inbound_queue::InboundQueueEntry;
 use crate::inbound_queue::InboundQueueReceiverHandle;
 use crate::inbound_queue::InboundQueueSender;
 use crate::job_submission::ValidatedJobSubmission;
+use crate::state::CommitterEnv;
 use crate::state::JobCache;
 use crate::state::JobCacheGcHandle;
 use crate::state::StorageServerError;
+use crate::state::spawn_committer;
 use crate::task_instance_pool::TaskInstancePoolConnector;
 use crate::test_hooks::TestHooks;
 
@@ -59,7 +63,7 @@ pub struct ServiceStateParams<
 > {
     pub db: DbConnectorType,
     pub session_id: SessionId,
-    pub job_cache: JobCache<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    pub job_cache: JobCache<InboundQueueSenderType, TaskInstancePoolConnectorType>,
     pub inbound_queue_sender: InboundQueueSenderType,
     pub inbound_queue_receiver: InboundQueueReceiverHandle,
     pub task_instance_pool_connector: TaskInstancePoolConnectorType,
@@ -99,7 +103,8 @@ impl<
     ///
     /// # Returns
     ///
-    /// A newly created [`ServiceState`] that notifies the GC actor when cached jobs terminate.
+    /// A newly created [`ServiceState`] whose tree committers notify the GC actor when cached jobs
+    /// terminate.
     #[must_use]
     pub fn new(
         params: ServiceStateParams<
@@ -120,6 +125,13 @@ impl<
             hooks,
         } = params;
         hooks.register_runtime(&shutdown_handle);
+        let committer_env = Arc::new(CommitterEnv {
+            db: db.clone(),
+            job_cache_gc_handle,
+            inbound_queue_sender: inbound_queue_sender.clone(),
+            shutdown_handle: shutdown_handle.clone(),
+            hooks: hooks.clone(),
+        });
         Self {
             inner: Arc::new(ServiceStateInner {
                 db,
@@ -128,7 +140,7 @@ impl<
                 inbound_queue_sender,
                 inbound_queue_receiver,
                 task_instance_pool_connector,
-                job_cache_gc_handle,
+                committer_env,
                 has_previous_scheduler_connection: tokio::sync::Mutex::new(false),
                 shutdown_handle,
                 task_tracker: TaskTracker::new(),
@@ -153,7 +165,35 @@ impl<
         &self.inner.task_tracker
     }
 
-    /// Registers a job in the database and inserts its control block into the cache.
+    /// Inserts `root`, the root job of a new one-job tree, into the cache, and spawns into the
+    /// service's task tracker the tree's committer, which receives the tree's events from
+    /// `receivers`.
+    ///
+    /// The caller must run in a task of the service's task tracker, or before the service serves
+    /// requests, so that [`crate::state::Runtime::stop`] cannot miss the committer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobCache::insert`]'s return values on failure.
+    pub(crate) async fn insert_tree(
+        &self,
+        root: SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
+        receivers: EventReceivers,
+    ) -> Result<(), StorageServerError> {
+        self.inner.job_cache.insert(root.clone()).await?;
+        spawn_committer(
+            &self.inner.task_tracker,
+            Arc::clone(&self.inner.committer_env),
+            root,
+            receivers,
+        );
+        Ok(())
+    }
+
+    /// Registers a job in the database, inserts its control block into the cache and spawns its
+    /// tree's committer.
     ///
     /// # Returns
     ///
@@ -167,7 +207,7 @@ impl<
     ///   [`StorageServerError::BadRequest`] on failure.
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
-    /// * Forwards [`JobCache::insert`]'s return values on failure.
+    /// * Forwards [`Self::insert_tree`]'s return values on failure.
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn register_job(
         &self,
@@ -194,18 +234,19 @@ impl<
                 "Job registered in DB."
             );
 
+            let (tree, receivers) = TreeControlBlock::new(this.inner.shutdown_handle.clone());
             let jcb = SharedJobControlBlock::create(
                 job_id,
                 resource_group_id,
                 job_submission,
                 this.inner.inbound_queue_sender.clone(),
-                this.inner.db.clone(),
                 this.inner.task_instance_pool_connector.clone(),
                 this.inner.hooks.clone(),
+                tree,
             )
             .await?;
 
-            this.inner.job_cache.insert(jcb).await?;
+            this.insert_tree(jcb, receivers).await?;
             tracing::info!(
                 job_id = ? job_id,
                 rg_id = ? resource_group_id,
@@ -275,7 +316,6 @@ impl<
         self.spawn_body(async move {
             if let Some(jcb) = this.inner.job_cache.get(job_id).await {
                 let state = jcb.cancel().await?;
-                this.enqueue_for_gc_if_terminal(job_id, state);
                 tracing::info!(
                     job_id = ? job_id,
                     "Job cancelled.",
@@ -448,7 +488,6 @@ impl<
             let state = jcb
                 .succeed_task_instance(task_instance_id, task_index, task_outputs)
                 .await?;
-            this.enqueue_for_gc_if_terminal(job_id, state);
             tracing::info!(
                 job_id = ? job_id,
                 task_id = ? TaskId::Index(task_index),
@@ -492,7 +531,6 @@ impl<
                 .await
                 .ok_or(StorageServerError::JobNotFound(job_id))?;
             let state = jcb.succeed_commit_task_instance(task_instance_id).await?;
-            this.enqueue_for_gc_if_terminal(job_id, state);
             tracing::info!(
                 job_id = ? job_id,
                 task_id = ? TaskId::Commit,
@@ -536,7 +574,6 @@ impl<
                 .await
                 .ok_or(StorageServerError::JobNotFound(job_id))?;
             let state = jcb.succeed_cleanup_task_instance(task_instance_id).await?;
-            this.enqueue_for_gc_if_terminal(job_id, state);
             tracing::info!(
                 job_id = ? job_id,
                 task_id = ? TaskId::Cleanup,
@@ -583,7 +620,6 @@ impl<
             let state = jcb
                 .fail_task_instance(task_instance_id, task_id, error)
                 .await?;
-            this.enqueue_for_gc_if_terminal(job_id, state);
             tracing::info!(
                 job_id = ? job_id,
                 task_id = ? task_id,
@@ -879,15 +915,6 @@ impl<
         Ok(())
     }
 
-    /// Enqueues a job for delayed cache GC if it has reached a terminal state.
-    fn enqueue_for_gc_if_terminal(&self, job_id: JobId, state: JobState) {
-        if state.is_terminal() {
-            self.inner
-                .job_cache_gc_handle
-                .enqueue_terminated_job(job_id);
-        }
-    }
-
     /// Runs a handler body as a task in the service's task tracker, so that dropping the caller's
     /// future does not cut the body short, and waits for its result, raced against the service's
     /// shutdown.
@@ -973,11 +1000,11 @@ struct ServiceStateInner<
 > {
     db: DbConnectorType,
     session_id: SessionId,
-    job_cache: JobCache<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    job_cache: JobCache<InboundQueueSenderType, TaskInstancePoolConnectorType>,
     inbound_queue_sender: InboundQueueSenderType,
     inbound_queue_receiver: InboundQueueReceiverHandle,
     task_instance_pool_connector: TaskInstancePoolConnectorType,
-    job_cache_gc_handle: JobCacheGcHandle,
+    committer_env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
     has_previous_scheduler_connection: tokio::sync::Mutex<bool>,
     shutdown_handle: ShutdownHandle,
     task_tracker: TaskTracker,
@@ -1065,6 +1092,7 @@ mod tests {
     use spider_core::types::id::ResourceGroupId;
     use spider_core::types::io::TaskGraphInputBuilder;
     use spider_core::types::io::TaskOutput;
+    use tokio::sync::mpsc::error::TryRecvError;
 
     use super::*;
     use crate::cache::job::SharedJobControlBlock;
@@ -1076,6 +1104,7 @@ mod tests {
     use crate::job_submission::create_validated_submission;
     use crate::state::JobCacheGcHandle;
     use crate::state::StorageServerError;
+    use crate::state::test_utils::MOCK_MAX_OUTPUTS_SIZE;
     use crate::state::test_utils::MockDbConnector;
     use crate::state::test_utils::MockInboundQueueSender;
     use crate::state::test_utils::MockTaskInstancePoolConnector;
@@ -1300,6 +1329,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn start_job_of_a_started_or_cancelled_job_is_stale_and_not_fatal() -> anyhow::Result<()>
+    {
+        let service = create_test_service();
+        let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
+            create_test_job_submission();
+        let started_job_id = service
+            .register_job(
+                ResourceGroupId::random(),
+                compressed_serialized_task_graph,
+                compressed_serialized_task_graph_input,
+            )
+            .await?;
+        service.start_job(started_job_id).await?;
+        service
+            .create_task_instance(
+                TEST_SESSION_ID,
+                started_job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::random(),
+            )
+            .await?;
+
+        let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
+            create_test_job_submission();
+        let cancelled_job_id = service
+            .register_job(
+                ResourceGroupId::random(),
+                compressed_serialized_task_graph,
+                compressed_serialized_task_graph_input,
+            )
+            .await?;
+        service.cancel_job(cancelled_job_id).await?;
+
+        for (job_id, state) in [
+            (started_job_id, JobState::Running),
+            (cancelled_job_id, JobState::Cancelled),
+        ] {
+            let result = service.start_job(job_id).await;
+            assert!(
+                matches!(
+                    result,
+                    Err(StorageServerError::Cache(CacheError::StaleState(
+                        StaleStateError::JobAlreadyStarted
+                    )))
+                ),
+                "a start of a {state} job gave {result:?}"
+            );
+            assert_eq!(service.get_job_state(job_id).await?, state);
+        }
+        assert!(!service.inner.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn cancel_job_returns_job_not_found_if_not_exist() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service.cancel_job(JobId::random()).await;
@@ -1328,10 +1411,12 @@ mod tests {
 
     #[tokio::test]
     async fn cancel_job_transitions_to_terminal_state() -> anyhow::Result<()> {
-        let service = create_test_service();
+        let db = MockDbConnector::default();
+        let service = create_test_service_with_db(db.clone());
         let job_id = JobId::random();
-        let jcb = create_test_jcb(job_id).await;
-        service.inner.job_cache.insert(jcb).await?;
+        db.states.insert(job_id, JobState::Ready);
+        let (jcb, receivers) = create_test_jcb(job_id).await;
+        service.insert_tree(jcb, receivers).await?;
 
         let state = service.cancel_job(job_id).await?;
         assert!(
@@ -1342,6 +1427,72 @@ mod tests {
             service.inner.job_cache.get(job_id).await.is_some(),
             "JCB should remain in cache after terminal cancel"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cancel_job_of_a_ready_job_with_a_cleanup_task_cancels_it_without_its_cleanup()
+    -> anyhow::Result<()> {
+        let db = MockDbConnector::default();
+        let (service, _sender) = create_test_service_with_inbound_queue(db.clone());
+        let task_graph = create_test_task_graph_with_termination_tasks(
+            None,
+            Some(TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: "test_pkg".to_owned(),
+                    task_func: "cleanup_fn".to_owned(),
+                },
+                execution_policy: Some(ExecutionPolicy::default()),
+            }),
+        );
+        let job_id = service
+            .register_job(
+                ResourceGroupId::random(),
+                compress_task_graph(&task_graph),
+                compress_job_inputs(&create_test_task_graph_input()),
+            )
+            .await?;
+
+        assert_eq!(service.cancel_job(job_id).await?, JobState::Cancelled);
+        assert_eq!(
+            db.states.get(&job_id).map(|state| *state),
+            Some(JobState::Cancelled)
+        );
+        assert_eq!(
+            service
+                .poll_cleanup_ready_tasks(10, Duration::from_millis(100))
+                .await?,
+            []
+        );
+        assert!(!service.inner.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cancel_job_of_a_cancelled_cached_job_is_already_cancelled() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
+            create_test_job_submission();
+        let job_id = service
+            .register_job(
+                ResourceGroupId::random(),
+                compressed_serialized_task_graph,
+                compressed_serialized_task_graph_input,
+            )
+            .await?;
+        assert_eq!(service.cancel_job(job_id).await?, JobState::Cancelled);
+
+        let result = service.cancel_job(job_id).await;
+        assert!(
+            matches!(
+                result,
+                Err(StorageServerError::Cache(CacheError::StaleState(
+                    StaleStateError::JobAlreadyCancelled
+                )))
+            ),
+            "a second cancel gave {result:?}"
+        );
+        assert!(!service.inner.shutdown_handle.is_fatal());
         Ok(())
     }
 
@@ -1364,6 +1515,8 @@ mod tests {
         );
 
         let job_id = JobId::random();
+        db.states.insert(job_id, JobState::CommitReady);
+        let (tree, receivers) = TreeControlBlock::new(ShutdownHandle::new());
         let jcb = SharedJobControlBlock::recover(
             RecoverableJobContext {
                 id: job_id,
@@ -1375,12 +1528,12 @@ mod tests {
                 )?),
             },
             sender,
-            db,
             MockTaskInstancePoolConnector,
             TestHooks::default(),
+            tree,
         )
         .await?;
-        service.inner.job_cache.insert(jcb).await?;
+        service.insert_tree(jcb, receivers).await?;
 
         let state = service.cancel_job(job_id).await?;
         assert_eq!(state, JobState::CleanupReady);
@@ -1608,7 +1761,8 @@ mod tests {
 
     #[tokio::test]
     async fn succeed_task_instance_transitions_job_to_succeeded() -> anyhow::Result<()> {
-        let service = create_test_service();
+        let db = MockDbConnector::default();
+        let service = create_test_service_with_db(db.clone());
         let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
             create_test_job_submission();
         let job_id = service
@@ -1628,13 +1782,15 @@ mod tests {
                 ExecutionManagerId::random(),
             )
             .await?;
+        let serialized_outputs = create_test_serialized_outputs();
+        let outputs = TaskOutputsSerializer::deserialize(&serialized_outputs)?;
         let state = service
             .succeed_task_instance(
                 TEST_SESSION_ID,
                 job_id,
                 context.task_instance_id,
                 0,
-                create_test_serialized_outputs(),
+                serialized_outputs,
             )
             .await?;
         assert_eq!(state, JobState::Succeeded);
@@ -1642,6 +1798,68 @@ mod tests {
             service.inner.job_cache.get(job_id).await.is_some(),
             "JCB should remain in cache after terminal succeed"
         );
+        assert_eq!(
+            db.outputs.get(&job_id).map(|stored| stored.clone()),
+            Some(outputs)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn succeed_task_instance_with_outputs_too_large_for_the_database_fails_the_job()
+    -> anyhow::Result<()> {
+        let db = MockDbConnector::default();
+        let service = create_test_service_with_db(db.clone());
+        let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
+            create_test_job_submission();
+        let job_id = service
+            .register_job(
+                ResourceGroupId::random(),
+                compressed_serialized_task_graph,
+                compressed_serialized_task_graph_input,
+            )
+            .await?;
+        service.start_job(job_id).await?;
+        let context = service
+            .create_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::random(),
+            )
+            .await?;
+
+        let serialized_outputs =
+            TaskOutputsSerializer::from_tuple(&(vec![
+                0u8;
+                usize::try_from(MOCK_MAX_OUTPUTS_SIZE)? + 1
+            ],))?;
+        let size = TaskOutputsSerializer::deserialize(&serialized_outputs)?
+            .iter()
+            .map(|output| output.len() as u64)
+            .sum();
+        let state = service
+            .succeed_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                context.task_instance_id,
+                0,
+                serialized_outputs,
+            )
+            .await?;
+        assert_eq!(state, JobState::Failed);
+        assert_eq!(service.get_job_state(job_id).await?, JobState::Failed);
+        let expected_message = DbError::OutputsTooLarge {
+            job_id,
+            size,
+            limit: MOCK_MAX_OUTPUTS_SIZE,
+        }
+        .to_string();
+        assert_eq!(
+            db.errors.get(&job_id).map(|stored| stored.clone()),
+            Some(expected_message)
+        );
+        assert!(!service.inner.shutdown_handle.is_fatal());
         Ok(())
     }
 
@@ -1725,8 +1943,9 @@ mod tests {
     #[tokio::test]
     async fn cancel_job_enqueues_terminal_job_for_cache_gc() -> anyhow::Result<()> {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let db = MockDbConnector::default();
         let service = TestServiceState::new(ServiceStateParams {
-            db: MockDbConnector::default(),
+            db: db.clone(),
             session_id: TEST_SESSION_ID,
             job_cache: JobCache::new(),
             inbound_queue_sender: MockInboundQueueSender,
@@ -1737,8 +1956,9 @@ mod tests {
             hooks: TestHooks::default(),
         });
         let job_id = JobId::random();
-        let jcb = create_test_jcb(job_id).await;
-        service.inner.job_cache.insert(jcb).await?;
+        db.states.insert(job_id, JobState::Ready);
+        let (jcb, receivers) = create_test_jcb(job_id).await;
+        service.insert_tree(jcb, receivers).await?;
 
         service.cancel_job(job_id).await?;
 
@@ -1747,6 +1967,7 @@ mod tests {
             Ok(job_id),
             "cancelled job should be enqueued for cache GC"
         );
+        assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
         Ok(())
     }
 
@@ -1798,6 +2019,7 @@ mod tests {
             Ok(job_id),
             "succeeded job should be enqueued for cache GC"
         );
+        assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
         Ok(())
     }
 
@@ -1845,10 +2067,11 @@ mod tests {
             .await?;
 
         assert_eq!(
-            receiver.recv().await,
-            Some(job_id),
+            receiver.try_recv(),
+            Ok(job_id),
             "failed job should be enqueued for cache GC"
         );
+        assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
         Ok(())
     }
 

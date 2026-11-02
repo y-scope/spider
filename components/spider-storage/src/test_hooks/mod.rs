@@ -72,6 +72,10 @@ pub enum HookPoint {
     /// In a task success, after the outputs are written, before the first successor's lock.
     TaskSuccessBeforeSuccessorLock,
 
+    /// In a task failure with no retry left, after the job's read guard is dropped, before the
+    /// job's failure is submitted to its tree.
+    TaskFailureBeforeSubmit,
+
     /// In an instance creation, after the task registered the instance, before the instance is sent
     /// to the task instance pool.
     CreateInstanceBeforePoolSend,

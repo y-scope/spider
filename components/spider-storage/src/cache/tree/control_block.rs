@@ -13,6 +13,7 @@ use crate::cache::tree::TreeEventOutcome;
 use crate::cache::tree::TreeEventReply;
 
 /// The handle through which every job of a tree submits its events to the tree's committer.
+#[derive(Clone)]
 pub struct TreeControlBlock {
     fast_forward: mpsc::UnboundedSender<Pending>,
     regular: mpsc::UnboundedSender<Pending>,

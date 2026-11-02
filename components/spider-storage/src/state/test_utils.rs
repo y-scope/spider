@@ -24,11 +24,14 @@ use spider_core::types::io::TaskGraphInputBuilder;
 use spider_core::types::io::TaskOutput;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_core::types::scheduler::RegisteredScheduler;
+use spider_utils::shutdown::ShutdownHandle;
 
 use crate::cache::error::InternalError;
 use crate::cache::job::SharedJobControlBlock;
 use crate::cache::task::SharedTaskControlBlock;
 use crate::cache::task::SharedTerminationTaskControlBlock;
+use crate::cache::tree::EventReceivers;
+use crate::cache::tree::TreeControlBlock;
 use crate::db::DbError;
 use crate::db::DbStorage;
 use crate::db::ExecutionManagerLivenessManagement;
@@ -50,8 +53,7 @@ use crate::test_hooks::TestHooks;
 /// transition.
 pub const MOCK_MAX_OUTPUTS_SIZE: u64 = 4 * 1024 * 1024;
 
-pub type TestJcb =
-    SharedJobControlBlock<MockInboundQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
+pub type TestJcb = SharedJobControlBlock<MockInboundQueueSender, MockTaskInstancePoolConnector>;
 
 /// A mock inbound queue sender for testing.
 #[derive(Clone, Default)]
@@ -461,19 +463,21 @@ pub fn create_test_task_graph_input() -> TaskGraphInput {
     builder.build()
 }
 
-pub async fn create_test_jcb(job_id: JobId) -> TestJcb {
+pub async fn create_test_jcb(job_id: JobId) -> (TestJcb, EventReceivers) {
     let task_graph = create_test_task_graph();
     let job_submission = create_validated_submission(task_graph, create_test_task_graph_input());
+    let (tree, receivers) = TreeControlBlock::new(ShutdownHandle::new());
 
-    SharedJobControlBlock::create(
+    let jcb = SharedJobControlBlock::create(
         job_id,
         ResourceGroupId::random(),
         job_submission,
         MockInboundQueueSender,
-        MockDbConnector::default(),
         MockTaskInstancePoolConnector,
         TestHooks::default(),
+        tree,
     )
     .await
-    .expect("JCB creation should succeed")
+    .expect("JCB creation should succeed");
+    (jcb, receivers)
 }

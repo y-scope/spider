@@ -309,18 +309,20 @@ async fn a_superseded_runtime_cannot_start_or_register_after_a_restart() -> anyh
 
     let runtime = create_runtime(&config).await?;
     let service = runtime.get_service_state();
-    let start_result = superseded_service.start_job(job_id).await;
     let register_result = register_job(&superseded_service, false, false).await;
+    let start_result = superseded_service.start_job(job_id).await;
 
     assert!(
         matches!(
             start_result,
-            Err(StorageServerError::Cache(CacheError::Internal(InternalError::Db(
-                DbError::Fenced { current, newer }
-            )))) if current == superseded_service.session_id() && newer == service.session_id()
+            Err(
+                StorageServerError::Cache(CacheError::Internal(InternalError::TreePoisoned))
+                    | StorageServerError::Stopping(_)
+            )
         ),
-        "expected a fenced start, got {start_result:?}"
+        "expected a poisoned or stopped start, got {start_result:?}"
     );
+    assert!(superseded_runtime.get_shutdown_handle().is_fatal());
     let register_error = register_result.expect_err("a superseded registration should fail");
     assert!(
         matches!(

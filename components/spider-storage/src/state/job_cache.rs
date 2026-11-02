@@ -8,7 +8,6 @@ use tokio::sync::RwLock;
 use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
 use crate::cache::job::SharedJobControlBlock;
-use crate::db::InternalJobOrchestration;
 use crate::inbound_queue::InboundQueueSender;
 use crate::state::StorageServerError;
 use crate::task_instance_pool::TaskInstancePoolConnector;
@@ -21,22 +20,19 @@ use crate::task_instance_pool::TaskInstancePoolConnector;
 /// # Type Parameters
 ///
 /// * `InboundQueueSenderType` - The type of the inbound queue sender.
-/// * `DbConnectorType` - The type of the DB-layer connector.
 /// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
 #[derive(Clone)]
 pub struct JobCache<
     InboundQueueSenderType: InboundQueueSender,
-    DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
-    jobs: SharedJobMap<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    jobs: SharedJobMap<InboundQueueSenderType, TaskInstancePoolConnectorType>,
 }
 
 impl<
     InboundQueueSenderType: InboundQueueSender,
-    DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
-> JobCache<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+> JobCache<InboundQueueSenderType, TaskInstancePoolConnectorType>
 {
     /// Creates a new empty job cache.
     #[must_use]
@@ -56,11 +52,7 @@ impl<
     ///   control block with the same ID already exists.
     pub async fn insert(
         &self,
-        jcb: SharedJobControlBlock<
-            InboundQueueSenderType,
-            DbConnectorType,
-            TaskInstancePoolConnectorType,
-        >,
+        jcb: SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
     ) -> Result<(), StorageServerError> {
         let job_id = jcb.id();
         match self.jobs.write().await.entry(job_id) {
@@ -82,13 +74,7 @@ impl<
     pub async fn get(
         &self,
         job_id: JobId,
-    ) -> Option<
-        SharedJobControlBlock<
-            InboundQueueSenderType,
-            DbConnectorType,
-            TaskInstancePoolConnectorType,
-        >,
-    > {
+    ) -> Option<SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>> {
         self.jobs.read().await.get(&job_id).cloned()
     }
 
@@ -100,13 +86,7 @@ impl<
     pub async fn remove(
         &self,
         job_id: JobId,
-    ) -> Option<
-        SharedJobControlBlock<
-            InboundQueueSenderType,
-            DbConnectorType,
-            TaskInstancePoolConnectorType,
-        >,
-    > {
+    ) -> Option<SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>> {
         self.jobs.write().await.remove(&job_id)
     }
 
@@ -140,27 +120,25 @@ impl<
 
 impl<
     InboundQueueSenderType: InboundQueueSender,
-    DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
-> Default for JobCache<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+> Default for JobCache<InboundQueueSenderType, TaskInstancePoolConnectorType>
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-type JobMap<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType> = HashMap<
-    JobId,
-    SharedJobControlBlock<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
->;
+type JobMap<InboundQueueSenderType, TaskInstancePoolConnectorType> =
+    HashMap<JobId, SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>>;
 
-type SharedJobMap<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType> =
-    Arc<RwLock<JobMap<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>>;
+type SharedJobMap<InboundQueueSenderType, TaskInstancePoolConnectorType> =
+    Arc<RwLock<JobMap<InboundQueueSenderType, TaskInstancePoolConnectorType>>>;
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
+    use spider_core::job::JobState;
     use spider_core::task::DataTypeDescriptor;
     use spider_core::task::ExecutionPolicy;
     use spider_core::task::TaskDescriptor;
@@ -169,22 +147,19 @@ mod tests {
     use spider_core::task::ValueTypeDescriptor;
     use spider_core::types::id::JobId;
     use spider_core::types::io::TaskGraphInputBuilder;
+    use spider_utils::shutdown::ShutdownHandle;
 
     use super::*;
     use crate::cache::error::InternalError;
     use crate::cache::job::SharedJobControlBlock;
+    use crate::cache::tree::TreeControlBlock;
     use crate::inbound_queue::InboundQueueSender;
     use crate::job_submission::create_validated_submission;
-    use crate::state::test_utils::MockDbConnector;
     use crate::state::test_utils::MockInboundQueueSender;
     use crate::state::test_utils::MockTaskInstancePoolConnector;
     use crate::test_hooks::TestHooks;
 
-    type TestJcb = SharedJobControlBlock<
-        MockInboundQueueSender,
-        MockDbConnector,
-        MockTaskInstancePoolConnector,
-    >;
+    type TestJcb = SharedJobControlBlock<MockInboundQueueSender, MockTaskInstancePoolConnector>;
 
     async fn create_test_jcb(job_id: JobId) -> TestJcb {
         let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
@@ -214,9 +189,9 @@ mod tests {
             spider_core::types::id::ResourceGroupId::random(),
             job_submission,
             MockInboundQueueSender,
-            MockDbConnector::default(),
             MockTaskInstancePoolConnector,
             TestHooks::default(),
+            TreeControlBlock::new(ShutdownHandle::new()).0,
         )
         .await
         .expect("JCB creation should succeed")
@@ -224,11 +199,8 @@ mod tests {
 
     #[tokio::test]
     async fn job_cache_insert_and_get() -> anyhow::Result<()> {
-        let cache: JobCache<
-            MockInboundQueueSender,
-            MockDbConnector,
-            MockTaskInstancePoolConnector,
-        > = JobCache::new();
+        let cache: JobCache<MockInboundQueueSender, MockTaskInstancePoolConnector> =
+            JobCache::new();
         let job_id = JobId::random();
 
         let jcb = create_test_jcb(job_id).await;
@@ -241,11 +213,8 @@ mod tests {
 
     #[tokio::test]
     async fn job_cache_remove_returns_inserted_jcb() -> anyhow::Result<()> {
-        let cache: JobCache<
-            MockInboundQueueSender,
-            MockDbConnector,
-            MockTaskInstancePoolConnector,
-        > = JobCache::new();
+        let cache: JobCache<MockInboundQueueSender, MockTaskInstancePoolConnector> =
+            JobCache::new();
         let job_id = JobId::random();
 
         let jcb = create_test_jcb(job_id).await;
@@ -261,11 +230,8 @@ mod tests {
 
     #[tokio::test]
     async fn job_cache_remove_batch_removes_existing_jobs_once() -> anyhow::Result<()> {
-        let cache: JobCache<
-            MockInboundQueueSender,
-            MockDbConnector,
-            MockTaskInstancePoolConnector,
-        > = JobCache::new();
+        let cache: JobCache<MockInboundQueueSender, MockTaskInstancePoolConnector> =
+            JobCache::new();
         let first_job_id = JobId::random();
         let second_job_id = JobId::random();
         let missing_job_id = JobId::random();
@@ -294,11 +260,8 @@ mod tests {
 
     #[tokio::test]
     async fn job_cache_get_returns_none_for_nonexistent_job() -> anyhow::Result<()> {
-        let cache: JobCache<
-            MockInboundQueueSender,
-            MockDbConnector,
-            MockTaskInstancePoolConnector,
-        > = JobCache::new();
+        let cache: JobCache<MockInboundQueueSender, MockTaskInstancePoolConnector> =
+            JobCache::new();
         let job_id = JobId::random();
 
         let result = cache.get(job_id).await;
@@ -311,11 +274,8 @@ mod tests {
 
     #[tokio::test]
     async fn job_cache_insert_duplicate_returns_error() -> anyhow::Result<()> {
-        let cache: JobCache<
-            MockInboundQueueSender,
-            MockDbConnector,
-            MockTaskInstancePoolConnector,
-        > = JobCache::new();
+        let cache: JobCache<MockInboundQueueSender, MockTaskInstancePoolConnector> =
+            JobCache::new();
         let job_id = JobId::random();
 
         let jcb1 = create_test_jcb(job_id).await;
@@ -345,9 +305,8 @@ mod tests {
     async fn job_cache_concurrent_insert_get() {
         use tokio_util::task::TaskTracker;
 
-        let cache: Arc<
-            JobCache<MockInboundQueueSender, MockDbConnector, MockTaskInstancePoolConnector>,
-        > = Arc::new(JobCache::new());
+        let cache: Arc<JobCache<MockInboundQueueSender, MockTaskInstancePoolConnector>> =
+            Arc::new(JobCache::new());
 
         let tracker = TaskTracker::new();
         let num_tasks = 10;
@@ -452,20 +411,17 @@ mod tests {
             spider_core::types::id::ResourceGroupId::random(),
             job_submission,
             sender,
-            MockDbConnector::default(),
             MockTaskInstancePoolConnector,
             TestHooks::default(),
+            TreeControlBlock::new(ShutdownHandle::new()).0,
         )
         .await
         .expect("JCB creation should succeed");
-        jcb.start().await.expect("start should succeed");
-        call_count.store(0, std::sync::atomic::Ordering::Relaxed);
+        jcb.apply_tree_state(JobState::Ready, JobState::Running)
+            .await?;
 
-        let cache: JobCache<
-            TrackingInboundQueueSender,
-            MockDbConnector,
-            MockTaskInstancePoolConnector,
-        > = JobCache::new();
+        let cache: JobCache<TrackingInboundQueueSender, MockTaskInstancePoolConnector> =
+            JobCache::new();
         cache.insert(jcb).await?;
 
         cache.resend_ready_tasks().await?;
@@ -473,7 +429,7 @@ mod tests {
         assert_eq!(
             call_count.load(std::sync::atomic::Ordering::Relaxed),
             1,
-            "resend_ready_tasks should send one call after the reset"
+            "resend_ready_tasks should send one call"
         );
         Ok(())
     }

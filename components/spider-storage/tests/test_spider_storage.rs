@@ -8,6 +8,7 @@ mod task_graph_builder;
 mod fence_test;
 mod handler_drop_test;
 mod jcb_test;
+mod job_transition_test;
 mod mariadb_test;
 mod pool_config_test;
 mod runtime_recovery_test;
