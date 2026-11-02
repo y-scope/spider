@@ -1,6 +1,4 @@
-//! Job transitions on the tree committer through the storage service on `MariaDB`: payloads over
-//! the packet size, failures racing cancels and other reports, and the failure of a job with
-//! running tasks.
+//! Job transitions on the tree committer through the storage service on `MariaDB`.
 
 use std::time::Duration;
 

@@ -65,8 +65,7 @@ impl<
     ///
     /// # Returns
     ///
-    /// The created [`SharedJobControlBlock`], whose job-level events go to the tree of `tree`, on
-    /// success.
+    /// The created [`SharedJobControlBlock`], whose job-level events go to `tree`, on success.
     ///
     /// # Errors
     ///
@@ -114,8 +113,7 @@ impl<
     ///
     /// # Returns
     ///
-    /// The recovered [`SharedJobControlBlock`], whose job-level events go to the tree of `tree`, on
-    /// success.
+    /// The recovered [`SharedJobControlBlock`], whose job-level events go to `tree`, on success.
     ///
     /// # Errors
     ///
@@ -276,7 +274,7 @@ impl<
     ///
     /// * [`InternalError::TaskGraphCorrupted`] if the job has no ready task.
     /// * Forwards [`JobExecutionStateHandle::read_ready`]'s return values on failure.
-    /// * Forwards [`Self::submit_event`]'s return values on failure.
+    /// * Forwards [`Self::submit_event_and_wait_for_reply`]'s return values on failure.
     pub async fn start(&self) -> Result<(), CacheError> {
         let jcb = &self.inner;
         let job = jcb.job_execution_state.read_ready().await?;
@@ -288,7 +286,7 @@ impl<
             )
             .into());
         }
-        self.submit_event(TreeEventKind::Start { ready_task_indices })
+        self.submit_event_and_wait_for_reply(TreeEventKind::Start { ready_task_indices })
             .await?;
         Ok(())
     }
@@ -397,7 +395,7 @@ impl<
     /// * Forwards [`JobControlBlock::hit_hook`]'s return values on failure.
     /// * Forwards [`InboundQueueSender::send_task_ready`]'s return values on failure.
     /// * Forwards [`TaskGraph::read_output_payloads`]'s return values on failure.
-    /// * Forwards [`Self::submit_event`]'s return values on failure.
+    /// * Forwards [`Self::submit_event_and_wait_for_reply`]'s return values on failure.
     pub async fn succeed_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
@@ -447,7 +445,7 @@ impl<
             Some(task_instance_id),
         )
         .await?;
-        self.submit_event(TreeEventKind::RegularTasksDone { outputs })
+        self.submit_event_and_wait_for_reply(TreeEventKind::RegularTasksDone { outputs })
             .await
     }
 
@@ -466,7 +464,7 @@ impl<
     /// * Forwards [`JobExecutionStateHandle::read_commit_ready`]'s return values on failure.
     /// * Forwards [`SharedTerminationTaskControlBlock::succeed_task_instance`]'s return values on
     ///   failure.
-    /// * Forwards [`Self::submit_event`]'s return values on failure.
+    /// * Forwards [`Self::submit_event_and_wait_for_reply`]'s return values on failure.
     pub async fn succeed_commit_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
@@ -479,7 +477,8 @@ impl<
             .succeed_task_instance(task_instance_id)
             .await?;
         drop(job);
-        self.submit_event(TreeEventKind::CommitDone).await
+        self.submit_event_and_wait_for_reply(TreeEventKind::CommitDone)
+            .await
     }
 
     /// Marks the cleanup task instance as succeeded and transitions the job to
@@ -497,7 +496,7 @@ impl<
     /// * Forwards [`JobExecutionStateHandle::read_cleanup_ready`]'s return values on failure.
     /// * Forwards [`SharedTerminationTaskControlBlock::succeed_task_instance`]'s return values on
     ///   failure.
-    /// * Forwards [`Self::submit_event`]'s return values on failure.
+    /// * Forwards [`Self::submit_event_and_wait_for_reply`]'s return values on failure.
     pub async fn succeed_cleanup_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
@@ -510,7 +509,8 @@ impl<
             .succeed_task_instance(task_instance_id)
             .await?;
         drop(job);
-        self.submit_event(TreeEventKind::CleanupDone).await
+        self.submit_event_and_wait_for_reply(TreeEventKind::CleanupDone)
+            .await
     }
 
     /// Marks a task instance as failed.
@@ -543,7 +543,7 @@ impl<
     /// * Forwards [`InboundQueueSender::send_commit_ready`]'s return values on failure.
     /// * Forwards [`InboundQueueSender::send_cleanup_ready`]'s return values on failure.
     /// * Forwards [`JobControlBlock::hit_hook`]'s return values on failure.
-    /// * Forwards [`Self::submit_event`]'s return values on failure.
+    /// * Forwards [`Self::submit_event_and_wait_for_reply`]'s return values on failure.
     pub async fn fail_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
@@ -606,7 +606,7 @@ impl<
         };
         jcb.hit_hook(HookPoint::TaskFailureBeforeSubmit, Some(task_instance_id))
             .await?;
-        self.submit_event(TreeEventKind::TerminalFailure {
+        self.submit_event_and_wait_for_reply(TreeEventKind::TerminalFailure {
             lane,
             message: error_message,
         })
@@ -627,9 +627,10 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`Self::submit_event`]'s return values on failure.
+    /// * Forwards [`Self::submit_event_and_wait_for_reply`]'s return values on failure.
     pub async fn cancel(&self) -> Result<JobState, CacheError> {
-        self.submit_event(TreeEventKind::CancelRoot).await
+        self.submit_event_and_wait_for_reply(TreeEventKind::CancelRoot)
+            .await
     }
 
     /// Applies a transition that the tree's committer has written to the database to the cached
@@ -695,7 +696,10 @@ impl<
     /// * [`InternalError::UntrackedLiveJob`] if the tree no longer tracks the job while its cached
     ///   state accepts the event.
     /// * Forwards [`TreeControlBlock::submit`]'s return values on failure.
-    async fn submit_event(&self, kind: TreeEventKind) -> Result<JobState, CacheError> {
+    async fn submit_event_and_wait_for_reply(
+        &self,
+        kind: TreeEventKind,
+    ) -> Result<JobState, CacheError> {
         let jcb = &self.inner;
         let state_requirement = kind.state_requirement();
         let reply = jcb.tree.submit(TreeEvent {
