@@ -26,6 +26,7 @@ use crate::cache::sync::Reader;
 use crate::cache::sync::SharedRw;
 use crate::cache::sync::Writer;
 use crate::job_submission::ValidatedJobSubmission;
+use crate::partial_mutation::PartialMutationGuard;
 use crate::test_hooks::HookContext;
 use crate::test_hooks::HookPoint;
 use crate::test_hooks::TestHooks;
@@ -311,8 +312,9 @@ impl SharedTaskControlBlock {
 
     /// Marks a task instance as succeeded.
     ///
-    /// `hooks` fire at [`HookPoint::TaskSuccessBeforeSuccessorLock`] with the context that
-    /// `context` builds, after the outputs are written.
+    /// `partial_mutation_guard` is armed once the task has succeeded. `hooks` fire at
+    /// [`HookPoint::TaskSuccessBeforeSuccessorLock`] with the context that `context` builds, after
+    /// the outputs are written.
     ///
     /// # Returns
     ///
@@ -336,6 +338,7 @@ impl SharedTaskControlBlock {
         &self,
         instance_id: TaskInstanceId,
         task_outputs: Vec<TaskOutput>,
+        partial_mutation_guard: &mut PartialMutationGuard<'_>,
         hooks: &TestHooks,
         context: impl FnOnce() -> HookContext,
     ) -> Result<Vec<TaskIndex>, CacheError> {
@@ -347,6 +350,7 @@ impl SharedTaskControlBlock {
             });
         }
         tcb.base.succeed_task_instance(instance_id)?;
+        partial_mutation_guard.arm();
 
         // NOTE: The following execution can only fail due to internal errors because the cache
         // state has already been updated.
@@ -1043,8 +1047,10 @@ mod tests {
     use spider_core::task::TaskGraph as SubmittedTaskGraph;
     use spider_core::task::TerminationTaskDescriptor;
     use spider_core::task::ValueTypeDescriptor;
+    use spider_core::types::id::JobId;
     use spider_core::types::io::TaskGraphInputBuilder;
     use spider_core::types::io::TaskInput;
+    use spider_utils::shutdown::ShutdownHandle;
     use spider_utils::wire::unframe;
 
     use super::*;
@@ -1060,13 +1066,20 @@ mod tests {
         id: TaskInstanceId,
         task_outputs: Vec<TaskOutput>,
     ) -> Result<Vec<TaskIndex>, CacheError> {
-        tcb.succeed_task_instance(
-            id,
-            task_outputs,
-            &TestHooks::default(),
-            HookContext::default,
-        )
-        .await
+        let shutdown_handle = ShutdownHandle::new();
+        let mut partial_mutation_guard =
+            PartialMutationGuard::new(&shutdown_handle, JobId::random());
+        let result = tcb
+            .succeed_task_instance(
+                id,
+                task_outputs,
+                &mut partial_mutation_guard,
+                &TestHooks::default(),
+                HookContext::default,
+            )
+            .await;
+        partial_mutation_guard.disarm();
+        result
     }
 
     /// # Returns

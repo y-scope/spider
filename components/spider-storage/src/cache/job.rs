@@ -31,6 +31,7 @@ use crate::cache::tree::TreeNode;
 use crate::db::RecoverableJobContext;
 use crate::inbound_queue::InboundQueueSender;
 use crate::job_submission::ValidatedJobSubmission;
+use crate::partial_mutation::PartialMutationGuard;
 use crate::task_instance_pool::TaskInstanceMetadata;
 use crate::task_instance_pool::TaskInstancePoolConnector;
 use crate::test_hooks::HookContext;
@@ -286,7 +287,7 @@ impl<
             )
             .into());
         }
-        self.submit_event_and_wait_for_reply(TreeEventKind::Start { ready_task_indices })
+        self.submit_event_and_wait_for_reply(TreeEventKind::Start { ready_task_indices }, None)
             .await?;
         Ok(())
     }
@@ -403,15 +404,21 @@ impl<
         task_outputs: Vec<TaskOutput>,
     ) -> Result<JobState, CacheError> {
         let jcb = &self.inner;
+        let mut partial_mutation_guard =
+            jcb.partial_mutation_guard(TaskId::Index(task_index), task_instance_id);
         let job = jcb.job_execution_state.read_running().await?;
         let tcb = job
             .task_graph
             .get_task_control_block(task_index)
             .ok_or(InternalError::TaskIndexOutOfBound)?;
         let ready_task_indices = tcb
-            .succeed_task_instance(task_instance_id, task_outputs, &jcb.hooks, || {
-                jcb.hook_context(Some(task_instance_id))
-            })
+            .succeed_task_instance(
+                task_instance_id,
+                task_outputs,
+                &mut partial_mutation_guard,
+                &jcb.hooks,
+                || jcb.hook_context(Some(task_instance_id)),
+            )
             .await?;
         jcb.hit_hook(HookPoint::TaskSuccessAfterTcbFlip, Some(task_instance_id))
             .await?;
@@ -431,10 +438,12 @@ impl<
             job.inbound_queue_sender
                 .send_task_ready(jcb.owner_id, jcb.id, ready_task_indices)
                 .await?;
+            partial_mutation_guard.disarm();
             return Ok(job.state);
         }
 
         if num_incomplete_tasks != 0 {
+            partial_mutation_guard.disarm();
             return Ok(job.state);
         }
 
@@ -445,8 +454,11 @@ impl<
             Some(task_instance_id),
         )
         .await?;
-        self.submit_event_and_wait_for_reply(TreeEventKind::RegularTasksDone { outputs })
-            .await
+        self.submit_event_and_wait_for_reply(
+            TreeEventKind::RegularTasksDone { outputs },
+            Some(&mut partial_mutation_guard),
+        )
+        .await
     }
 
     /// Marks the commit task instance as succeeded and transitions the job to
@@ -470,15 +482,21 @@ impl<
         task_instance_id: TaskInstanceId,
     ) -> Result<JobState, CacheError> {
         let jcb = &self.inner;
+        let mut partial_mutation_guard =
+            jcb.partial_mutation_guard(TaskId::Commit, task_instance_id);
         let job = jcb.job_execution_state.read_commit_ready().await?;
         job.task_graph
             .get_commit_task_control_block()
             .ok_or(InternalError::UndefinedCommitTask)?
             .succeed_task_instance(task_instance_id)
             .await?;
+        partial_mutation_guard.arm();
         drop(job);
-        self.submit_event_and_wait_for_reply(TreeEventKind::CommitDone)
-            .await
+        self.submit_event_and_wait_for_reply(
+            TreeEventKind::CommitDone,
+            Some(&mut partial_mutation_guard),
+        )
+        .await
     }
 
     /// Marks the cleanup task instance as succeeded and transitions the job to
@@ -502,15 +520,21 @@ impl<
         task_instance_id: TaskInstanceId,
     ) -> Result<JobState, CacheError> {
         let jcb = &self.inner;
+        let mut partial_mutation_guard =
+            jcb.partial_mutation_guard(TaskId::Cleanup, task_instance_id);
         let job = jcb.job_execution_state.read_cleanup_ready().await?;
         job.task_graph
             .get_cleanup_task_control_block()
             .ok_or(InternalError::UndefinedCleanupTask)?
             .succeed_task_instance(task_instance_id)
             .await?;
+        partial_mutation_guard.arm();
         drop(job);
-        self.submit_event_and_wait_for_reply(TreeEventKind::CleanupDone)
-            .await
+        self.submit_event_and_wait_for_reply(
+            TreeEventKind::CleanupDone,
+            Some(&mut partial_mutation_guard),
+        )
+        .await
     }
 
     /// Marks a task instance as failed.
@@ -551,6 +575,7 @@ impl<
         error_message: String,
     ) -> Result<JobState, CacheError> {
         let jcb = &self.inner;
+        let mut partial_mutation_guard = jcb.partial_mutation_guard(task_id, task_instance_id);
         let lane = match task_id {
             TaskId::Index(task_index) => {
                 let job = jcb.job_execution_state.read_running().await?;
@@ -560,10 +585,12 @@ impl<
                     .ok_or(InternalError::TaskIndexOutOfBound)?
                     .fail_task_instance(task_instance_id, error_message.clone())
                     .await?;
+                partial_mutation_guard.arm();
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
                     job.inbound_queue_sender
                         .send_task_ready(jcb.owner_id, jcb.id, vec![task_index])
                         .await?;
+                    partial_mutation_guard.disarm();
                     return Ok(job.state);
                 }
                 drop(job);
@@ -577,10 +604,12 @@ impl<
                     .ok_or(InternalError::UndefinedCommitTask)?
                     .fail_task_instance(task_instance_id, error_message.clone())
                     .await?;
+                partial_mutation_guard.arm();
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
                     job.inbound_queue_sender
                         .send_commit_ready(jcb.owner_id, jcb.id)
                         .await?;
+                    partial_mutation_guard.disarm();
                     return Ok(job.state);
                 }
                 drop(job);
@@ -594,10 +623,12 @@ impl<
                     .ok_or(InternalError::UndefinedCleanupTask)?
                     .fail_task_instance(task_instance_id, error_message.clone())
                     .await?;
+                partial_mutation_guard.arm();
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
                     job.inbound_queue_sender
                         .send_cleanup_ready(jcb.owner_id, jcb.id)
                         .await?;
+                    partial_mutation_guard.disarm();
                     return Ok(job.state);
                 }
                 drop(job);
@@ -606,10 +637,13 @@ impl<
         };
         jcb.hit_hook(HookPoint::TaskFailureBeforeSubmit, Some(task_instance_id))
             .await?;
-        self.submit_event_and_wait_for_reply(TreeEventKind::TerminalFailure {
-            lane,
-            message: error_message,
-        })
+        self.submit_event_and_wait_for_reply(
+            TreeEventKind::TerminalFailure {
+                lane,
+                message: error_message,
+            },
+            Some(&mut partial_mutation_guard),
+        )
         .await
     }
 
@@ -629,7 +663,7 @@ impl<
     ///
     /// * Forwards [`Self::submit_event_and_wait_for_reply`]'s return values on failure.
     pub async fn cancel(&self) -> Result<JobState, CacheError> {
-        self.submit_event_and_wait_for_reply(TreeEventKind::CancelRoot)
+        self.submit_event_and_wait_for_reply(TreeEventKind::CancelRoot, None)
             .await
     }
 
@@ -677,8 +711,8 @@ impl<
         Ok(())
     }
 
-    /// Submits an event of `kind` of this job to the job's tree and waits for the committer's
-    /// reply.
+    /// Submits an event of `kind` of this job to the job's tree, disarms `partial_mutation_guard`,
+    /// if any, once the event is submitted, and waits for the committer's reply.
     ///
     /// # Returns
     ///
@@ -699,6 +733,7 @@ impl<
     async fn submit_event_and_wait_for_reply(
         &self,
         kind: TreeEventKind,
+        partial_mutation_guard: Option<&mut PartialMutationGuard<'_>>,
     ) -> Result<JobState, CacheError> {
         let jcb = &self.inner;
         let state_requirement = kind.state_requirement();
@@ -706,6 +741,9 @@ impl<
             job_id: jcb.id,
             kind,
         });
+        if let Some(partial_mutation_guard) = partial_mutation_guard {
+            partial_mutation_guard.disarm();
+        }
         match reply.await? {
             TreeEventOutcome::Applied(state) => Ok(state),
             TreeEventOutcome::Stale(error) => Err(error.into()),
@@ -752,7 +790,10 @@ impl<
         let task_instance_id = job
             .task_instance_pool_connector
             .get_next_available_task_instance_id();
+        let mut partial_mutation_guard =
+            jcb.partial_mutation_guard(TaskId::Index(task_index), task_instance_id);
         let execution_context = tcb.register_task_instance(task_instance_id).await?;
+        partial_mutation_guard.arm();
         jcb.hit_hook(
             HookPoint::CreateInstanceBeforePoolSend,
             Some(task_instance_id),
@@ -771,6 +812,7 @@ impl<
         job.task_instance_pool_connector
             .register_task_instance(tcb.clone(), registration)
             .await?;
+        partial_mutation_guard.disarm();
 
         // The lock is intentionally held until just before return so all TCB accesses
         // observe a consistent state within the lock's scope.
@@ -813,8 +855,11 @@ impl<
         let task_instance_id = job
             .task_instance_pool_connector
             .get_next_available_task_instance_id();
+        let mut partial_mutation_guard =
+            jcb.partial_mutation_guard(TaskId::Commit, task_instance_id);
         let (tdl_context, timeout_policy) =
             commit_tcb.register_task_instance(task_instance_id).await?;
+        partial_mutation_guard.arm();
         let registration = TaskInstanceMetadata {
             resource_group_id: jcb.owner_id,
             job_id: jcb.id,
@@ -827,6 +872,7 @@ impl<
         job.task_instance_pool_connector
             .register_termination_task_instance(commit_tcb.clone(), registration)
             .await?;
+        partial_mutation_guard.disarm();
 
         drop(job);
         Ok(ExecutionContext {
@@ -865,8 +911,11 @@ impl<
         let task_instance_id = job
             .task_instance_pool_connector
             .get_next_available_task_instance_id();
+        let mut partial_mutation_guard =
+            jcb.partial_mutation_guard(TaskId::Cleanup, task_instance_id);
         let (tdl_context, timeout_policy) =
             cleanup_tcb.register_task_instance(task_instance_id).await?;
+        partial_mutation_guard.arm();
         let registration = TaskInstanceMetadata {
             resource_group_id: jcb.owner_id,
             job_id: jcb.id,
@@ -879,6 +928,7 @@ impl<
         job.task_instance_pool_connector
             .register_termination_task_instance(cleanup_tcb.clone(), registration)
             .await?;
+        partial_mutation_guard.disarm();
 
         drop(job);
         Ok(ExecutionContext {
@@ -943,6 +993,23 @@ impl<
             task_instance_id,
             ..HookContext::job(self.id)
         }
+    }
+
+    /// # Returns
+    ///
+    /// A disarmed guard over a mutation of this job for the task instance `task_instance_id` of
+    /// `task_id`.
+    const fn partial_mutation_guard(
+        &self,
+        task_id: TaskId,
+        task_instance_id: TaskInstanceId,
+    ) -> PartialMutationGuard<'_> {
+        PartialMutationGuard::for_task_instance(
+            self.tree.shutdown_handle(),
+            self.id,
+            task_id,
+            task_instance_id,
+        )
     }
 }
 

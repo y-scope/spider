@@ -5,6 +5,7 @@ pub mod grpc;
 pub mod inbound_queue;
 pub mod job_submission;
 pub mod limits;
+mod partial_mutation;
 pub mod state;
 pub mod task_instance_pool;
 pub mod test_hooks;
