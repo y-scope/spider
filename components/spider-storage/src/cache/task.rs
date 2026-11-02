@@ -291,26 +291,22 @@ impl SharedTaskControlBlock {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`TaskControlBlockBase::register_task_instance`]'s return values on failure.
+    /// * Forwards [`TaskControlBlockBase::ensure_registrable`]'s return values on failure.
     /// * Forwards [`TaskControlBlock::fetch_inputs`]'s return values on failure.
     pub async fn register_task_instance(
         &self,
         instance_id: TaskInstanceId,
     ) -> Result<ExecutionContext, CacheError> {
         let mut tcb = self.inner.lock().await;
-        tcb.base.register_task_instance(instance_id)?;
-
-        // NOTE: The following execution can only fail due to internal errors because the cache
-        // state has already been updated.
-        let result: Result<_, InternalError> = {
-            Ok(ExecutionContext {
-                task_instance_id: instance_id,
-                tdl_context: tcb.base.tdl_context.clone(),
-                timeout_policy: tcb.base.timeout_policy.clone(),
-                serialized_task_io: tcb.fetch_inputs().await?,
-            })
-        };
-        result.map_err(CacheError::from)
+        tcb.base.ensure_registrable()?;
+        let serialized_task_io = tcb.fetch_inputs().await?;
+        tcb.base.add_task_instance(instance_id);
+        Ok(ExecutionContext {
+            task_instance_id: instance_id,
+            tdl_context: tcb.base.tdl_context.clone(),
+            timeout_policy: tcb.base.timeout_policy.clone(),
+            serialized_task_io,
+        })
     }
 
     /// Marks a task instance as succeeded.
@@ -326,6 +322,8 @@ impl SharedTaskControlBlock {
     ///
     /// Returns an error if:
     ///
+    /// * [`CacheError::TaskOutputsLengthMismatch`] if the number of task outputs doesn't match the
+    ///   number of outputs of the task.
     /// * [`InternalError::TaskGraphCorrupted`] if:
     ///   * Attempting to mark a parent of a child task as completed, but the child task's
     ///     unfinished parent counter is already 0.
@@ -342,6 +340,12 @@ impl SharedTaskControlBlock {
         context: impl FnOnce() -> HookContext,
     ) -> Result<Vec<TaskIndex>, CacheError> {
         let mut tcb = self.inner.lock().await;
+        if task_outputs.len() != tcb.outputs.len() {
+            return Err(CacheError::TaskOutputsLengthMismatch {
+                expected: tcb.outputs.len(),
+                actual: task_outputs.len(),
+            });
+        }
         tcb.base.succeed_task_instance(instance_id)?;
 
         // NOTE: The following execution can only fail due to internal errors because the cache
@@ -710,21 +714,16 @@ impl InstancePool {
         }
     }
 
+    /// # Returns
+    ///
+    /// Whether the number of living task instances has reached the upper limit.
+    fn is_full(&self) -> bool {
+        self.instance_ids.len() >= self.max_num_instances
+    }
+
     /// Adds a task instance to the pool.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`StaleStateError::TaskInstanceLimitExceeded`] if the number of living task instances has
-    ///   reached the upper limit.
-    fn add(&mut self, instance_id: TaskInstanceId) -> Result<(), StaleStateError> {
-        if self.instance_ids.len() >= self.max_num_instances {
-            Err(StaleStateError::TaskInstanceLimitExceeded)
-        } else {
-            self.instance_ids.insert(instance_id);
-            Ok(())
-        }
+    fn add(&mut self, instance_id: TaskInstanceId) {
+        self.instance_ids.insert(instance_id);
     }
 
     /// Removes a task instance from the pool.
@@ -809,20 +808,41 @@ impl TaskControlBlockBase {
     ///
     /// Returns an error if:
     ///
+    /// * Forwards [`Self::ensure_registrable`]'s return values on failure.
+    fn register_task_instance(&mut self, instance_id: TaskInstanceId) -> Result<(), CacheError> {
+        self.ensure_registrable()?;
+        self.add_task_instance(instance_id);
+        Ok(())
+    }
+
+    /// Ensures that a new task instance can be registered to the control block.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
     /// * [`StaleStateError::TaskAlreadyTerminated`] if the task is already in a terminal state.
     /// * [`InternalError::TaskNotReady`] if the task is not yet ready.
-    /// * Forwards [`InstancePool::add`]'s return values on failure.
-    fn register_task_instance(&mut self, instance_id: TaskInstanceId) -> Result<(), CacheError> {
+    /// * [`StaleStateError::TaskInstanceLimitExceeded`] if the number of living task instances has
+    ///   reached the upper limit.
+    fn ensure_registrable(&self) -> Result<(), CacheError> {
         if self.state.is_terminal() {
             return Err(StaleStateError::TaskAlreadyTerminated(self.state.clone()).into());
         }
         if !matches!(self.state, TaskState::Ready | TaskState::Running) {
             return Err(InternalError::TaskNotReady.into());
         }
-
-        self.instance_pool.add(instance_id)?;
-        self.state = TaskState::Running;
+        if self.instance_pool.is_full() {
+            return Err(StaleStateError::TaskInstanceLimitExceeded.into());
+        }
         Ok(())
+    }
+
+    /// Adds a task instance that [`Self::ensure_registrable`] admitted to the instance pool, and
+    /// moves the task to [`TaskState::Running`].
+    fn add_task_instance(&mut self, instance_id: TaskInstanceId) {
+        self.instance_pool.add(instance_id);
+        self.state = TaskState::Running;
     }
 
     /// Marks a task instance as succeeded.
@@ -949,24 +969,16 @@ struct TaskControlBlock {
 }
 
 impl TaskControlBlock {
-    /// Writes the task outputs.
+    /// Writes the task outputs, whose number must match the number of outputs defined in the task
+    /// control block.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError::TaskOutputsLengthMismatch`] if the length of the provided task outputs
-    ///   doesn't match the length of the task outputs defined in the task control block.
     /// * [`InternalError::TaskOutputAlreadyWritten`] if any of the task outputs has already been
     ///   written (the task output is assumed to be produced by a single source).
     async fn write_outputs(&self, task_outputs: Vec<TaskOutput>) -> Result<(), InternalError> {
-        if task_outputs.len() != self.outputs.len() {
-            return Err(InternalError::TaskOutputsLengthMismatch(
-                self.outputs.len(),
-                task_outputs.len(),
-            ));
-        }
-
         // Write task outputs
         // NOTE: Currently, there is only one possible task output type (value payload) and thus we
         // do not need to validate the type. In the future, when more task output types are

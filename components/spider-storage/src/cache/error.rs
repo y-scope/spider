@@ -16,6 +16,9 @@ pub enum CacheError {
 
     #[error("storage service is shutting down")]
     ServiceStopping,
+
+    #[error("task outputs length mismatch: expected {expected}, got {actual}")]
+    TaskOutputsLengthMismatch { expected: usize, actual: usize },
 }
 
 impl From<DbError> for CacheError {
@@ -42,9 +45,6 @@ pub enum InternalError {
 
     #[error("task input not ready")]
     TaskInputNotReady,
-
-    #[error("task outputs length mismatch: expected {0}, got {1}")]
-    TaskOutputsLengthMismatch(usize, usize),
 
     #[error("a single-source task output has already been written")]
     TaskOutputAlreadyWritten,

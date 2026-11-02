@@ -465,6 +465,7 @@ impl<
     /// * Forwards [`spider_core::types::io::TaskOutputsSerializer::deserialize`]'s return values on
     ///   failure.
     /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
+    /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn succeed_task_instance(
         &self,
@@ -485,9 +486,36 @@ impl<
                 .get(job_id)
                 .await
                 .ok_or(StorageServerError::JobNotFound(job_id))?;
-            let state = jcb
+            let state = match jcb
                 .succeed_task_instance(task_instance_id, task_index, task_outputs)
-                .await?;
+                .await
+            {
+                Err(rejection @ CacheError::TaskOutputsLengthMismatch { .. }) => {
+                    tracing::warn!(
+                        job_id = ? job_id,
+                        task_id = ? TaskId::Index(task_index),
+                        task_instance_id = ? task_instance_id,
+                        error = % rejection,
+                        "Task success report rejected. Failing the task instance."
+                    );
+                    let state = jcb
+                        .fail_task_instance(
+                            task_instance_id,
+                            TaskId::Index(task_index),
+                            rejection.to_string(),
+                        )
+                        .await?;
+                    tracing::info!(
+                        job_id = ? job_id,
+                        task_id = ? TaskId::Index(task_index),
+                        task_instance_id = ? task_instance_id,
+                        job_state = ? state,
+                        "Task instance failed.",
+                    );
+                    return Ok(state);
+                }
+                result => result?,
+            };
             tracing::info!(
                 job_id = ? job_id,
                 task_id = ? TaskId::Index(task_index),
@@ -1879,6 +1907,45 @@ mod tests {
             matches!(result, Err(StorageServerError::JobNotFound(_))),
             "succeed_task_instance should return JobNotFound when job is not in cache"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_report_with_the_wrong_output_count_fails_the_task_instance() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
+            create_test_job_submission();
+        let job_id = service
+            .register_job(
+                ResourceGroupId::random(),
+                compressed_serialized_task_graph,
+                compressed_serialized_task_graph_input,
+            )
+            .await?;
+        service.start_job(job_id).await?;
+        let context = service
+            .create_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::random(),
+            )
+            .await?;
+
+        let state = service
+            .succeed_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                context.task_instance_id,
+                0,
+                TaskOutputsSerializer::from_tuple(&(1, 2))
+                    .expect("output serialization should succeed"),
+            )
+            .await?;
+
+        assert_eq!(state, JobState::Failed);
+        assert_eq!(service.get_job_state(job_id).await?, JobState::Failed);
+        assert!(!service.inner.shutdown_handle.is_cancelled());
         Ok(())
     }
 

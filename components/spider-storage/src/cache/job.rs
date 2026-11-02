@@ -790,12 +790,12 @@ impl<
     ///
     /// * [`InternalError::UndefinedCommitTask`] if the job has no commit task.
     /// * Forwards [`JobExecutionStateHandle::read_commit_ready`]'s return values on failure.
+    /// * Forwards [`TaskGraph::read_output_payloads`]'s return values on failure.
+    /// * Forwards [`SerializedTaskOutputs::serialize_with_size_hint`]'s return values on failure.
     /// * Forwards [`SharedTerminationTaskControlBlock::register_task_instance`]'s return values on
     ///   failure.
     /// * Forwards [`TaskInstancePoolConnector::register_termination_task_instance`]'s return values
     ///   on failure.
-    /// * Forwards [`TaskGraph::read_output_payloads`]'s return values on failure.
-    /// * Forwards [`SerializedTaskOutputs::serialize_with_size_hint`]'s return values on failure.
     async fn create_commit_task_instance(
         jcb: &JobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
         execution_manager_id: ExecutionManagerId,
@@ -805,6 +805,11 @@ impl<
             .task_graph
             .get_commit_task_control_block()
             .ok_or(InternalError::UndefinedCommitTask)?;
+        let task_graph_outputs = job.task_graph.read_output_payloads().await?;
+        let serialized_task_io =
+            SerializedTaskOutputs::serialize_with_size_hint(&task_graph_outputs)
+                .map_err(InternalError::TaskOutputs)?
+                .to_raw();
         let task_instance_id = job
             .task_instance_pool_connector
             .get_next_available_task_instance_id();
@@ -822,12 +827,6 @@ impl<
         job.task_instance_pool_connector
             .register_termination_task_instance(commit_tcb.clone(), registration)
             .await?;
-
-        let task_graph_outputs = job.task_graph.read_output_payloads().await?;
-        let serialized_task_io =
-            SerializedTaskOutputs::serialize_with_size_hint(&task_graph_outputs)
-                .map_err(InternalError::TaskOutputs)?
-                .to_raw();
 
         drop(job);
         Ok(ExecutionContext {
