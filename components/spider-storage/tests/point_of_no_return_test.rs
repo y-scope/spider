@@ -74,8 +74,7 @@ async fn a_report_with_the_wrong_output_count_fails_its_task_instance() -> anyho
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn a_fault_after_the_tcb_flip_is_fatal_and_a_restart_finishes_the_job() -> anyhow::Result<()>
-{
+async fn a_fault_after_the_tcb_flip_is_fatal_and_a_restart_reruns_the_task() -> anyhow::Result<()> {
     let mut env = TestEnv::start().await;
     for point in [
         HookPoint::TaskSuccessAfterTcbFlip,
