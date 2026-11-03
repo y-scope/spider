@@ -47,6 +47,12 @@ impl HookFilter {
 pub enum HookAction {
     /// Blocks until released, or until the runtime's shutdown is requested.
     Pause,
+
+    /// Fails the hit with an injected fault.
+    Crash,
+
+    /// Panics.
+    Panic,
 }
 
 /// How many times a hook fires.
@@ -62,6 +68,9 @@ pub enum HookCount {
 pub enum InjectedFault {
     /// A pause ended because the runtime's shutdown was requested.
     Stopping,
+
+    /// A crash fired at the hook point.
+    Crash(HookPoint),
 }
 
 impl From<InjectedFault> for CacheError {
@@ -133,6 +142,11 @@ impl TestHooks {
     /// Returns an error if:
     ///
     /// * [`InjectedFault::Stopping`] if a pause ended because the runtime's shutdown was requested.
+    /// * [`InjectedFault::Crash`] if a crash fired.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a panic fired.
     pub async fn hit(
         &self,
         point: HookPoint,
@@ -164,6 +178,8 @@ impl TestHooks {
                         () = shutdown_handle.cancelled() => return Err(InjectedFault::Stopping),
                     }
                 }
+                HookAction::Crash => return Err(InjectedFault::Crash(point)),
+                HookAction::Panic => panic!("injected panic at {point:?}"),
             }
         }
         Ok(())

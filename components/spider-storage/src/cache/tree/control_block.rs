@@ -91,6 +91,13 @@ impl TreeControlBlock {
                 .unwrap_or_else(|_| Err(InternalError::TreePoisoned.into()))
         }
     }
+
+    /// # Returns
+    ///
+    /// The shutdown handle of the service that the tree belongs to.
+    pub(crate) const fn shutdown_handle(&self) -> &ShutdownHandle {
+        &self.shutdown_handle
+    }
 }
 
 /// The receivers of a tree's two event channels, owned by the tree's committer.

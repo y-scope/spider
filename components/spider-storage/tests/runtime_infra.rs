@@ -58,6 +58,7 @@ pub type TestService =
 /// assertions, a resource group and an execution manager.
 pub struct TestEnv {
     pub isolated_test_db: IsolatedTestDb,
+    pub config: RuntimeConfig,
     pub runtime: TestRuntime,
     pub service: TestService,
     pub hooks: TestHooks,
@@ -100,14 +101,8 @@ impl TestEnv {
         };
         let pool = create_raw_pool(&config.db).await;
         let hooks = TestHooks::default();
-        let runtime = create_runtime_with_hooks(&config, hooks.clone())
-            .await
-            .expect("the runtime should start");
+        let runtime = Self::start_runtime(&config, hooks.clone()).await;
         let service = runtime.get_service_state();
-        service
-            .resend_ready_tasks()
-            .await
-            .expect("the ready-task resend should succeed");
         let resource_group_id = service
             .add_resource_group(ExternalResourceGroupCredentials::new(
                 format!("runtime-test-{}", rand::random::<u64>()),
@@ -122,6 +117,49 @@ impl TestEnv {
             .0;
         Self {
             isolated_test_db,
+            config,
+            runtime,
+            service,
+            hooks,
+            pool,
+            resource_group_id,
+            execution_manager_id,
+        }
+    }
+
+    /// Releases the hooks and stops the runtime, then starts a new runtime with fresh hooks on the
+    /// same database and resends the ready tasks, as a restart of the storage binary does.
+    ///
+    /// # Returns
+    ///
+    /// The restarted environment.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the runtime fails to stop cleanly, or forwards [`Self::start_runtime`]'s panics.
+    pub async fn restart(self) -> Self {
+        let Self {
+            isolated_test_db,
+            config,
+            runtime,
+            service,
+            hooks,
+            pool,
+            resource_group_id,
+            execution_manager_id,
+        } = self;
+        hooks.release_all();
+        drop(service);
+        runtime
+            .stop()
+            .await
+            .expect("the runtime should stop cleanly");
+        let hooks = TestHooks::default();
+        let runtime = Self::start_runtime(&config, hooks.clone()).await;
+        let service = runtime.get_service_state();
+        Self {
+            isolated_test_db,
+            config,
             runtime,
             service,
             hooks,
@@ -427,6 +465,27 @@ impl TestEnv {
         );
         assert_eq!(self.row_state(job_id).await, expected);
         assert!(!self.is_fatal());
+    }
+
+    /// Starts a runtime with `hooks` under `config`, then resends the ready tasks.
+    ///
+    /// # Returns
+    ///
+    /// The started runtime.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the runtime fails to start or the ready-task resend fails.
+    async fn start_runtime(config: &RuntimeConfig, hooks: TestHooks) -> TestRuntime {
+        let runtime = create_runtime_with_hooks(config, hooks)
+            .await
+            .expect("the runtime should start");
+        runtime
+            .get_service_state()
+            .resend_ready_tasks()
+            .await
+            .expect("the ready-task resend should succeed");
+        runtime
     }
 }
 

@@ -61,6 +61,10 @@ pub use disarmed::TestHooks;
 /// A point in the storage service where a hook can fire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HookPoint {
+    /// In a job registration, after the job is inserted into the database, before its control
+    /// block is created.
+    RegisterJobAfterInsert,
+
     /// In a task success, after the task control block has succeeded, before the job's count of
     /// incomplete tasks is decremented.
     TaskSuccessAfterTcbFlip,
