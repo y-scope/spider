@@ -2,9 +2,9 @@
 //!
 //! A job tree is a root job and its descendants. Every job of a tree submits its job-level events
 //! through the tree's control block to the tree's committer, the single owner of the tree's event
-//! receivers and structure. The committer plans each event against the tree's structure. Cancels
-//! and terminal failures travel on the fast-forward channel, which the committer reads first; every
-//! other event travels on the regular channel.
+//! receivers and structure. The committer plans rounds of events against the tree's structure.
+//! Cancels and terminal failures travel on the fast-forward channel, which the committer reads
+//! first; every other event travels on the regular channel.
 
 mod control_block;
 mod event;
@@ -23,7 +23,8 @@ pub use event::TreeEventKind;
 pub use event::TreeEventOutcome;
 pub use event::TreeEventReply;
 pub use planner::Plan;
-pub use planner::PlannedUpdates;
 pub use planner::Publication;
 pub use structure::TreeNode;
 pub use structure::TreeStructure;
+#[cfg(any(test, debug_assertions))]
+pub use structure::Violation;

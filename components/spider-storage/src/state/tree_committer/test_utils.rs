@@ -10,9 +10,11 @@ use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_utils::shutdown::ShutdownHandle;
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 
 use crate::cache::job::SharedJobControlBlock;
+use crate::cache::tree::Pending;
 use crate::cache::tree::TreeControlBlock;
 use crate::cache::tree::TreeEvent;
 use crate::cache::tree::TreeEventKind;
@@ -186,6 +188,19 @@ pub(super) fn start() -> TreeEventKind {
 pub(super) fn regular_tasks_done() -> TreeEventKind {
     TreeEventKind::RegularTasksDone {
         outputs: vec![vec![1]],
+    }
+}
+
+/// # Returns
+///
+/// An event of `kind` of the job `job_id`, whose reply nobody waits for.
+pub(super) fn pending(job_id: u64, kind: TreeEventKind) -> Pending {
+    Pending {
+        event: TreeEvent {
+            job_id: JobId::from(job_id),
+            kind,
+        },
+        reply: oneshot::channel().0,
     }
 }
 
