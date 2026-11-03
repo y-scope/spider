@@ -84,6 +84,10 @@ pub enum HookPoint {
     /// to the task instance pool.
     CreateInstanceBeforePoolSend,
 
+    /// In a job's event submit, after the event is sent to the tree's committer, before its reply
+    /// is awaited.
+    JobEventAfterSubmit,
+
     /// In a tree's committer, before it moves the queued events into its buffers for its next
     /// round.
     CommitterBeforeReceive,

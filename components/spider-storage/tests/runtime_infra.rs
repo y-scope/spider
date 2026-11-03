@@ -399,6 +399,52 @@ impl TestEnv {
         task_indices
     }
 
+    /// Polls the commit lane until it has returned the commit task of `job_id`, ignoring other
+    /// jobs' entries.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the entry does not arrive within 10 seconds.
+    pub async fn poll_commit_ready_task(&self, job_id: JobId) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let entries = self
+                    .service
+                    .poll_commit_ready_tasks(1, Duration::from_secs(1))
+                    .await
+                    .expect("polling should succeed");
+                if entries.iter().any(|entry| entry.job_id == job_id) {
+                    return;
+                }
+            }
+        })
+        .await
+        .expect("the commit task should be published");
+    }
+
+    /// Polls the cleanup lane until it has returned the cleanup task of `job_id`, ignoring other
+    /// jobs' entries.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the entry does not arrive within 10 seconds.
+    pub async fn poll_cleanup_ready_task(&self, job_id: JobId) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let entries = self
+                    .service
+                    .poll_cleanup_ready_tasks(1, Duration::from_secs(1))
+                    .await
+                    .expect("polling should succeed");
+                if entries.iter().any(|entry| entry.job_id == job_id) {
+                    return;
+                }
+            }
+        })
+        .await
+        .expect("the cleanup task should be published");
+    }
+
     /// Waits until the job's cached state is `expected`.
     ///
     /// # Panics
