@@ -486,11 +486,10 @@ impl<
             .ok_or(InternalError::UndefinedCommitTask)?
             .succeed_task_instance(task_instance_id)
             .await?;
-        let partial_mutation_guard = jcb.partial_mutation_guard(TaskId::Commit, task_instance_id);
         drop(job);
         self.submit_event_and_wait_for_reply(
             TreeEventKind::CommitDone,
-            Some(partial_mutation_guard),
+            Some(jcb.partial_mutation_guard(TaskId::Commit, task_instance_id)),
         )
         .await
     }
@@ -522,11 +521,10 @@ impl<
             .ok_or(InternalError::UndefinedCleanupTask)?
             .succeed_task_instance(task_instance_id)
             .await?;
-        let partial_mutation_guard = jcb.partial_mutation_guard(TaskId::Cleanup, task_instance_id);
         drop(job);
         self.submit_event_and_wait_for_reply(
             TreeEventKind::CleanupDone,
-            Some(partial_mutation_guard),
+            Some(jcb.partial_mutation_guard(TaskId::Cleanup, task_instance_id)),
         )
         .await
     }
