@@ -2731,6 +2731,9 @@ mod tests {
         /// How long a test waits for a request to reach a paused hook.
         const HOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
+        /// The hook actions that make a handler body fail or panic.
+        const FAULT_ACTIONS: [HookAction; 2] = [HookAction::Crash, HookAction::Panic];
+
         /// Registers and starts a one-task job in `service`.
         ///
         /// # Returns
@@ -2954,7 +2957,7 @@ mod tests {
 
         #[tokio::test]
         async fn a_fault_before_the_pool_send_shuts_down_fatally() {
-            for action in [HookAction::Crash, HookAction::Panic] {
+            for action in FAULT_ACTIONS {
                 let context = format!("{action:?}");
                 let service = create_test_service();
                 let job_id = register_and_start_job(&service).await;
@@ -2983,9 +2986,7 @@ mod tests {
         async fn a_fault_after_the_task_failed_shuts_down_fatally() {
             for (task_id, action) in [TaskId::Index(0), TaskId::Commit, TaskId::Cleanup]
                 .into_iter()
-                .flat_map(|task_id| {
-                    [HookAction::Crash, HookAction::Panic].map(|action| (task_id, action))
-                })
+                .flat_map(|task_id| FAULT_ACTIONS.map(|action| (task_id, action)))
             {
                 let context = format!("{action:?} of {task_id:?}");
                 let service = create_test_service();
@@ -3015,7 +3016,7 @@ mod tests {
 
         #[tokio::test]
         async fn a_fault_after_the_registration_insert_shuts_down_fatally() {
-            for action in [HookAction::Crash, HookAction::Panic] {
+            for action in FAULT_ACTIONS {
                 let context = format!("{action:?}");
                 let db = MockDbConnector::default();
                 let service = create_test_service_with_db(db.clone());
