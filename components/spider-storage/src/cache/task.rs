@@ -353,6 +353,7 @@ impl SharedTaskControlBlock {
             });
         }
         tcb.base.succeed_task_instance(instance_id)?;
+
         let partial_mutation_guard = new_partial_mutation_guard();
 
         // NOTE: The following execution can only fail due to internal errors because the cache

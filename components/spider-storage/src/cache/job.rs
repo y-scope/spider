@@ -576,6 +576,7 @@ impl<
                     .ok_or(InternalError::TaskIndexOutOfBound)?
                     .fail_task_instance(task_instance_id, error_message.clone())
                     .await?;
+
                 let partial_mutation_guard = jcb.partial_mutation_guard(task_id, task_instance_id);
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
                     job.inbound_queue_sender
@@ -595,6 +596,7 @@ impl<
                     .ok_or(InternalError::UndefinedCommitTask)?
                     .fail_task_instance(task_instance_id, error_message.clone())
                     .await?;
+
                 let partial_mutation_guard = jcb.partial_mutation_guard(task_id, task_instance_id);
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
                     job.inbound_queue_sender
@@ -614,6 +616,7 @@ impl<
                     .ok_or(InternalError::UndefinedCleanupTask)?
                     .fail_task_instance(task_instance_id, error_message.clone())
                     .await?;
+
                 let partial_mutation_guard = jcb.partial_mutation_guard(task_id, task_instance_id);
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
                     job.inbound_queue_sender
@@ -782,6 +785,7 @@ impl<
             .task_instance_pool_connector
             .get_next_available_task_instance_id();
         let execution_context = tcb.register_task_instance(task_instance_id).await?;
+
         let partial_mutation_guard =
             jcb.partial_mutation_guard(TaskId::Index(task_index), task_instance_id);
         jcb.hit_hook(
@@ -847,6 +851,7 @@ impl<
             .get_next_available_task_instance_id();
         let (tdl_context, timeout_policy) =
             commit_tcb.register_task_instance(task_instance_id).await?;
+
         let partial_mutation_guard = jcb.partial_mutation_guard(TaskId::Commit, task_instance_id);
         let registration = TaskInstanceMetadata {
             resource_group_id: jcb.owner_id,
@@ -901,6 +906,7 @@ impl<
             .get_next_available_task_instance_id();
         let (tdl_context, timeout_policy) =
             cleanup_tcb.register_task_instance(task_instance_id).await?;
+
         let partial_mutation_guard = jcb.partial_mutation_guard(TaskId::Cleanup, task_instance_id);
         let registration = TaskInstanceMetadata {
             resource_group_id: jcb.owner_id,
