@@ -84,6 +84,10 @@ pub enum HookPoint {
     /// to the task instance pool.
     CreateInstanceBeforePoolSend,
 
+    /// In a tree's committer, before it moves the queued events into its buffers for its next
+    /// round.
+    CommitterBeforeReceive,
+
     /// In a round of a tree's committer, after the round's database write, before its apply.
     CommitterRoundAfterDbWrite,
 }

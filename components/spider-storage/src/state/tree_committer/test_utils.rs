@@ -11,6 +11,8 @@ use spider_core::types::id::ResourceGroupId;
 use spider_utils::shutdown::ShutdownHandle;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+#[cfg(feature = "test-hooks")]
+use tokio::task::JoinHandle;
 use tokio_util::task::TaskTracker;
 
 use crate::cache::job::SharedJobControlBlock;
@@ -152,20 +154,47 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
             .expect("the committer should exit within 5 seconds");
     }
 
-    /// Arms a pause, for one hit, of the rounds of the tree's committer after their database
-    /// write.
+    /// Arms a pause, for one hit, of the tree's committer at `point`.
     ///
     /// # Returns
     ///
     /// The armed pause.
     #[cfg(feature = "test-hooks")]
-    pub(super) fn arm_pause(&self) -> ArmedHook {
+    pub(super) fn arm_pause(&self, point: HookPoint) -> ArmedHook {
         self.hooks.arm(
-            HookPoint::CommitterRoundAfterDbWrite,
+            point,
             HookFilter::job(ROOT_ID),
             HookAction::Pause,
             HookCount::Once,
         )
+    }
+
+    /// Submits an event of each of `kinds` of the root, in order, while the tree's committer is
+    /// paused before it receives the queued events, so that one round receives them all.
+    ///
+    /// # Returns
+    ///
+    /// The tasks that wait for the events' replies, in the order of `kinds`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the committer does not wake for the first event within 5 seconds.
+    #[cfg(feature = "test-hooks")]
+    pub(super) async fn submit_in_one_round(
+        &self,
+        kinds: Vec<TreeEventKind>,
+    ) -> Vec<JoinHandle<TreeEventReply>> {
+        let pause = self.arm_pause(HookPoint::CommitterBeforeReceive);
+        let reply_join_handles = kinds
+            .into_iter()
+            .map(|kind| tokio::spawn(self.submit(kind)))
+            .collect();
+        pause
+            .reached(1, TIMEOUT)
+            .await
+            .expect("the committer should wake for the first event within 5 seconds");
+        pause.release();
+        reply_join_handles
     }
 }
 
@@ -217,4 +246,23 @@ pub(super) async fn reply(future: impl Future<Output = TreeEventReply>) -> TreeE
     tokio::time::timeout(TIMEOUT, future)
         .await
         .expect("the event should be answered within 5 seconds")
+}
+
+/// Awaits the reply to an event that a task waits for.
+///
+/// # Returns
+///
+/// The reply that the task of `reply_join_handle` returns.
+///
+/// # Panics
+///
+/// Panics if the task does not return within 5 seconds or panics.
+#[cfg(feature = "test-hooks")]
+pub(super) async fn join_reply(reply_join_handle: JoinHandle<TreeEventReply>) -> TreeEventReply {
+    reply(async {
+        reply_join_handle
+            .await
+            .expect("the task waiting for a reply should not panic")
+    })
+    .await
 }

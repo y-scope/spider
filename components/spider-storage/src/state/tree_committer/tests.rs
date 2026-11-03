@@ -291,14 +291,16 @@ mod hooked {
     use spider_core::types::id::ResourceGroupId;
 
     use super::*;
+    use crate::db::DbError;
     use crate::inbound_queue::InboundQueueEntry;
     use crate::inbound_queue::create_inbound_queue;
+    use crate::state::test_utils::MOCK_MAX_OUTPUTS_SIZE;
     use crate::state::tree_committer::test_utils::TIMEOUT;
+    use crate::state::tree_committer::test_utils::join_reply;
     use crate::state::tree_committer::test_utils::regular_tasks_done;
     use crate::test_hooks::HookAction;
     use crate::test_hooks::HookCount;
     use crate::test_hooks::HookFilter;
-    use crate::test_hooks::HookPoint;
 
     /// An inbound queue sender that panics on every send.
     #[derive(Clone)]
@@ -342,7 +344,7 @@ mod hooked {
             "a start gave {start:?}"
         );
 
-        let pause = tree.arm_pause();
+        let pause = tree.arm_pause(HookPoint::CommitterRoundAfterDbWrite);
         let regular_tasks_done = tree.submit(regular_tasks_done());
         pause.reached(1, TIMEOUT).await?;
         let commit_done = tree.submit(TreeEventKind::CommitDone);
@@ -399,7 +401,7 @@ mod hooked {
     -> anyhow::Result<()> {
         let (inbound_queue_sender, inbound_queue_receiver) = create_inbound_queue();
         let tree = TestTree::spawn(false, false, inbound_queue_sender).await;
-        let pause = tree.arm_pause();
+        let pause = tree.arm_pause(HookPoint::CommitterRoundAfterDbWrite);
         let start = tree.submit(start());
         tokio::pin!(start);
         pause.reached(1, TIMEOUT).await?;
@@ -455,7 +457,7 @@ mod hooked {
     async fn a_panic_in_a_round_poisons_the_service_even_during_a_graceful_shutdown()
     -> anyhow::Result<()> {
         let tree = TestTree::spawn(false, false, PanickingInboundQueueSender).await;
-        let pause = tree.arm_pause();
+        let pause = tree.arm_pause(HookPoint::CommitterRoundAfterDbWrite);
         let start = tree.submit(start());
         pause.reached(1, TIMEOUT).await?;
         let cancel = tree.submit(TreeEventKind::CancelRoot);
@@ -476,6 +478,209 @@ mod hooked {
         );
         tree.wait_for_exit().await;
         assert!(tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn two_failures_of_one_job_in_one_round_fail_it_once() -> anyhow::Result<()> {
+        let tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+
+        let reply_join_handles = tree
+            .submit_in_one_round(vec![failure("first"), failure("second")])
+            .await;
+        let [first_join_handle, second_join_handle] =
+            <[_; 2]>::try_from(reply_join_handles).expect("two events were submitted");
+        let first = join_reply(first_join_handle).await;
+        assert!(
+            matches!(first, Ok(TreeEventOutcome::Applied(JobState::Failed))),
+            "the first failure gave {first:?}"
+        );
+        let second = join_reply(second_join_handle).await;
+        assert!(
+            matches!(
+                second,
+                Ok(TreeEventOutcome::Stale(
+                    StaleStateError::JobAlreadyTerminated(JobState::Failed)
+                ))
+            ),
+            "the second failure of the round gave {second:?}"
+        );
+        assert_eq!(
+            tree.db.errors.get(&ROOT_ID).as_deref(),
+            Some(&"first".to_owned())
+        );
+        assert_eq!(tree.jcb.state().await, JobState::Failed);
+        tree.wait_for_exit().await;
+        assert!(!tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_cancel_is_planned_before_a_failure_that_arrived_first() -> anyhow::Result<()> {
+        let tree = TestTree::spawn(false, true, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+
+        let reply_join_handles = tree
+            .submit_in_one_round(vec![failure("boom"), TreeEventKind::CancelRoot])
+            .await;
+        let [failure_join_handle, cancel_join_handle] =
+            <[_; 2]>::try_from(reply_join_handles).expect("two events were submitted");
+        let failure = join_reply(failure_join_handle).await;
+        assert!(
+            matches!(
+                failure,
+                Ok(TreeEventOutcome::Stale(StaleStateError::JobNoLongerRunning))
+            ),
+            "a failure that arrived before the round's cancel gave {failure:?}"
+        );
+        let cancel = join_reply(cancel_join_handle).await;
+        assert!(
+            matches!(
+                cancel,
+                Ok(TreeEventOutcome::Applied(JobState::CleanupReady))
+            ),
+            "a cancel gave {cancel:?}"
+        );
+        assert!(
+            !tree.db.errors.contains_key(&ROOT_ID),
+            "a stale failure should store no error"
+        );
+        assert_eq!(
+            tree.db.states.get(&ROOT_ID).map(|state| *state),
+            Some(JobState::CleanupReady)
+        );
+        assert_eq!(tree.jcb.state().await, JobState::CleanupReady);
+        assert!(!tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_deferred_event_waits_for_the_next_round_but_a_stale_event_behind_it_does_not()
+    -> anyhow::Result<()> {
+        let tree = TestTree::spawn(false, true, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+        let round_pause = tree.hooks.arm(
+            HookPoint::CommitterRoundAfterDbWrite,
+            HookFilter::job(ROOT_ID),
+            HookAction::Pause,
+            HookCount::Times(2),
+        );
+
+        let reply_join_handles = tree
+            .submit_in_one_round(vec![
+                TreeEventKind::CleanupDone,
+                TreeEventKind::CommitDone,
+                TreeEventKind::CancelRoot,
+            ])
+            .await;
+        let [
+            cleanup_done_join_handle,
+            commit_done_join_handle,
+            cancel_join_handle,
+        ] = <[_; 3]>::try_from(reply_join_handles).expect("three events were submitted");
+        round_pause.reached(1, TIMEOUT).await?;
+        assert_eq!(
+            tree.db.states.get(&ROOT_ID).map(|state| *state),
+            Some(JobState::CleanupReady)
+        );
+        round_pause.release();
+        round_pause.reached(2, TIMEOUT).await?;
+        let cancel = join_reply(cancel_join_handle).await;
+        assert!(
+            matches!(
+                cancel,
+                Ok(TreeEventOutcome::Applied(JobState::CleanupReady))
+            ),
+            "a cancel gave {cancel:?}"
+        );
+        let commit_done = join_reply(commit_done_join_handle).await;
+        assert!(
+            matches!(
+                commit_done,
+                Ok(TreeEventOutcome::Stale(
+                    StaleStateError::JobNoLongerCommitReady
+                ))
+            ),
+            "a stale commit behind a deferred cleanup gave {commit_done:?}"
+        );
+        assert_eq!(
+            tree.db.states.get(&ROOT_ID).map(|state| *state),
+            Some(JobState::Cancelled)
+        );
+        assert!(
+            !cleanup_done_join_handle.is_finished(),
+            "a deferred cleanup should not be answered before its round's apply"
+        );
+        round_pause.release();
+        let cleanup_done = join_reply(cleanup_done_join_handle).await;
+        assert!(
+            matches!(
+                cleanup_done,
+                Ok(TreeEventOutcome::Applied(JobState::Cancelled))
+            ),
+            "a cleanup that waited for the next round gave {cleanup_done:?}"
+        );
+        tree.wait_for_exit().await;
+        assert!(!tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn rejected_outputs_put_the_whole_round_back_and_fail_their_job_in_the_next_round()
+    -> anyhow::Result<()> {
+        let mut tree = TestTree::spawn(true, false, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+
+        let outputs = vec![vec![0; usize::try_from(MOCK_MAX_OUTPUTS_SIZE)? + 1]];
+        let reply_join_handles = tree
+            .submit_in_one_round(vec![
+                TreeEventKind::RegularTasksDone { outputs },
+                regular_tasks_done(),
+                TreeEventKind::CommitDone,
+            ])
+            .await;
+        let [
+            oversized_join_handle,
+            stale_join_handle,
+            deferred_join_handle,
+        ] = <[_; 3]>::try_from(reply_join_handles).expect("three events were submitted");
+        let oversized = join_reply(oversized_join_handle).await;
+        assert!(
+            matches!(oversized, Ok(TreeEventOutcome::Applied(JobState::Failed))),
+            "outputs too large for the database gave {oversized:?}"
+        );
+        for (event, reply) in [
+            ("a stale completion", join_reply(stale_join_handle).await),
+            ("a deferred commit", join_reply(deferred_join_handle).await),
+        ] {
+            assert!(
+                matches!(
+                    reply,
+                    Ok(TreeEventOutcome::Stale(
+                        StaleStateError::JobAlreadyTerminated(JobState::Failed)
+                    ))
+                ),
+                "{event} of the round that the database rejected gave {reply:?}"
+            );
+        }
+        let expected_message = DbError::OutputsTooLarge {
+            job_id: ROOT_ID,
+            size: MOCK_MAX_OUTPUTS_SIZE + 1,
+            limit: MOCK_MAX_OUTPUTS_SIZE,
+        }
+        .to_string();
+        assert_eq!(
+            tree.db.errors.get(&ROOT_ID).as_deref(),
+            Some(&expected_message)
+        );
+        assert!(
+            !tree.db.outputs.contains_key(&ROOT_ID),
+            "outputs too large for the database should not be stored"
+        );
+        assert_eq!(tree.gc_receiver.try_recv(), Ok(ROOT_ID));
+        tree.wait_for_exit().await;
+        assert!(!tree.shutdown_handle.is_fatal());
         Ok(())
     }
 }

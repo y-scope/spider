@@ -47,6 +47,8 @@ use crate::limits::MAX_EVENTS_PER_ROUND;
 use crate::state::JobCacheGcHandle;
 use crate::state::tree_committer::round::Committer;
 use crate::task_instance_pool::TaskInstancePoolConnector;
+use crate::test_hooks::HookContext;
+use crate::test_hooks::HookPoint;
 use crate::test_hooks::TestHooks;
 
 /// Everything a tree's committer uses besides its tree.
@@ -241,6 +243,7 @@ async fn run_committer<
 ) {
     let root_id = root.id();
     let shutdown_handle = env.shutdown_handle.clone();
+    let hooks = env.hooks.clone();
     let mut ctx = CommitterContextGuard {
         receivers,
         buffers: Buffers::default(),
@@ -263,6 +266,13 @@ async fn run_committer<
                 () = shutdown_handle.cancelled() => {}
             }
         }
+        // A pause that the service's shutdown ends lets the committer go on to stop, as it would
+        // without the hook.
+        let _ = hooks
+            .hit(HookPoint::CommitterBeforeReceive, || {
+                HookContext::job(root_id)
+            })
+            .await;
         ctx.buffers.receive(&mut ctx.receivers);
         if shutdown_handle.is_cancelled() {
             ctx.close_and_answer(|| Err(CacheError::ServiceStopping))
