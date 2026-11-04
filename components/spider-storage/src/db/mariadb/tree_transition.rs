@@ -455,10 +455,14 @@ mod tests {
     use spider_core::types::io::SerializedTaskOutputs;
 
     use super::IN_LIST_MAX_IDS;
+    use super::MAX_STATEMENT_OVERHEAD;
+    use super::MAX_STATEMENT_PAYLOAD;
     use super::UpdateStatement;
     use crate::db::DbError;
     use crate::db::JobStateUpdate;
+    use crate::db::mariadb::MIN_MAX_ALLOWED_PACKET;
     use crate::db::mariadb::fence::FencePredicate;
+    use crate::limits::MAX_ERROR_MESSAGE_CHARS;
 
     #[test]
     fn updates_are_grouped_by_edge_with_outputs_groups_first() -> anyhow::Result<()> {
@@ -619,6 +623,21 @@ mod tests {
             );
             UpdateStatement::group(updates, 0, combined_size)?;
         }
+        Ok(())
+    }
+
+    #[test]
+    fn longest_error_message_fits_the_minimum_max_allowed_packet() -> anyhow::Result<()> {
+        let error_message = "😀".repeat(MAX_ERROR_MESSAGE_CHARS);
+        let update = JobStateUpdate {
+            error_message: Some(error_message),
+            ..JobStateUpdate::new(JobId::from(1), JobState::Running, JobState::Failed)
+        };
+        UpdateStatement::group(
+            vec![update],
+            MAX_STATEMENT_PAYLOAD.min(MIN_MAX_ALLOWED_PACKET / 2),
+            MIN_MAX_ALLOWED_PACKET - MAX_STATEMENT_OVERHEAD,
+        )?;
         Ok(())
     }
 }
