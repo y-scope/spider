@@ -183,6 +183,7 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
                 commit_ready_result,
                 cleanup_ready_result,
             } => {
+                tracing::info!(session_id, "Inbound poll completed.");
                 if session_id != self.session_tracker.current() {
                     self.apply_session_bump(session_id)?;
                 }
@@ -258,6 +259,11 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
         let mut entries = Vec::new();
         while let Ok(assignment) = self.reschedule_queue_reader.try_recv() {
             if assignment.session_id != session_id {
+                tracing::debug!(
+                    assignment = ? assignment,
+                    current_session_id = session_id,
+                    "Stale-session assignment discarded from reschedule queue."
+                );
                 continue;
             }
             entries.push(InboundEntry {
@@ -312,8 +318,20 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
                     .global_task_set
                     .insert(finalizing_job.job_id, TaskId::from(kind))
                 {
+                    tracing::debug!(
+                        resource_group_id = ? finalizing_job.resource_group_id,
+                        job_id = ? finalizing_job.job_id,
+                        task_id = ? TaskId::from(kind),
+                        "Duplicate task dropped."
+                    );
                     continue;
                 }
+                tracing::info!(
+                    resource_group_id = ? finalizing_job.resource_group_id,
+                    job_id = ? finalizing_job.job_id,
+                    task_id = ? TaskId::from(kind),
+                    "Finalization task received. Finalizing job."
+                );
                 // Only the first finalization has a registry entry to drop: the job's
                 // still-buffered regular tasks will never be published, so they must leave the
                 // dedup set with it or nothing would ever remove them.
@@ -341,11 +359,30 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
                 mut task_indices,
             } = batch;
             if self.finalizing_jobs.contains(&job_id) {
+                tracing::debug!(
+                    resource_group_id = ? resource_group_id,
+                    job_id = ? job_id,
+                    num_tasks = task_indices.len(),
+                    "Ready tasks received for a finalizing job. Ignored."
+                );
                 continue;
             }
             let global_task_set = &mut self.global_task_set;
-            task_indices
-                .retain(|task_index| global_task_set.insert(job_id, TaskId::Index(*task_index)));
+            task_indices.retain(|task_index| {
+                let task_id = TaskId::Index(*task_index);
+                let inserted = global_task_set.insert(job_id, task_id);
+                tracing::debug!(
+                    resource_group_id = ? resource_group_id,
+                    job_id = ? job_id,
+                    task_id = ? task_id,
+                    message = if inserted {
+                        "Inbound task received."
+                    } else {
+                        "Duplicate task dropped."
+                    }
+                );
+                inserted
+            });
             if task_indices.is_empty() {
                 continue;
             }
@@ -371,6 +408,13 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
                 rg_state.push_finalization(job_id, kind);
             }
             for job_key in update.new_jobs {
+                tracing::info!(
+                    resource_group_id = ? rg_id,
+                    job_id = ? self.job_registry.get_mut(job_key).map(|entry| entry.job_id()),
+                    active = rg_state.active_jobs.len()
+                        < self.config.active_job_list_capacity.get(),
+                    "New job received. Placing in job queue."
+                );
                 rg_state.place_new_job(job_key);
             }
             if rg_state.is_active {
@@ -378,6 +422,7 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
             }
             rg_state.is_active = true;
             self.active_rg_list.push(state_idx);
+            tracing::info!(resource_group_id = ? rg_id, "Resource group activated.");
         }
     }
 
@@ -400,6 +445,7 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
             self.config.active_job_list_capacity.get(),
         ));
         self.rg_id_to_idx_map.insert(rg_id, state_idx);
+        tracing::info!(resource_group_id = ? rg_id, "Resource group created.");
         state_idx
     }
 
@@ -422,6 +468,12 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
     ) -> Result<Vec<JobKey>, SchedulerError> {
         let mut jobs_to_retire = Vec::new();
         if self.active_rg_list.is_empty() {
+            tracing::debug!(
+                dispatch_slots = self.config.dispatch_queue_capacity.get(),
+                num_task_assignments_enqueued = 0,
+                num_candidate_groups = 0,
+                "Decision-making loop completed."
+            );
             return Ok(jobs_to_retire);
         }
 
@@ -459,6 +511,9 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
             .get()
             .saturating_sub(occupancy);
 
+        let dispatch_slots = free;
+        let num_candidate_groups = rr_candidates.len();
+
         // Rotating the arm rather than the list keeps the same group from always being visited
         // first, which matters because `free` shrinks as the tick proceeds.
         let mut arm = last_served_idx.map_or(0, |idx| (idx + 1) % rr_candidates.len());
@@ -487,7 +542,12 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
                 Err(err) => {
                     match err {
                         MakeAssignmentError::NoTask => exhausted_states.push(state_idx),
-                        MakeAssignmentError::DispatchQueueFull => (),
+                        MakeAssignmentError::DispatchQueueFull => tracing::debug!(
+                            resource_group_id = ? rg_state.rg_id,
+                            dispatch_queue_size = rg_state.dispatch_queue_size(),
+                            remaining_dispatch_slots = free,
+                            "Resource group ended its turn because its dispatch queue is full."
+                        ),
                         MakeAssignmentError::DispatchQueueClosed => {
                             return Err(SchedulerError::DispatchQueueClosed);
                         }
@@ -500,6 +560,12 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
         for state_idx in &*active_rg_list {
             rg_states[*state_idx].apply_downgrades(job_registry);
         }
+        tracing::debug!(
+            dispatch_slots,
+            num_task_assignments_enqueued = dispatch_slots - free,
+            num_candidate_groups,
+            "Decision-making loop completed."
+        );
         self.deactivate_exhausted_states(exhausted_states);
 
         Ok(jobs_to_retire)
@@ -518,6 +584,10 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
                 continue;
             }
             rg_state.is_active = false;
+            tracing::info!(
+                resource_group_id = ? rg_state.rg_id,
+                "Resource group deactivated."
+            );
             if let Some(position) = self
                 .active_rg_list
                 .iter()
