@@ -88,8 +88,8 @@ pub enum HookPoint {
     /// is awaited.
     JobEventAfterSubmit,
 
-    /// In a tree's committer, before it moves the queued events into its buffers for its next
-    /// round.
+    /// In a tree's committer, before it moves the events queued in its receivers into its pending
+    /// queue for its next round.
     CommitterBeforeReceive,
 
     /// In a round of a tree's committer, after the round's database write, before its apply.

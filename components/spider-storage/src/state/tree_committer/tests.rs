@@ -1,4 +1,4 @@
-//! Unit tests for the tree committer's loop, its buffers and its context guard.
+//! Unit tests for the tree committer's loop, its pending queue and its context guard.
 
 use spider_core::job::JobState;
 
@@ -70,7 +70,7 @@ async fn a_fast_forward_event_is_planned_before_an_earlier_regular_event() {
 fn take_events_fills_a_round_with_cancels_and_failures_first() {
     const NUM_FAST_FORWARD: u64 = 300;
     const NUM_REGULAR: u64 = 5;
-    let mut buffers = Buffers {
+    let mut pending_queue = PendingQueue {
         fast_forward: (0..NUM_FAST_FORWARD)
             .map(|id| {
                 let kind = if id % 2 == 0 {
@@ -88,7 +88,7 @@ fn take_events_fills_a_round_with_cancels_and_failures_first() {
     let num_cancels = NUM_FAST_FORWARD / 2;
     let num_failures_taken = MAX_EVENTS_PER_ROUND as u64 - num_cancels;
 
-    let round = buffers.take_events();
+    let round = pending_queue.take_events();
     assert_eq!(
         job_ids_of(&round),
         (0..num_cancels)
@@ -97,17 +97,17 @@ fn take_events_fills_a_round_with_cancels_and_failures_first() {
             .collect::<Vec<_>>()
     );
     assert_eq!(
-        job_ids_of(&buffers.fast_forward),
+        job_ids_of(&pending_queue.fast_forward),
         (num_failures_taken..num_cancels)
             .map(|index| 2 * index)
             .collect::<Vec<_>>()
     );
     assert_eq!(
-        job_ids_of(&buffers.regular),
+        job_ids_of(&pending_queue.regular),
         (NUM_FAST_FORWARD..NUM_FAST_FORWARD + NUM_REGULAR).collect::<Vec<_>>()
     );
 
-    let round = buffers.take_events();
+    let round = pending_queue.take_events();
     assert_eq!(
         job_ids_of(&round),
         (num_failures_taken..num_cancels)
@@ -115,7 +115,7 @@ fn take_events_fills_a_round_with_cancels_and_failures_first() {
             .chain(NUM_FAST_FORWARD..NUM_FAST_FORWARD + NUM_REGULAR)
             .collect::<Vec<_>>()
     );
-    assert!(buffers.is_empty());
+    assert!(pending_queue.is_empty());
 }
 
 #[test]
@@ -123,7 +123,7 @@ fn take_events_takes_the_cancels_beyond_a_round_before_the_failures_of_the_next_
     const NUM_FAILURES: u64 = 10;
     const NUM_FAST_FORWARD: u64 = NUM_FAILURES + MAX_EVENTS_PER_ROUND as u64 + 20;
     const NUM_REGULAR: u64 = 5;
-    let mut buffers = Buffers {
+    let mut pending_queue = PendingQueue {
         fast_forward: (0..NUM_FAST_FORWARD)
             .map(|id| {
                 let kind = if id < NUM_FAILURES {
@@ -140,13 +140,13 @@ fn take_events_takes_the_cancels_beyond_a_round_before_the_failures_of_the_next_
     };
     let first_cancel_left = NUM_FAILURES + MAX_EVENTS_PER_ROUND as u64;
 
-    let round = buffers.take_events();
+    let round = pending_queue.take_events();
     assert_eq!(
         job_ids_of(&round),
         (NUM_FAILURES..first_cancel_left).collect::<Vec<_>>()
     );
 
-    let round = buffers.take_events();
+    let round = pending_queue.take_events();
     assert_eq!(
         job_ids_of(&round),
         (first_cancel_left..NUM_FAST_FORWARD)
@@ -154,24 +154,27 @@ fn take_events_takes_the_cancels_beyond_a_round_before_the_failures_of_the_next_
             .chain(NUM_FAST_FORWARD..NUM_FAST_FORWARD + NUM_REGULAR)
             .collect::<Vec<_>>()
     );
-    assert!(buffers.is_empty());
+    assert!(pending_queue.is_empty());
 }
 
 #[test]
 fn take_events_takes_at_most_a_round_of_regular_events() {
-    let mut buffers = Buffers {
+    let mut pending_queue = PendingQueue {
         fast_forward: VecDeque::from([pending(0, TreeEventKind::CancelRoot)]),
         regular: (1..=MAX_EVENTS_PER_ROUND as u64)
             .map(|id| pending(id, TreeEventKind::CommitDone))
             .collect(),
     };
 
-    let round = buffers.take_events();
+    let round = pending_queue.take_events();
     assert_eq!(
         job_ids_of(&round),
         (0..MAX_EVENTS_PER_ROUND as u64).collect::<Vec<_>>()
     );
-    assert_eq!(job_ids_of(&buffers.regular), [MAX_EVENTS_PER_ROUND as u64]);
+    assert_eq!(
+        job_ids_of(&pending_queue.regular),
+        [MAX_EVENTS_PER_ROUND as u64]
+    );
 }
 
 #[test]
@@ -192,39 +195,42 @@ fn receive_moves_every_cancel_and_failure_but_at_most_a_round_of_other_events() 
             kind: TreeEventKind::CancelRoot,
         }));
     }
-    let mut buffers = Buffers::default();
+    let mut pending_queue = PendingQueue::default();
 
-    buffers.receive(&mut receivers);
+    pending_queue.receive(&mut receivers);
     assert_eq!(
-        (buffers.fast_forward.len(), buffers.regular.len()),
+        (
+            pending_queue.fast_forward.len(),
+            pending_queue.regular.len()
+        ),
         (NUM_FAST_FORWARD, MAX_EVENTS_PER_ROUND)
     );
-    buffers.receive(&mut receivers);
-    assert_eq!(buffers.regular.len(), MAX_EVENTS_PER_ROUND);
+    pending_queue.receive(&mut receivers);
+    assert_eq!(pending_queue.regular.len(), MAX_EVENTS_PER_ROUND);
 
-    buffers.regular.drain(..NUM_TAKEN);
-    buffers.receive(&mut receivers);
-    assert_eq!(buffers.regular.len(), NUM_REGULAR - NUM_TAKEN);
+    pending_queue.regular.drain(..NUM_TAKEN);
+    pending_queue.receive(&mut receivers);
+    assert_eq!(pending_queue.regular.len(), NUM_REGULAR - NUM_TAKEN);
     assert!(
         receivers.fast_forward.is_empty() && receivers.regular.is_empty(),
-        "every submitted event should be buffered"
+        "every submitted event should be in the pending queue"
     );
 }
 
 #[test]
-fn requeued_events_go_back_to_the_front_of_their_own_buffer_in_order() {
-    let mut buffers = Buffers {
+fn requeued_events_go_back_to_the_front_of_their_own_channel_in_order() {
+    let mut pending_queue = PendingQueue {
         fast_forward: VecDeque::from([pending(9, TreeEventKind::CancelRoot)]),
         regular: VecDeque::from([pending(8, start())]),
     };
-    buffers.requeue(vec![
+    pending_queue.requeue(vec![
         pending(1, failure("first")),
         pending(2, TreeEventKind::CommitDone),
         pending(3, failure("second")),
         pending(4, TreeEventKind::CleanupDone),
     ]);
-    assert_eq!(job_ids_of(&buffers.fast_forward), [1, 3, 9]);
-    assert_eq!(job_ids_of(&buffers.regular), [2, 4, 8]);
+    assert_eq!(job_ids_of(&pending_queue.fast_forward), [1, 3, 9]);
+    assert_eq!(job_ids_of(&pending_queue.regular), [2, 4, 8]);
 }
 
 #[test]
@@ -242,7 +248,7 @@ fn an_armed_context_guard_shuts_the_service_down_fatally_even_during_a_graceful_
 
         drop(CommitterContextGuard {
             receivers,
-            buffers: Buffers::default(),
+            pending_queue: PendingQueue::default(),
             in_flight: Vec::new(),
             shutdown_handle: shutdown_handle.clone(),
             root_id: ROOT_ID,

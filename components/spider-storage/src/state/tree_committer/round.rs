@@ -80,9 +80,9 @@ impl<
 
     /// Runs one round for the events of `in_flight`, in their order, and answers each event that
     /// the round plans. `in_flight`, which [`super::CommitterContextGuard`] owns, keeps the events
-    /// to put back at the front of their buffers, in their order: the events that the round defers
-    /// or, if the database rejects the outputs of a job as too large, every event of the round,
-    /// with that job's event turned into the job's failure.
+    /// to put back at the front of the pending queue, in their order: the events that the round
+    /// defers or, if the database rejects the outputs of a job as too large, every event of the
+    /// round, with that job's event turned into the job's failure.
     ///
     /// # Errors
     ///

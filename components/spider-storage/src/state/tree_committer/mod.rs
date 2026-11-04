@@ -14,8 +14,8 @@
 //! 2. Writes the plan to the database in one transaction.
 //! 3. Applies the plan to the cached jobs and the structure, and enqueues newly terminal jobs for
 //!    cache GC.
-//! 4. Replies to the planned events. The events that the plan defers go back to the front of their
-//!    buffers for the next round.
+//! 4. Replies to the planned events. The events that the plan defers go back to the front of the
+//!    pending queue for the next round.
 //! 5. Publishes the ready work.
 //!
 //! The committer exits once its tree is quiescent or the service shuts down. Any other exit, from
@@ -94,18 +94,18 @@ pub fn spawn_committer<
     task_tracker.spawn(run_committer(env, root, receivers));
 }
 
-/// The committer's buffers of received events, one per event channel. Each holds the events that
-/// earlier rounds deferred first, then the events received since.
+/// The committer's queue of received events that are not yet planned, one queue per event channel.
+/// Each holds the events that earlier rounds deferred first, then the events received since.
 #[derive(Default)]
-struct Buffers {
+struct PendingQueue {
     fast_forward: VecDeque<Pending>,
     regular: VecDeque<Pending>,
 }
 
-impl Buffers {
+impl PendingQueue {
     /// # Returns
     ///
-    /// Whether neither buffer holds an event.
+    /// Whether the queue holds no event.
     // TODO: Make this function `const` once stable Rust allows `VecDeque::is_empty` in `const fn`
     // (see #544).
     #[allow(clippy::missing_const_for_fn)]
@@ -114,8 +114,8 @@ impl Buffers {
     }
 
     /// Moves, without waiting, every event queued in `receivers`' fast-forward channel to the back
-    /// of its buffer, then the events queued in the regular channel until the regular buffer
-    /// holds [`MAX_EVENTS_PER_ROUND`] events.
+    /// of the queue, then the events queued in the regular channel until the queue holds
+    /// [`MAX_EVENTS_PER_ROUND`] regular events.
     fn receive(&mut self, receivers: &mut EventReceivers) {
         while let Ok(pending) = receivers.fast_forward.try_recv() {
             self.fast_forward.push_back(pending);
@@ -128,8 +128,8 @@ impl Buffers {
     }
 
     /// Takes the events of the next round, at most [`MAX_EVENTS_PER_ROUND`], in this order: every
-    /// buffered [`TreeEventKind::CancelRoot`], then the buffered
-    /// [`TreeEventKind::TerminalFailure`]s, then the regular events, each in its buffer's order.
+    /// queued [`TreeEventKind::CancelRoot`], then the queued [`TreeEventKind::TerminalFailure`]s,
+    /// then the regular events, each in its channel's order.
     ///
     /// # Returns
     ///
@@ -140,16 +140,17 @@ impl Buffers {
                 .into_iter()
                 .partition(|pending| matches!(pending.event.kind, TreeEventKind::CancelRoot));
         let mut events = Vec::new();
-        for buffer in [&mut cancels, &mut failures, &mut self.regular] {
-            let num_taken = buffer.len().min(MAX_EVENTS_PER_ROUND - events.len());
-            events.extend(buffer.drain(..num_taken));
+        for queue in [&mut cancels, &mut failures, &mut self.regular] {
+            let num_taken = queue.len().min(MAX_EVENTS_PER_ROUND - events.len());
+            events.extend(queue.drain(..num_taken));
         }
         cancels.append(&mut failures);
         self.fast_forward = cancels;
         events
     }
 
-    /// Puts each event of `events` back at the front of its buffer, keeping their order.
+    /// Puts each event of `events` back at the front of the queue, ahead of the queued events of
+    /// its channel, keeping their order.
     fn requeue(&mut self, events: Vec<Pending>) {
         for pending in events.into_iter().rev() {
             if pending.event.kind.is_fast_forward() {
@@ -161,18 +162,18 @@ impl Buffers {
     }
 }
 
-/// The committer's context: the tree's event receivers, its buffered events and the events of the
-/// round that is running. Dropping it armed shuts the service down fatally before its fields drop;
-/// they then drop every unanswered event's reply, which wakes its waiter with
-/// [`InternalError::TreePoisoned`](crate::cache::error::InternalError::TreePoisoned).
+/// The committer's context: the tree's event receivers, its received events not yet planned and
+/// the events of the round that is running. Dropping it armed shuts the service down fatally
+/// before its fields drop; they then drop every unanswered event's reply, which wakes its
+/// waiter with [`InternalError::TreePoisoned`](crate::cache::error::InternalError::TreePoisoned).
 struct CommitterContextGuard {
     receivers: EventReceivers,
-    buffers: Buffers,
+    pending_queue: PendingQueue,
 
     /// The events of the round that is running, which the round answers and removes, leaving the
-    /// events to put back in their buffers (see [`Committer::run_round`]). The guard owns them,
-    /// rather than the round, so that a round that errors or panics before answering drops them
-    /// only after [`Drop::drop`] has shut the service down: an event's waiter never sees
+    /// events to put back in the pending queue (see [`Committer::run_round`]). The guard owns
+    /// them, rather than the round, so that a round that errors or panics before answering drops
+    /// them only after [`Drop::drop`] has shut the service down: an event's waiter never sees
     /// `TreePoisoned` before the service is fatal.
     in_flight: Vec<Pending>,
 
@@ -182,8 +183,8 @@ struct CommitterContextGuard {
 }
 
 impl CommitterContextGuard {
-    /// Closes the tree's event receivers, answers every buffered event and every event still in the
-    /// receivers with `make_reply()`, and disarms the guard.
+    /// Closes the tree's event receivers, answers every event in the pending queue and every event
+    /// still in the receivers with `make_reply()`, and disarms the guard.
     ///
     /// # Type Parameters
     ///
@@ -197,13 +198,17 @@ impl CommitterContextGuard {
         // `try_recv` can miss a send in flight after `close`; `recv` returns `None` only once none
         // is.
         while let Some(pending) = self.receivers.fast_forward.recv().await {
-            self.buffers.fast_forward.push_back(pending);
+            self.pending_queue.fast_forward.push_back(pending);
         }
         while let Some(pending) = self.receivers.regular.recv().await {
-            self.buffers.regular.push_back(pending);
+            self.pending_queue.regular.push_back(pending);
         }
-        let buffered = std::mem::take(&mut self.buffers);
-        for Pending { reply, .. } in buffered.fast_forward.into_iter().chain(buffered.regular) {
+        let pending_queue = std::mem::take(&mut self.pending_queue);
+        for Pending { reply, .. } in pending_queue
+            .fast_forward
+            .into_iter()
+            .chain(pending_queue.regular)
+        {
             // The event's waiter may have dropped its future, which is not an error of the
             // committer.
             let _ = reply.send(make_reply());
@@ -246,7 +251,7 @@ async fn run_committer<
     let hooks = env.hooks.clone();
     let mut ctx = CommitterContextGuard {
         receivers,
-        buffers: Buffers::default(),
+        pending_queue: PendingQueue::default(),
         in_flight: Vec::new(),
         shutdown_handle: shutdown_handle.clone(),
         root_id,
@@ -254,14 +259,14 @@ async fn run_committer<
     };
     let mut committer = Committer::new_root(env, root).await;
     loop {
-        if ctx.buffers.is_empty() {
+        if ctx.pending_queue.is_empty() {
             tokio::select! {
                 biased;
                 Some(pending) = ctx.receivers.fast_forward.recv() => {
-                    ctx.buffers.fast_forward.push_back(pending);
+                    ctx.pending_queue.fast_forward.push_back(pending);
                 }
                 Some(pending) = ctx.receivers.regular.recv() => {
-                    ctx.buffers.regular.push_back(pending);
+                    ctx.pending_queue.regular.push_back(pending);
                 }
                 () = shutdown_handle.cancelled() => {}
             }
@@ -273,13 +278,13 @@ async fn run_committer<
                 HookContext::job(root_id)
             })
             .await;
-        ctx.buffers.receive(&mut ctx.receivers);
+        ctx.pending_queue.receive(&mut ctx.receivers);
         if shutdown_handle.is_cancelled() {
             ctx.close_and_answer(|| Err(CacheError::ServiceStopping))
                 .await;
             return;
         }
-        ctx.in_flight = ctx.buffers.take_events();
+        ctx.in_flight = ctx.pending_queue.take_events();
         if let Err(error) = committer.run_round(&mut ctx.in_flight).await {
             tracing::error!(
                 root_id = ? root_id,
@@ -288,7 +293,8 @@ async fn run_committer<
             );
             return;
         }
-        ctx.buffers.requeue(std::mem::take(&mut ctx.in_flight));
+        ctx.pending_queue
+            .requeue(std::mem::take(&mut ctx.in_flight));
         if committer.is_quiescent() {
             ctx.close_and_answer(|| Ok(TreeEventOutcome::Untracked))
                 .await;
