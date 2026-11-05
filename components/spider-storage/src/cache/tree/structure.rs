@@ -182,6 +182,7 @@ mod tests {
     use crate::cache::tree::Lane;
     use crate::cache::tree::Plan;
     use crate::cache::tree::Publication;
+    use crate::cache::tree::RoundOutcome;
     use crate::cache::tree::TreeEvent;
     use crate::cache::tree::TreeEventKind;
     use crate::cache::tree::TreeEventOutcome;
@@ -227,7 +228,7 @@ mod tests {
     fn plan_root_event(node: TreeNode, kind: TreeEventKind) -> (Plan, TreeEventOutcome) {
         let mut plan = plan_root_events(node, [kind]);
         let outcomes = std::mem::take(&mut plan.outcomes);
-        let [Some(outcome)] =
+        let [RoundOutcome::Planned(outcome)] =
             <[_; 1]>::try_from(outcomes).expect("a round of one event should have one outcome")
         else {
             panic!("a round of one event should plan the event");
@@ -244,7 +245,7 @@ mod tests {
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
-                [Some(TreeEventOutcome::Untracked)]
+                [RoundOutcome::Planned(TreeEventOutcome::Untracked)]
             ),
             "an event of a job not in the tree gave {:?}",
             plan.outcomes
@@ -477,8 +478,8 @@ mod tests {
             matches!(
                 plan.outcomes.as_slice(),
                 [
-                    Some(TreeEventOutcome::Applied(JobState::Failed)),
-                    Some(TreeEventOutcome::Stale(
+                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::Failed)),
+                    RoundOutcome::Planned(TreeEventOutcome::Stale(
                         StaleStateError::JobAlreadyTerminated(JobState::Failed)
                     )),
                 ]
@@ -509,8 +510,10 @@ mod tests {
             matches!(
                 plan.outcomes.as_slice(),
                 [
-                    Some(TreeEventOutcome::Applied(JobState::CleanupReady)),
-                    Some(TreeEventOutcome::Stale(StaleStateError::JobNoLongerRunning)),
+                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::CleanupReady)),
+                    RoundOutcome::Planned(TreeEventOutcome::Stale(
+                        StaleStateError::JobNoLongerRunning
+                    )),
                 ]
             ),
             "a cancel and a failure in one round gave {:?}",
@@ -546,8 +549,8 @@ mod tests {
             matches!(
                 planned,
                 [
-                    Some(TreeEventOutcome::Applied(JobState::Failed)),
-                    Some(TreeEventOutcome::Stale(
+                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::Failed)),
+                    RoundOutcome::Planned(TreeEventOutcome::Stale(
                         StaleStateError::JobAlreadyTerminated(JobState::Failed)
                     )),
                 ]
@@ -558,7 +561,7 @@ mod tests {
         assert!(
             stale.iter().all(|outcome| matches!(
                 outcome,
-                Some(TreeEventOutcome::Stale(
+                RoundOutcome::Planned(TreeEventOutcome::Stale(
                     StaleStateError::JobAlreadyTerminated(JobState::Failed)
                 ))
             )),
@@ -584,11 +587,13 @@ mod tests {
             matches!(
                 plan.outcomes.as_slice(),
                 [
-                    Some(TreeEventOutcome::Stale(
+                    RoundOutcome::Planned(TreeEventOutcome::Stale(
                         StaleStateError::JobCancellationAlreadyRequested
                     )),
-                    Some(TreeEventOutcome::Stale(StaleStateError::JobNoLongerRunning)),
-                    Some(TreeEventOutcome::Stale(
+                    RoundOutcome::Planned(TreeEventOutcome::Stale(
+                        StaleStateError::JobNoLongerRunning
+                    )),
+                    RoundOutcome::Planned(TreeEventOutcome::Stale(
                         StaleStateError::JobNoLongerCommitReady
                     )),
                 ]
@@ -618,9 +623,9 @@ mod tests {
             matches!(
                 plan.outcomes.as_slice(),
                 [
-                    Some(TreeEventOutcome::Applied(JobState::CleanupReady)),
-                    None,
-                    Some(TreeEventOutcome::Stale(
+                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::CleanupReady)),
+                    RoundOutcome::Deferred,
+                    RoundOutcome::Planned(TreeEventOutcome::Stale(
                         StaleStateError::JobNoLongerCommitReady
                     )),
                 ]

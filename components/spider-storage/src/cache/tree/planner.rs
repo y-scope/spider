@@ -26,9 +26,8 @@ pub struct Plan {
     /// The ready work to publish after the updates are applied.
     pub publications: Vec<Publication>,
 
-    /// The outcome of each event of the round, in the round's order, or [`None`] for an event
-    /// deferred to a later round.
-    pub outcomes: Vec<Option<TreeEventOutcome>>,
+    /// The outcome of each event of the round, in the round's order.
+    pub outcomes: Vec<RoundOutcome>,
 
     /// The number of bytes of job outputs that the updates write.
     payload_size: u64,
@@ -59,15 +58,26 @@ impl Plan {
     /// Adds `event_plan`, the plan of the round's next event, to this plan.
     pub(super) fn merge(&mut self, event_plan: EventPlan) {
         self.payload_size += event_plan.payload_size();
-        self.outcomes.push(Some(event_plan.outcome));
+        self.outcomes
+            .push(RoundOutcome::Planned(event_plan.outcome));
         self.updates.extend(event_plan.updates);
         self.publications.extend(event_plan.publications);
     }
 
     /// Defers the round's next event to a later round.
     pub(super) fn defer(&mut self) {
-        self.outcomes.push(None);
+        self.outcomes.push(RoundOutcome::Deferred);
     }
+}
+
+/// The outcome of an event in a round.
+#[derive(Debug)]
+pub enum RoundOutcome {
+    /// The round plans and answers the event with the carried outcome.
+    Planned(TreeEventOutcome),
+
+    /// The round defers the event to a later round.
+    Deferred,
 }
 
 /// Ready work that a plan makes available once its updates are applied.

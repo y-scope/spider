@@ -12,8 +12,8 @@ use crate::cache::tree::Lane;
 use crate::cache::tree::Pending;
 use crate::cache::tree::Plan;
 use crate::cache::tree::Publication;
+use crate::cache::tree::RoundOutcome;
 use crate::cache::tree::TreeEventKind;
-use crate::cache::tree::TreeEventOutcome;
 use crate::cache::tree::TreeStructure;
 use crate::db::DbError;
 use crate::db::InternalJobOrchestration;
@@ -127,7 +127,7 @@ impl<
         }
 
         for (pending, outcome) in std::mem::take(in_flight).into_iter().zip(outcomes) {
-            let Some(outcome) = outcome else {
+            let RoundOutcome::Planned(outcome) = outcome else {
                 in_flight.push(pending);
                 continue;
             };
@@ -307,7 +307,7 @@ impl From<&JobStateUpdate> for Transition {
 ///   of a planned [`TreeEventKind::RegularTasksDone`] event of the round.
 fn fail_job_with_oversized_outputs(
     in_flight: &mut [Pending],
-    outcomes: &[Option<TreeEventOutcome>],
+    outcomes: &[RoundOutcome],
     error: DbError,
 ) -> Result<(), CacheError> {
     let DbError::OutputsTooLarge {
@@ -320,7 +320,7 @@ fn fail_job_with_oversized_outputs(
         .iter_mut()
         .zip(outcomes)
         .find_map(|(pending, outcome)| {
-            (outcome.is_some()
+            (matches!(outcome, RoundOutcome::Planned(_))
                 && pending.event.job_id == *culprit_id
                 && matches!(pending.event.kind, TreeEventKind::RegularTasksDone { .. }))
             .then_some(pending)
@@ -349,6 +349,7 @@ mod tests {
     use super::*;
     use crate::cache::error::InternalError;
     use crate::cache::error::StaleStateError;
+    use crate::cache::tree::TreeEventOutcome;
     use crate::inbound_queue::CleanupTaskMarker;
     use crate::inbound_queue::CommitTaskMarker;
     use crate::inbound_queue::InboundQueueEntry;
@@ -415,11 +416,11 @@ mod tests {
             pending(ROOT_ID.get(), regular_tasks_done()),
         ];
         let outcomes = [
-            Some(TreeEventOutcome::Untracked),
-            Some(TreeEventOutcome::Stale(
+            RoundOutcome::Planned(TreeEventOutcome::Untracked),
+            RoundOutcome::Planned(TreeEventOutcome::Stale(
                 StaleStateError::JobNoLongerCommitReady,
             )),
-            Some(TreeEventOutcome::Applied(JobState::Succeeded)),
+            RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::Succeeded)),
         ];
         let error = DbError::OutputsTooLarge {
             job_id: ROOT_ID,

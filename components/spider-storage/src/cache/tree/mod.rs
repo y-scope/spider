@@ -24,6 +24,7 @@ pub use event::TreeEventOutcome;
 pub use event::TreeEventReply;
 pub use planner::Plan;
 pub use planner::Publication;
+pub use planner::RoundOutcome;
 pub use structure::TreeNode;
 pub use structure::TreeStructure;
 #[cfg(any(test, debug_assertions))]
