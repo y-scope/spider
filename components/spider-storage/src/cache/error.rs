@@ -67,6 +67,9 @@ pub enum InternalError {
         expected: JobState,
     },
 
+    #[error("job {0:?} would change twice in one round")]
+    JobChangedTwiceInRound(JobId),
+
     #[error("task index out of bound")]
     TaskIndexOutOfBound,
 

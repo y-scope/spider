@@ -38,21 +38,27 @@ impl Plan {
     ///
     /// Whether `event_plan` can join this plan:
     ///
-    /// * It changes no job that this plan changes.
-    /// * It writes no payload, or this plan writes none yet, or the payload of both stays within
-    ///   [`MAX_ROUND_PAYLOAD`].
-    pub(super) fn admits(&self, event_plan: &EventPlan) -> bool {
-        if event_plan.updates.iter().any(|update| {
+    /// * [`Admission::JobConflict`] if it changes a job that this plan changes.
+    /// * [`Admission::PayloadBudgetExceeded`] if it writes payload, this plan writes payload too,
+    ///   and the payload of both exceeds [`MAX_ROUND_PAYLOAD`].
+    /// * [`Admission::Admitted`] otherwise.
+    pub(super) fn admission(&self, event_plan: &EventPlan) -> Admission {
+        if let Some(update) = event_plan.updates.iter().find(|update| {
             self.updates
                 .iter()
                 .any(|planned_update| planned_update.job_id == update.job_id)
         }) {
-            return false;
+            return Admission::JobConflict(update.job_id);
         }
         let payload_size = event_plan.payload_size();
-        payload_size == 0
+        if payload_size == 0
             || self.payload_size == 0
             || self.payload_size + payload_size <= MAX_ROUND_PAYLOAD
+        {
+            Admission::Admitted
+        } else {
+            Admission::PayloadBudgetExceeded
+        }
     }
 
     /// Adds `event_plan`, the plan of the round's next event, to this plan.
@@ -106,6 +112,19 @@ impl Publication {
             Self::Ready { job_id, .. } | Self::Commit(job_id) | Self::Cleanup(job_id) => *job_id,
         }
     }
+}
+
+/// Whether an event's plan can join the plan of a round's earlier events and, if not, why.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Admission {
+    /// The event's plan joins the round's plan.
+    Admitted,
+
+    /// The event's plan changes the carried job, which the round's plan already changes.
+    JobConflict(JobId),
+
+    /// The event's outputs would push the round's payload over [`MAX_ROUND_PAYLOAD`].
+    PayloadBudgetExceeded,
 }
 
 /// The tree as the planner reads it: the tree's structure with the plan of the round's earlier
@@ -403,6 +422,7 @@ mod tests {
 
     use crate::cache::tree::Plan;
     use crate::cache::tree::TreeNode;
+    use crate::cache::tree::planner::Admission;
     use crate::cache::tree::planner::EventPlan;
     use crate::limits::MAX_ROUND_PAYLOAD;
 
@@ -430,21 +450,29 @@ mod tests {
     #[test]
     fn the_payload_budget_defers_only_an_event_that_would_exceed_it_after_other_payload() {
         let mut plan = Plan::default();
-        assert!(
-            plan.admits(&completion(2, MAX_ROUND_PAYLOAD + 1)),
+        assert_eq!(
+            plan.admission(&completion(2, MAX_ROUND_PAYLOAD + 1)),
+            Admission::Admitted,
             "a round without payload should admit any payload"
         );
 
         plan.merge(completion(2, MAX_ROUND_PAYLOAD + 1));
-        assert!(!plan.admits(&completion(3, 1)));
-        assert!(
-            plan.admits(&EventPlan::complete_commit(JobId::from(3))),
+        assert_eq!(
+            plan.admission(&completion(3, 1)),
+            Admission::PayloadBudgetExceeded
+        );
+        assert_eq!(
+            plan.admission(&EventPlan::complete_commit(JobId::from(3))),
+            Admission::Admitted,
             "a round over its payload budget should admit an event without payload"
         );
 
         let mut plan = Plan::default();
         plan.merge(completion(2, MAX_ROUND_PAYLOAD - 2));
-        assert!(plan.admits(&completion(3, 2)));
-        assert!(!plan.admits(&completion(3, 3)));
+        assert_eq!(plan.admission(&completion(3, 2)), Admission::Admitted);
+        assert_eq!(
+            plan.admission(&completion(3, 3)),
+            Admission::PayloadBudgetExceeded
+        );
     }
 }

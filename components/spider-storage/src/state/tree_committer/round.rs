@@ -88,6 +88,7 @@ impl<
     ///
     /// Returns an error if:
     ///
+    /// * Forwards [`TreeStructure::plan_events`]'s return values on failure.
     /// * Forwards [`fail_job_with_oversized_outputs`]'s return values on failure.
     /// * Forwards [`Self::apply_to_cache`]'s return values on failure.
     /// * Forwards [`Self::publish`]'s return values on failure.
@@ -107,7 +108,7 @@ impl<
             ..
         } = self
             .structure
-            .plan_events(in_flight.iter().map(|pending| &pending.event));
+            .plan_events(in_flight.iter().map(|pending| &pending.event))?;
 
         if !updates.is_empty() {
             let transitions: Vec<Transition> = updates.iter().map(Transition::from).collect();

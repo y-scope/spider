@@ -5,8 +5,10 @@ use std::collections::HashMap;
 use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 
+use crate::cache::error::InternalError;
 use crate::cache::tree::Plan;
 use crate::cache::tree::TreeEvent;
+use crate::cache::tree::planner::Admission;
 use crate::cache::tree::planner::Overlay;
 
 /// The structure of a tree: its non-terminal jobs and their states.
@@ -29,8 +31,9 @@ impl TreeStructure {
     }
 
     /// Plans a round of `events` against the tree's structure, in their order, each against the
-    /// result of the round's earlier events. An event that the plan of the round's earlier events
-    /// does not admit is deferred to a later round.
+    /// result of the round's earlier events. An event whose outputs would push the round's payload
+    /// over [`MAX_ROUND_PAYLOAD`](crate::limits::MAX_ROUND_PAYLOAD) after the payload of the
+    /// round's earlier events is deferred to a later round.
     ///
     /// # Type Parameters
     ///
@@ -38,24 +41,34 @@ impl TreeStructure {
     ///
     /// # Returns
     ///
-    /// The plan of the round, with one outcome per event of `events`, in order.
-    #[must_use]
+    /// The plan of the round, with one outcome per event of `events`, in order, on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::JobChangedTwiceInRound`] if an event would change a job that an earlier
+    ///   event of the round changes.
     pub fn plan_events<'event_lifetime>(
         &self,
         events: impl IntoIterator<Item = &'event_lifetime TreeEvent>,
-    ) -> Plan {
+    ) -> Result<Plan, InternalError> {
         let mut overlay = Overlay::new(self);
         let mut plan = Plan::default();
         for event in events {
             let event_plan = overlay.plan_event(event);
-            if plan.admits(&event_plan) {
-                overlay.merge(&event_plan);
-                plan.merge(event_plan);
-            } else {
-                plan.defer();
+            match plan.admission(&event_plan) {
+                Admission::Admitted => {
+                    overlay.merge(&event_plan);
+                    plan.merge(event_plan);
+                }
+                Admission::JobConflict(job_id) => {
+                    return Err(InternalError::JobChangedTwiceInRound(job_id));
+                }
+                Admission::PayloadBudgetExceeded => plan.defer(),
             }
         }
-        plan
+        Ok(plan)
     }
 
     /// # Returns
@@ -178,6 +191,7 @@ mod tests {
     use spider_core::job::JobState;
     use spider_core::types::id::JobId;
 
+    use crate::cache::error::InternalError;
     use crate::cache::error::StaleStateError;
     use crate::cache::tree::Lane;
     use crate::cache::tree::Plan;
@@ -207,9 +221,15 @@ mod tests {
     /// # Returns
     ///
     /// The round's plan.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the round would change the root twice.
     fn plan_root_events(node: TreeNode, kinds: impl IntoIterator<Item = TreeEventKind>) -> Plan {
         let events: Vec<TreeEvent> = kinds.into_iter().map(root_event).collect();
-        TreeStructure::new_root(ROOT_ID, node).plan_events(&events)
+        TreeStructure::new_root(ROOT_ID, node)
+            .plan_events(&events)
+            .expect("the round should change each job at most once")
     }
 
     /// Plans a round of one event of `kind` of the root of a tree that holds only `node` as its
@@ -238,10 +258,12 @@ mod tests {
 
     #[test]
     fn an_event_of_a_job_not_in_the_tree_is_untracked() {
-        let plan = TreeStructure::new_root(ROOT_ID, PLAIN_NODE).plan_events(&[TreeEvent {
-            job_id: JobId::from(2),
-            kind: TreeEventKind::CommitDone,
-        }]);
+        let plan = TreeStructure::new_root(ROOT_ID, PLAIN_NODE)
+            .plan_events(&[TreeEvent {
+                job_id: JobId::from(2),
+                kind: TreeEventKind::CommitDone,
+            }])
+            .expect("the round should change each job at most once");
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
@@ -606,42 +628,27 @@ mod tests {
     }
 
     #[test]
-    fn an_event_that_would_change_a_job_again_is_deferred_but_a_stale_one_is_answered() {
-        let plan = plan_root_events(
+    fn an_event_that_would_change_a_job_twice_in_one_round_is_an_internal_error() {
+        let events: Vec<TreeEvent> = [TreeEventKind::CancelRoot, TreeEventKind::CleanupDone]
+            .into_iter()
+            .map(root_event)
+            .collect();
+        let result = TreeStructure::new_root(
+            ROOT_ID,
             TreeNode {
                 state: JobState::Running,
                 has_cleanup: true,
                 ..PLAIN_NODE
             },
-            [
-                TreeEventKind::CancelRoot,
-                TreeEventKind::CleanupDone,
-                TreeEventKind::CommitDone,
-            ],
-        );
+        )
+        .plan_events(&events);
         assert!(
             matches!(
-                plan.outcomes.as_slice(),
-                [
-                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::CleanupReady)),
-                    RoundOutcome::Deferred,
-                    RoundOutcome::Planned(TreeEventOutcome::Stale(
-                        StaleStateError::JobNoLongerCommitReady
-                    )),
-                ]
+                result,
+                Err(InternalError::JobChangedTwiceInRound(job_id)) if job_id == ROOT_ID
             ),
-            "a cleanup after a cancel in one round gave {:?}",
-            plan.outcomes
+            "a cleanup after a cancel in one round gave {result:?}"
         );
-        assert_eq!(
-            plan.updates,
-            [JobStateUpdate::new(
-                ROOT_ID,
-                JobState::Running,
-                JobState::CleanupReady
-            )]
-        );
-        assert_eq!(plan.publications, [Publication::Cleanup(ROOT_ID)]);
     }
 
     #[test]

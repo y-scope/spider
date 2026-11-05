@@ -562,73 +562,30 @@ mod hooked {
     }
 
     #[tokio::test]
-    async fn a_deferred_event_waits_for_the_next_round_but_a_stale_event_behind_it_does_not()
+    async fn an_event_that_would_change_a_job_twice_in_one_round_poisons_the_service()
     -> anyhow::Result<()> {
         let tree = TestTree::spawn(false, true, MockInboundQueueSender).await;
         reply(tree.submit(start())).await?;
-        let round_pause = tree.hooks.arm(
-            HookPoint::CommitterRoundAfterDbWrite,
-            HookFilter::job(ROOT_ID),
-            HookAction::Pause,
-            HookCount::Times(2),
-        );
 
         let reply_join_handles = tree
-            .submit_in_one_round(vec![
-                TreeEventKind::CleanupDone,
-                TreeEventKind::CommitDone,
-                TreeEventKind::CancelRoot,
-            ])
+            .submit_in_one_round(vec![TreeEventKind::CleanupDone, TreeEventKind::CancelRoot])
             .await;
-        let [
-            cleanup_done_join_handle,
-            commit_done_join_handle,
-            cancel_join_handle,
-        ] = <[_; 3]>::try_from(reply_join_handles).expect("three events were submitted");
-        round_pause.reached(1, TIMEOUT).await?;
+        for reply_join_handle in reply_join_handles {
+            let reply = join_reply(reply_join_handle).await;
+            assert!(
+                matches!(
+                    reply,
+                    Err(CacheError::Internal(InternalError::TreePoisoned))
+                ),
+                "an event of a round that would change its job twice gave {reply:?}"
+            );
+        }
         assert_eq!(
             tree.db.states.get(&ROOT_ID).map(|state| *state),
-            Some(JobState::CleanupReady)
-        );
-        round_pause.release();
-        round_pause.reached(2, TIMEOUT).await?;
-        let cancel = join_reply(cancel_join_handle).await;
-        assert!(
-            matches!(
-                cancel,
-                Ok(TreeEventOutcome::Applied(JobState::CleanupReady))
-            ),
-            "a cancel gave {cancel:?}"
-        );
-        let commit_done = join_reply(commit_done_join_handle).await;
-        assert!(
-            matches!(
-                commit_done,
-                Ok(TreeEventOutcome::Stale(
-                    StaleStateError::JobNoLongerCommitReady
-                ))
-            ),
-            "a stale commit behind a deferred cleanup gave {commit_done:?}"
-        );
-        assert_eq!(
-            tree.db.states.get(&ROOT_ID).map(|state| *state),
-            Some(JobState::Cancelled)
-        );
-        assert!(
-            !cleanup_done_join_handle.is_finished(),
-            "a deferred cleanup should not be answered before its round's apply"
-        );
-        round_pause.release();
-        let cleanup_done = join_reply(cleanup_done_join_handle).await;
-        assert!(
-            matches!(
-                cleanup_done,
-                Ok(TreeEventOutcome::Applied(JobState::Cancelled))
-            ),
-            "a cleanup that waited for the next round gave {cleanup_done:?}"
+            Some(JobState::Running)
         );
         tree.wait_for_exit().await;
-        assert!(!tree.shutdown_handle.is_fatal());
+        assert!(tree.shutdown_handle.is_fatal());
         Ok(())
     }
 
@@ -643,33 +600,25 @@ mod hooked {
             .submit_in_one_round(vec![
                 TreeEventKind::RegularTasksDone { outputs },
                 regular_tasks_done(),
-                TreeEventKind::CommitDone,
             ])
             .await;
-        let [
-            oversized_join_handle,
-            stale_join_handle,
-            deferred_join_handle,
-        ] = <[_; 3]>::try_from(reply_join_handles).expect("three events were submitted");
+        let [oversized_join_handle, stale_join_handle] =
+            <[_; 2]>::try_from(reply_join_handles).expect("two events were submitted");
         let oversized = join_reply(oversized_join_handle).await;
         assert!(
             matches!(oversized, Ok(TreeEventOutcome::Applied(JobState::Failed))),
             "outputs too large for the database gave {oversized:?}"
         );
-        for (event, reply) in [
-            ("a stale completion", join_reply(stale_join_handle).await),
-            ("a deferred commit", join_reply(deferred_join_handle).await),
-        ] {
-            assert!(
-                matches!(
-                    reply,
-                    Ok(TreeEventOutcome::Stale(
-                        StaleStateError::JobAlreadyTerminated(JobState::Failed)
-                    ))
-                ),
-                "{event} of the round that the database rejected gave {reply:?}"
-            );
-        }
+        let stale = join_reply(stale_join_handle).await;
+        assert!(
+            matches!(
+                stale,
+                Ok(TreeEventOutcome::Stale(
+                    StaleStateError::JobAlreadyTerminated(JobState::Failed)
+                ))
+            ),
+            "a stale completion of the round that the database rejected gave {stale:?}"
+        );
         let expected_message = DbError::OutputsTooLarge {
             job_id: ROOT_ID,
             size: MOCK_MAX_OUTPUTS_SIZE + 1,
