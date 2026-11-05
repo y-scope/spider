@@ -9,7 +9,7 @@ use crate::cache::error::InternalError;
 use crate::cache::tree::Plan;
 use crate::cache::tree::TreeEvent;
 use crate::cache::tree::planner::Admission;
-use crate::cache::tree::planner::Overlay;
+use crate::cache::tree::planner::RoundPlanner;
 
 /// The structure of a tree: its non-terminal jobs and their states.
 #[derive(Debug)]
@@ -53,22 +53,13 @@ impl TreeStructure {
         &self,
         events: impl IntoIterator<Item = &'event_lifetime TreeEvent>,
     ) -> Result<Plan, InternalError> {
-        let mut overlay = Overlay::new(self);
-        let mut plan = Plan::default();
+        let mut round_planner = RoundPlanner::new(self);
         for event in events {
-            let event_plan = overlay.plan_event(event);
-            match plan.admission(&event_plan) {
-                Admission::Admitted => {
-                    overlay.merge(&event_plan);
-                    plan.merge(event_plan);
-                }
-                Admission::JobConflict(job_id) => {
-                    return Err(InternalError::JobChangedTwiceInRound(job_id));
-                }
-                Admission::PayloadBudgetExceeded => plan.defer(),
+            if let Admission::JobConflict(job_id) = round_planner.plan_event(event) {
+                return Err(InternalError::JobChangedTwiceInRound(job_id));
             }
         }
-        Ok(plan)
+        Ok(round_planner.finish())
     }
 
     /// # Returns

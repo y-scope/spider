@@ -42,7 +42,7 @@ impl Plan {
     /// * [`Admission::PayloadBudgetExceeded`] if it writes payload, this plan writes payload too,
     ///   and the payload of both exceeds [`MAX_ROUND_PAYLOAD`].
     /// * [`Admission::Admitted`] otherwise.
-    pub(super) fn admission(&self, event_plan: &EventPlan) -> Admission {
+    fn admission(&self, event_plan: &EventPlan) -> Admission {
         if let Some(update) = event_plan.updates.iter().find(|update| {
             self.updates
                 .iter()
@@ -62,7 +62,7 @@ impl Plan {
     }
 
     /// Adds `event_plan`, the plan of the round's next event, to this plan.
-    pub(super) fn merge(&mut self, event_plan: EventPlan) {
+    fn merge(&mut self, event_plan: EventPlan) {
         self.payload_size += event_plan.payload_size();
         self.outcomes
             .push(RoundOutcome::Planned(event_plan.outcome));
@@ -71,7 +71,7 @@ impl Plan {
     }
 
     /// Defers the round's next event to a later round.
-    pub(super) fn defer(&mut self) {
+    fn defer(&mut self) {
         self.outcomes.push(RoundOutcome::Deferred);
     }
 }
@@ -114,22 +114,73 @@ impl Publication {
     }
 }
 
-/// Whether an event's plan can join the plan of a round's earlier events and, if not, why.
+/// How an event's plan is applied to the plan of a round's earlier events.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Admission {
-    /// The event's plan joins the round's plan.
+    /// The event's plan is merged into the round's plan.
     Admitted,
 
-    /// The event's plan changes the carried job, which the round's plan already changes.
+    /// Nothing is applied: the event's plan changes the carried job, which the round's plan
+    /// already changes.
     JobConflict(JobId),
 
-    /// The event's outputs would push the round's payload over [`MAX_ROUND_PAYLOAD`].
+    /// The event is deferred to a later round: its outputs would push the round's payload over
+    /// [`MAX_ROUND_PAYLOAD`].
     PayloadBudgetExceeded,
+}
+
+/// The planner of a round of events: it plans each event against the result of the round's
+/// earlier events and builds the round's plan.
+pub(super) struct RoundPlanner<'structure_lifetime> {
+    overlay: Overlay<'structure_lifetime>,
+    plan: Plan,
+}
+
+impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// The planner of a round against `structure` with no event planned yet.
+    pub(super) fn new(structure: &'structure_lifetime TreeStructure) -> Self {
+        Self {
+            overlay: Overlay::new(structure),
+            plan: Plan::default(),
+        }
+    }
+
+    /// Plans `event` against the overlay, then applies its admission: an admitted event's plan is
+    /// merged into the round's plan and the overlay; an event over the payload budget is deferred;
+    /// a job conflict applies nothing.
+    ///
+    /// # Returns
+    ///
+    /// The admission of `event`'s plan.
+    pub(super) fn plan_event(&mut self, event: &TreeEvent) -> Admission {
+        let event_plan = self.overlay.plan_event(event);
+        let admission = self.plan.admission(&event_plan);
+        match admission {
+            Admission::Admitted => {
+                self.overlay.merge(&event_plan);
+                self.plan.merge(event_plan);
+            }
+            Admission::JobConflict(_) => {}
+            Admission::PayloadBudgetExceeded => self.plan.defer(),
+        }
+        admission
+    }
+
+    /// # Returns
+    ///
+    /// The plan of the round's planned events.
+    pub(super) fn finish(self) -> Plan {
+        self.plan
+    }
 }
 
 /// The tree as the planner reads it: the tree's structure with the plan of the round's earlier
 /// events applied.
-pub(super) struct Overlay<'structure_lifetime> {
+struct Overlay<'structure_lifetime> {
     structure: &'structure_lifetime TreeStructure,
     planned_states: HashMap<JobId, JobState>,
 }
@@ -140,7 +191,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     /// # Returns
     ///
     /// The overlay of `structure` with nothing planned yet.
-    pub(super) fn new(structure: &'structure_lifetime TreeStructure) -> Self {
+    fn new(structure: &'structure_lifetime TreeStructure) -> Self {
         Self {
             structure,
             planned_states: HashMap::new(),
@@ -172,7 +223,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     ///   * [`TreeEventKind::CancelRoot`]: the root moves to [`JobState::Cancelled`] if it is
     ///     [`JobState::Ready`] or has no cleanup task, otherwise to [`JobState::CleanupReady`],
     ///     with its cleanup task published.
-    pub(super) fn plan_event(&self, event: &TreeEvent) -> EventPlan {
+    fn plan_event(&self, event: &TreeEvent) -> EventPlan {
         let job_id = event.job_id;
         let Some(node) = self.node(job_id) else {
             return EventPlan::untracked();
@@ -196,8 +247,9 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
         }
     }
 
-    /// Applies an admitted event's plan, so that the round's later events read its result.
-    pub(super) fn merge(&mut self, event_plan: &EventPlan) {
+    /// Records an admitted event's plan in the overlay, so that the round's later events read its
+    /// result.
+    fn merge(&mut self, event_plan: &EventPlan) {
         for update in &event_plan.updates {
             self.planned_states.insert(update.job_id, update.to);
         }
@@ -222,7 +274,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
 
 /// The plan of one event of a round.
 #[derive(Debug)]
-pub(super) struct EventPlan {
+struct EventPlan {
     updates: Vec<JobStateUpdate>,
     publications: Vec<Publication>,
     outcome: TreeEventOutcome,
