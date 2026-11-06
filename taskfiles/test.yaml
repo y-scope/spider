@@ -172,7 +172,7 @@ tasks:
           TDL_PACKAGE_NAME: "integration_test_tasks"
       - |-
         . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
-        cargo nextest run --all --all-features --run-ignored all --release
+        cargo nextest run --all --all-features --run-ignored all --release --no-fail-fast
       - |-
         for f in ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}/*; do
           if [ -f "$f" ]; then
