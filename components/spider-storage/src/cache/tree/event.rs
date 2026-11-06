@@ -29,8 +29,12 @@ pub enum TreeEventKind {
     /// The root is started. Carries the root's ready task indices.
     Start { ready_task_indices: Vec<TaskIndex> },
 
-    /// The job's last regular task succeeded. Carries the job's outputs.
-    RegularTasksDone { outputs: Vec<TaskOutput> },
+    /// The job's last regular task succeeded. Carries the job's outputs and the children that its
+    /// tasks prepared, in task order.
+    RegularTasksDone {
+        outputs: Vec<TaskOutput>,
+        children: Vec<PreparedChild>,
+    },
 
     /// The job's commit task succeeded.
     CommitDone,
@@ -53,6 +57,15 @@ impl TreeEventKind {
     #[must_use]
     pub const fn is_fast_forward(&self) -> bool {
         matches!(self, Self::CancelRoot | Self::TerminalFailure { .. })
+    }
+
+    /// # Returns
+    ///
+    /// Whether an event of this kind registers a child set: a [`Self::RegularTasksDone`] with
+    /// children.
+    #[must_use]
+    pub const fn registers(&self) -> bool {
+        matches!(self, Self::RegularTasksDone { children, .. } if !children.is_empty())
     }
 
     /// # Returns
@@ -90,9 +103,10 @@ impl fmt::Debug for TreeEventKind {
                 .debug_struct(name)
                 .field("num_ready_tasks", &ready_task_indices.len())
                 .finish(),
-            Self::RegularTasksDone { outputs } => f
+            Self::RegularTasksDone { outputs, children } => f
                 .debug_struct(name)
                 .field("num_outputs", &outputs.len())
+                .field("num_children", &children.len())
                 .finish(),
             Self::TerminalFailure { lane, .. } => f
                 .debug_struct(name)
@@ -255,6 +269,7 @@ mod tests {
     use crate::cache::tree::TreeEventKind;
     use crate::cache::tree::test_utils::failure;
     use crate::cache::tree::test_utils::start;
+    use crate::state::test_utils::create_test_prepared_child;
 
     #[test]
     fn start_is_accepted_only_by_a_ready_job() {
@@ -277,6 +292,7 @@ mod tests {
             (
                 TreeEventKind::RegularTasksDone {
                     outputs: Vec::new(),
+                    children: Vec::new(),
                 },
                 JobState::Running,
                 StaleStateError::JobNoLongerRunning,
@@ -370,11 +386,15 @@ mod tests {
         }
     }
 
-    #[test]
-    fn debug_shows_the_number_of_outputs_but_not_their_content() {
+    #[tokio::test]
+    async fn debug_shows_the_number_of_outputs_and_children_but_not_their_content() {
         let kind = TreeEventKind::RegularTasksDone {
             outputs: vec![b"recognizable output".to_vec(); 2],
+            children: vec![create_test_prepared_child(0).await],
         };
-        assert_eq!(format!("{kind:?}"), "RegularTasksDone { num_outputs: 2 }");
+        assert_eq!(
+            format!("{kind:?}"),
+            "RegularTasksDone { num_outputs: 2, num_children: 1 }"
+        );
     }
 }
