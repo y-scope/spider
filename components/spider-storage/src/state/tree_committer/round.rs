@@ -505,7 +505,7 @@ fn fail_culprit(
     registration: Option<&PlannedRegistration>,
     error: DbError,
 ) -> Result<(), CacheError> {
-    let culprit = match (&error, registration) {
+    let culprit_and_message = match (&error, registration) {
         (DbError::OutputsTooLarge { job_id, .. }, _) => in_flight
             .iter_mut()
             .zip(outcomes)
@@ -514,13 +514,15 @@ fn fail_culprit(
                     && pending.event.job_id == *job_id
                     && matches!(pending.event.kind, TreeEventKind::RegularTasksDone { .. }))
                 .then_some(pending)
-            }),
+            })
+            .map(|pending| (pending, error.to_string())),
         (DbError::PayloadRejected(_), Some(registration)) => in_flight
             .get_mut(registration.event_index)
-            .filter(|pending| pending.event.job_id == registration.parent_id),
+            .filter(|pending| pending.event.job_id == registration.parent_id)
+            .map(|pending| (pending, "child payload rejected by the database".to_owned())),
         _ => None,
     };
-    let Some(culprit) = culprit else {
+    let Some((culprit, message)) = culprit_and_message else {
         return Err(error.into());
     };
     tracing::warn!(
@@ -528,11 +530,6 @@ fn fail_culprit(
         error = % error,
         "The database rejected the payload of a job's event. Failing the job."
     );
-    let message = if matches!(error, DbError::PayloadRejected(_)) {
-        "child payload rejected by the database".to_owned()
-    } else {
-        error.to_string()
-    };
     culprit.event.kind = TreeEventKind::TerminalFailure {
         lane: Lane::Regular,
         message,

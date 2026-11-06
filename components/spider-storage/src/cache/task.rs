@@ -347,6 +347,10 @@ impl PreparedChild {
     /// * [`ChildPreparationError::NoReadyTask`] if the child's task graph has no ready task.
     /// * Forwards [`ValidatedJobSubmission::create`]'s return values on failure.
     /// * Forwards [`TaskGraph::from_parts`]'s return values on failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`TaskGraph::from_parts`] panics.
     pub async fn create(submission: ChildJobSubmission) -> Result<Self, ChildPreparationError> {
         let ChildJobSubmission {
             compressed_serialized_task_graph,

@@ -335,6 +335,13 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     }
 }
 
+/// The children that the plan of one event registers.
+#[derive(Debug, Clone, Copy)]
+struct EventRegistration {
+    parent_id: JobId,
+    children: ChildSetSummary,
+}
+
 /// The plan of one event of a round.
 #[derive(Debug)]
 struct EventPlan {
@@ -342,13 +349,6 @@ struct EventPlan {
     publications: Vec<Publication>,
     outcome: TreeEventOutcome,
     registration: Option<EventRegistration>,
-}
-
-/// The children that the plan of one event registers.
-#[derive(Debug, Clone, Copy)]
-struct EventRegistration {
-    parent_id: JobId,
-    children: ChildSetSummary,
 }
 
 impl EventPlan {
