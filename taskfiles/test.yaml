@@ -91,7 +91,7 @@ tasks:
         . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
         SPIDER_ENDPOINT="$(cat '{{.SPIDER_ENDPOINT_FILE}}')" \
         SPIDER_CONCURRENCY="8" \
-          cargo nextest run --release --package e2e --test nn -- --nocapture
+          cargo nextest run --release --no-fail-fast --package e2e --test nn -- --nocapture
 
   # A generic wrapper that runs the given task with a MariaDB storage backend.
   #
