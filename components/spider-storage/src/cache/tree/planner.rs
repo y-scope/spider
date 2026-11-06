@@ -482,6 +482,10 @@ mod tests {
     ///
     /// The plan of the regular tasks of the job `job_id` being done with two outputs of
     /// `payload_size` bytes in all.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `payload_size` does not fit in a `usize`.
     fn completion(job_id: u64, payload_size: u64) -> EventPlan {
         let payload_size = usize::try_from(payload_size).expect("the payload should fit a usize");
         let first_output_size = payload_size / 2;
