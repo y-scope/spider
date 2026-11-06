@@ -1,5 +1,8 @@
+use std::collections::VecDeque;
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -53,6 +56,12 @@ use crate::test_hooks::TestHooks;
 /// transition.
 pub const MOCK_MAX_OUTPUTS_SIZE: u64 = 4 * 1024 * 1024;
 
+/// The maximum statement payload that [`MockDbConnector`] reports.
+pub const MOCK_MAX_STATEMENT_PAYLOAD: u64 = 4 * 1024 * 1024;
+
+/// The first job ID that [`MockDbConnector`] allocates, above the small fixed IDs that tests use.
+pub const MOCK_FIRST_JOB_ID: u64 = 1_000_000;
+
 pub type TestJcb = SharedJobControlBlock<MockInboundQueueSender, MockTaskInstancePoolConnector>;
 
 /// A mock inbound queue sender for testing.
@@ -93,6 +102,16 @@ pub struct MockDbConnector {
     pub states: Arc<DashMap<JobId, JobState>>,
     pub errors: Arc<DashMap<JobId, String>>,
     pub outputs: Arc<DashMap<JobId, Vec<TaskOutput>>>,
+
+    /// The parent of every inserted child job.
+    pub parents: Arc<DashMap<JobId, JobId>>,
+
+    pub next_job_id: Arc<AtomicU64>,
+
+    /// The errors that the next tree transitions return, in order, before they check or write
+    /// anything.
+    pub injected_transition_errors: Arc<Mutex<VecDeque<DbError>>>,
+
     pub resource_groups: Arc<DashMap<ResourceGroupId, ExternalResourceGroupCredentials>>,
     pub resource_group_ids: Arc<DashMap<String, ResourceGroupId>>,
     pub next_resource_group_id: Arc<AtomicUsize>,
@@ -102,12 +121,24 @@ pub struct MockDbConnector {
     pub session_id: SessionId,
 }
 
+impl MockDbConnector {
+    /// # Returns
+    ///
+    /// A job ID larger than every job ID allocated before.
+    fn allocate_job_id(&self) -> JobId {
+        JobId::from(self.next_job_id.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
 impl Default for MockDbConnector {
     fn default() -> Self {
         Self {
             states: Arc::new(DashMap::new()),
             errors: Arc::new(DashMap::new()),
             outputs: Arc::new(DashMap::new()),
+            parents: Arc::new(DashMap::new()),
+            next_job_id: Arc::new(AtomicU64::new(MOCK_FIRST_JOB_ID)),
+            injected_transition_errors: Arc::new(Mutex::new(VecDeque::new())),
             resource_groups: Arc::new(DashMap::new()),
             resource_group_ids: Arc::new(DashMap::new()),
             next_resource_group_id: Arc::new(AtomicUsize::new(1)),
@@ -126,7 +157,7 @@ impl ExternalJobOrchestration for MockDbConnector {
         _resource_group_id: ResourceGroupId,
         _job_submission: &ValidatedJobSubmission,
     ) -> Result<JobId, DbError> {
-        let job_id = JobId::random();
+        let job_id = self.allocate_job_id();
         self.states.insert(job_id, JobState::Ready);
         Ok(job_id)
     }
@@ -155,7 +186,18 @@ impl ExternalJobOrchestration for MockDbConnector {
 
 #[async_trait::async_trait]
 impl InternalJobOrchestration for MockDbConnector {
-    async fn apply_tree_transition(&self, transition: TreeTransition) -> Result<(), DbError> {
+    async fn apply_tree_transition(
+        &self,
+        transition: TreeTransition<'_>,
+    ) -> Result<Vec<JobId>, DbError> {
+        let injected_error = self
+            .injected_transition_errors
+            .lock()
+            .expect("the injected transition errors' mutex should not be poisoned")
+            .pop_front();
+        if let Some(error) = injected_error {
+            return Err(error);
+        }
         for update in &transition.updates {
             let size: u64 = update
                 .outputs
@@ -189,7 +231,20 @@ impl InternalJobOrchestration for MockDbConnector {
                 self.errors.insert(update.job_id, error_message);
             }
         }
-        Ok(())
+        Ok(transition
+            .child_inserts
+            .iter()
+            .map(|insert| {
+                let child_id = self.allocate_job_id();
+                self.states.insert(child_id, JobState::Running);
+                self.parents.insert(child_id, insert.parent_id);
+                child_id
+            })
+            .collect())
+    }
+
+    fn max_statement_payload(&self) -> u64 {
+        MOCK_MAX_STATEMENT_PAYLOAD
     }
 
     async fn delete_expired_terminated_jobs(

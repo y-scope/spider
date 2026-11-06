@@ -161,8 +161,21 @@ pub struct NoopDbConnector {}
 
 #[async_trait]
 impl InternalJobOrchestration for NoopDbConnector {
-    async fn apply_tree_transition(&self, _transition: TreeTransition) -> Result<(), DbError> {
-        Ok(())
+    async fn apply_tree_transition(
+        &self,
+        transition: TreeTransition<'_>,
+    ) -> Result<Vec<JobId>, DbError> {
+        static NEXT_CHILD_ID: AtomicU64 = AtomicU64::new(1);
+
+        Ok(transition
+            .child_inserts
+            .iter()
+            .map(|_| JobId::from(NEXT_CHILD_ID.fetch_add(1, Ordering::Relaxed)))
+            .collect())
+    }
+
+    fn max_statement_payload(&self) -> u64 {
+        4 * 1024 * 1024
     }
 
     async fn delete_expired_terminated_jobs(
