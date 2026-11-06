@@ -31,6 +31,7 @@ use spider_utils::shutdown::ShutdownHandle;
 
 use crate::cache::error::InternalError;
 use crate::cache::job::SharedJobControlBlock;
+use crate::cache::task::PreparedChild;
 use crate::cache::task::SharedTaskControlBlock;
 use crate::cache::task::SharedTerminationTaskControlBlock;
 use crate::cache::tree::EventReceivers;
@@ -46,7 +47,10 @@ use crate::db::SchedulerRegistrationManagement;
 use crate::db::SessionManagement;
 use crate::db::TreeTransition;
 use crate::inbound_queue::InboundQueueSender;
+use crate::job_submission::ChildJobSubmission;
 use crate::job_submission::ValidatedJobSubmission;
+use crate::job_submission::compress_job_inputs;
+use crate::job_submission::compress_task_graph;
 use crate::job_submission::create_validated_submission;
 use crate::task_instance_pool::TaskInstanceMetadata;
 use crate::task_instance_pool::TaskInstancePoolConnector;
@@ -486,6 +490,38 @@ pub fn create_test_task_graph_input() -> TaskGraphInput {
         .append_task_input(&[0u8; 4])
         .expect("task input appending should succeed");
     builder.build()
+}
+
+/// # Returns
+///
+/// The submission of a child job with [`create_test_task_graph`]'s task graph, whose only
+/// positional input is the msgpack serialization of a 4-byte array of `input_byte`.
+///
+/// # Panics
+///
+/// Panics if the input serialization or the compression fails.
+pub fn create_test_child_submission(input_byte: u8) -> ChildJobSubmission {
+    let mut builder = TaskGraphInputBuilder::new();
+    builder
+        .append_task_input(&[input_byte; 4])
+        .expect("task input appending should succeed");
+    ChildJobSubmission {
+        compressed_serialized_task_graph: compress_task_graph(&create_test_task_graph()),
+        compressed_serialized_job_inputs: compress_job_inputs(&builder.build()),
+    }
+}
+
+/// # Returns
+///
+/// The prepared child of [`create_test_child_submission`]'s submission for `input_byte`.
+///
+/// # Panics
+///
+/// Panics if the child preparation fails.
+pub async fn create_test_prepared_child(input_byte: u8) -> PreparedChild {
+    PreparedChild::create(create_test_child_submission(input_byte))
+        .await
+        .expect("child preparation should succeed")
 }
 
 pub async fn create_test_jcb(job_id: JobId) -> (TestJcb, EventReceivers) {

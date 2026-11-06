@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::PoisonError;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -21,7 +22,9 @@ use tokio::sync::RwLockWriteGuard;
 use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
 use crate::cache::error::StaleStateError;
+use crate::cache::task::PreparedChild;
 use crate::cache::task::TaskGraph;
+use crate::cache::tree::ChildSetSummary;
 use crate::cache::tree::Lane;
 use crate::cache::tree::TreeControlBlock;
 use crate::cache::tree::TreeEvent;
@@ -40,9 +43,9 @@ use crate::test_hooks::TestHooks;
 
 /// A shareable control block for a job.
 ///
-/// All mutable state, including the task graph, connectors, and inbound-queue sender, is held
-/// inside the
-/// underlying [`JobExecutionState`] and protected by [`JobExecutionStateHandle`]'s read-write lock.
+/// All mutable state but the job's child reservation, including the task graph, connectors, and
+/// inbound-queue sender, is held inside the underlying [`JobExecutionState`] and protected by
+/// [`JobExecutionStateHandle`]'s read-write lock.
 /// Its job-level transitions are events of the job's tree, which the tree's committer applies.
 ///
 /// # Type Parameters
@@ -95,6 +98,9 @@ impl<
             inner: Arc::new(JobControlBlock {
                 id,
                 owner_id,
+                parent_id: None,
+                depth: 0,
+                reserved_children: std::sync::Mutex::default(),
                 hooks,
                 tree,
                 job_execution_state: JobExecutionStateHandle {
@@ -102,6 +108,49 @@ impl<
                 },
             }),
         })
+    }
+
+    /// Factory function.
+    ///
+    /// Creates the control block of a child of `parent` from its prepared child: a
+    /// [`JobState::Running`] job one level below `parent`, owned by `parent`'s owner, in `parent`'s
+    /// tree.
+    ///
+    /// # Returns
+    ///
+    /// The created [`SharedJobControlBlock`].
+    pub async fn from_prepared_child(
+        id: JobId,
+        parent: &Self,
+        prepared_child: PreparedChild,
+    ) -> Self {
+        let parent_jcb = &parent.inner;
+        let parent_execution_state = parent_jcb.job_execution_state.read().await;
+        let inbound_queue_sender = parent_execution_state.inbound_queue_sender.clone();
+        let task_instance_pool_connector =
+            parent_execution_state.task_instance_pool_connector.clone();
+        drop(parent_execution_state);
+        let job_execution_state = JobExecutionState {
+            state: JobState::Running,
+            task_graph: prepared_child.graph,
+            num_incomplete_tasks: AtomicUsize::new(prepared_child.num_tasks),
+            inbound_queue_sender,
+            task_instance_pool_connector,
+        };
+        Self {
+            inner: Arc::new(JobControlBlock {
+                id,
+                owner_id: parent_jcb.owner_id,
+                parent_id: Some(parent_jcb.id),
+                depth: parent_jcb.depth + 1,
+                reserved_children: std::sync::Mutex::default(),
+                hooks: parent_jcb.hooks.clone(),
+                tree: parent_jcb.tree.clone(),
+                job_execution_state: JobExecutionStateHandle {
+                    inner: tokio::sync::RwLock::new(job_execution_state),
+                },
+            }),
+        }
     }
 
     /// Recovers a job control block from the given recoverable job context (assumed to be returned
@@ -201,6 +250,9 @@ impl<
             inner: Arc::new(JobControlBlock {
                 id,
                 owner_id: resource_group_id,
+                parent_id: None,
+                depth: 0,
+                reserved_children: std::sync::Mutex::default(),
                 hooks,
                 tree,
                 job_execution_state: JobExecutionStateHandle {
@@ -229,6 +281,58 @@ impl<
     #[must_use]
     pub fn owner_id(&self) -> ResourceGroupId {
         self.inner.owner_id
+    }
+
+    /// # Returns
+    ///
+    /// The ID of the job's parent, or [`None`] for a root.
+    #[must_use]
+    pub fn parent_id(&self) -> Option<JobId> {
+        self.inner.parent_id
+    }
+
+    /// # Returns
+    ///
+    /// The job's depth in its tree, 0 for a root.
+    #[must_use]
+    pub fn depth(&self) -> u32 {
+        self.inner.depth
+    }
+
+    /// Reserves `children` on top of the children that the job's earlier reports reserved, if
+    /// the job's children stay within the limits of one job.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ChildSetSummary`] with the totals that the job's children would reach, if they exceed
+    ///   the limits of one job (see [`ChildSetSummary::is_within_job_limits`]). Nothing is reserved
+    ///   then.
+    pub fn reserve_children(&self, children: ChildSetSummary) -> Result<(), ChildSetSummary> {
+        let mut reserved_children = self
+            .inner
+            .reserved_children
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let totals = reserved_children.plus(children);
+        if !totals.is_within_job_limits() {
+            return Err(totals);
+        }
+        *reserved_children = totals;
+        drop(reserved_children);
+        Ok(())
+    }
+
+    /// Releases a reservation of [`Self::reserve_children`], saturating at zero.
+    pub fn release_children(&self, children: ChildSetSummary) {
+        let mut reserved_children = self
+            .inner
+            .reserved_children
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        reserved_children.count = reserved_children.count.saturating_sub(children.count);
+        reserved_children.bytes = reserved_children.bytes.saturating_sub(children.bytes);
     }
 
     /// # Returns
@@ -369,7 +473,34 @@ impl<
         }
     }
 
-    /// Marks the task instance as succeeded.
+    /// Marks the task instance as succeeded, with no children.
+    ///
+    /// # Returns
+    ///
+    /// Forwards [`Self::succeed_task_instance_with_children`]'s return values on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::succeed_task_instance_with_children`]'s return values on failure.
+    pub async fn succeed_task_instance(
+        &self,
+        task_instance_id: TaskInstanceId,
+        task_index: TaskIndex,
+        task_outputs: Vec<TaskOutput>,
+    ) -> Result<JobState, CacheError> {
+        self.succeed_task_instance_with_children(
+            task_instance_id,
+            task_index,
+            task_outputs,
+            Vec::new(),
+        )
+        .await
+    }
+
+    /// Marks the task instance as succeeded and stores the children that its report prepared in
+    /// the task.
     ///
     /// If all tasks have succeeded, submits the job's outputs to the job's tree and waits until the
     /// committer has stored them and moved the job on. Otherwise, if the completed task unblocks
@@ -397,11 +528,12 @@ impl<
     /// * Forwards [`InboundQueueSender::send_task_ready`]'s return values on failure.
     /// * Forwards [`TaskGraph::read_output_payloads`]'s return values on failure.
     /// * Forwards [`Self::submit_event_and_wait_for_reply`]'s return values on failure.
-    pub async fn succeed_task_instance(
+    pub async fn succeed_task_instance_with_children(
         &self,
         task_instance_id: TaskInstanceId,
         task_index: TaskIndex,
         task_outputs: Vec<TaskOutput>,
+        prepared_children: Vec<PreparedChild>,
     ) -> Result<JobState, CacheError> {
         let jcb = &self.inner;
         let job = jcb.job_execution_state.read_running().await?;
@@ -413,6 +545,7 @@ impl<
             .succeed_task_instance(
                 task_instance_id,
                 task_outputs,
+                prepared_children,
                 || jcb.partial_mutation_guard(TaskId::Index(task_index), task_instance_id),
                 &jcb.hooks,
                 || jcb.hook_context(Some(task_instance_id)),
@@ -665,7 +798,8 @@ impl<
     /// job.
     ///
     /// A job that the transition deactivates gets its non-terminal tasks cancelled; a job that
-    /// leaves [`JobState::Running`] or is deactivated releases its regular tasks.
+    /// leaves [`JobState::Running`] or is deactivated drops its tasks' prepared children and
+    /// releases its regular tasks.
     ///
     /// # Errors
     ///
@@ -699,6 +833,7 @@ impl<
             job.task_graph.cancel_non_terminal().await;
         }
         if from == JobState::Running || is_deactivated {
+            job.task_graph.drop_prepared_children().await;
             job.task_graph.finalize();
         }
         drop(job);
@@ -940,9 +1075,10 @@ impl<
 
 /// The control block for a job.
 ///
-/// This struct holds the immutable identity of a job, its test hooks, the control block of its
-/// tree, and a handle to its execution state. All mutable state and connectors live inside
-/// [`JobExecutionState`] and are protected by the read-write lock in [`JobExecutionStateHandle`].
+/// This struct holds the immutable identity of a job and its place in its tree, the children that
+/// its reports reserved, its test hooks, the control block of its tree, and a handle to its
+/// execution state. All other mutable state and the connectors live inside [`JobExecutionState`]
+/// and are protected by the read-write lock in [`JobExecutionStateHandle`].
 ///
 /// # Type Parameters
 ///
@@ -954,6 +1090,9 @@ struct JobControlBlock<
 > {
     id: JobId,
     owner_id: ResourceGroupId,
+    parent_id: Option<JobId>,
+    depth: u32,
+    reserved_children: std::sync::Mutex<ChildSetSummary>,
     hooks: TestHooks,
     tree: TreeControlBlock,
     job_execution_state:
@@ -1275,10 +1414,15 @@ impl<
 mod tests {
     use spider_core::job::JobState;
     use spider_core::types::id::JobId;
+    use spider_utils::shutdown::ShutdownHandle;
 
+    use super::*;
     use crate::cache::error::CacheError;
     use crate::cache::error::InternalError;
+    use crate::limits::MAX_CHILDREN_PER_JOB;
+    use crate::limits::MAX_JOB_CHILD_BYTES;
     use crate::state::test_utils::create_test_jcb;
+    use crate::state::test_utils::create_test_prepared_child;
 
     const JOB_ID: JobId = JobId::from(1);
 
@@ -1337,6 +1481,146 @@ mod tests {
                 .get_task_control_block(0)
                 .is_none();
             assert_eq!(is_task_released, is_released, "{from} to {to}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_reservation_over_a_job_limit_reserves_nothing() {
+        const AT_LIMITS: ChildSetSummary = ChildSetSummary {
+            count: MAX_CHILDREN_PER_JOB,
+            bytes: MAX_JOB_CHILD_BYTES,
+        };
+        const ONE: ChildSetSummary = ChildSetSummary { count: 1, bytes: 1 };
+
+        let (jcb, _receivers) = create_test_jcb(JOB_ID).await;
+        let reserved_children = || {
+            *jcb.inner
+                .reserved_children
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+        };
+
+        assert_eq!(
+            jcb.reserve_children(ChildSetSummary {
+                count: MAX_CHILDREN_PER_JOB - 1,
+                bytes: MAX_JOB_CHILD_BYTES - 1,
+            }),
+            Ok(())
+        );
+        assert_eq!(jcb.reserve_children(ONE), Ok(()));
+        assert_eq!(reserved_children(), AT_LIMITS);
+
+        for over_limit in [
+            ChildSetSummary { count: 1, bytes: 0 },
+            ChildSetSummary { count: 0, bytes: 1 },
+        ] {
+            assert_eq!(
+                jcb.reserve_children(over_limit),
+                Err(AT_LIMITS.plus(over_limit))
+            );
+            assert_eq!(reserved_children(), AT_LIMITS);
+        }
+
+        jcb.release_children(ONE);
+        assert_eq!(jcb.reserve_children(ONE), Ok(()));
+        assert_eq!(reserved_children(), AT_LIMITS);
+
+        jcb.release_children(AT_LIMITS.plus(ONE));
+        assert_eq!(reserved_children(), ChildSetSummary::default());
+    }
+
+    #[tokio::test]
+    async fn apply_tree_state_drops_the_prepared_children_of_a_job_that_leaves_running()
+    -> anyhow::Result<()> {
+        for to in [JobState::CommitReady, JobState::Failed] {
+            let (jcb, _receivers) = create_test_jcb(JOB_ID).await;
+            jcb.apply_tree_state(JobState::Ready, JobState::Running)
+                .await?;
+            let tcb = jcb
+                .inner
+                .job_execution_state
+                .read()
+                .await
+                .task_graph
+                .get_task_control_block(0)
+                .expect("the job should have a task 0");
+            let task_instance_id = 1;
+            tcb.register_task_instance(task_instance_id).await?;
+            let shutdown_handle = ShutdownHandle::new();
+            let (_, partial_mutation_guard) = tcb
+                .succeed_task_instance(
+                    task_instance_id,
+                    vec![vec![0u8; 4]],
+                    vec![create_test_prepared_child(0).await],
+                    || PartialMutationGuard::new(&shutdown_handle, JOB_ID),
+                    &TestHooks::default(),
+                    HookContext::default,
+                )
+                .await?;
+            partial_mutation_guard.disarm();
+            assert_eq!(tcb.num_prepared_children().await, 1, "Running to {to}");
+
+            jcb.apply_tree_state(JobState::Running, to).await?;
+            assert_eq!(tcb.num_prepared_children().await, 0, "Running to {to}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_child_built_from_a_prepared_child_runs_one_level_below_its_parent()
+    -> anyhow::Result<()> {
+        const CHILD_ID: JobId = JobId::from(2);
+        const GRANDCHILD_ID: JobId = JobId::from(3);
+
+        let (parent, mut receivers) = create_test_jcb(JOB_ID).await;
+        let child = SharedJobControlBlock::from_prepared_child(
+            CHILD_ID,
+            &parent,
+            create_test_prepared_child(0).await,
+        )
+        .await;
+        let grandchild = SharedJobControlBlock::from_prepared_child(
+            GRANDCHILD_ID,
+            &child,
+            create_test_prepared_child(1).await,
+        )
+        .await;
+
+        assert_eq!((parent.parent_id(), parent.depth()), (None, 0));
+        assert_eq!(
+            (child.id(), child.parent_id(), child.depth()),
+            (CHILD_ID, Some(JOB_ID), 1)
+        );
+        assert_eq!(
+            (grandchild.id(), grandchild.parent_id(), grandchild.depth()),
+            (GRANDCHILD_ID, Some(CHILD_ID), 2)
+        );
+        for job in [&child, &grandchild] {
+            assert_eq!(job.owner_id(), parent.owner_id());
+            assert_eq!(job.state().await, JobState::Running);
+            let _reply = job.inner.tree.submit(TreeEvent {
+                job_id: job.id(),
+                kind: TreeEventKind::CommitDone,
+            });
+            let pending = receivers
+                .regular
+                .try_recv()
+                .expect("a child's event should go to its parent's tree");
+            assert_eq!(pending.event.job_id, job.id());
+            let execution_state = job.inner.job_execution_state.read().await;
+            assert_eq!(
+                execution_state.num_incomplete_tasks.load(Ordering::Acquire),
+                1
+            );
+            assert_eq!(
+                execution_state
+                    .task_graph
+                    .get_all_ready_task_indices()
+                    .await,
+                vec![0]
+            );
+            drop(execution_state);
         }
         Ok(())
     }
