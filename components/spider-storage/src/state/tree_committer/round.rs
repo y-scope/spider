@@ -1,5 +1,6 @@
 //! A round of a tree's committer: its events planned, written, applied, answered and published.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -95,8 +96,11 @@ impl<
     ///
     /// # Panics
     ///
-    /// Panics if [`Self::apply_to_cache`], [`Self::publish`] or, in debug and test builds,
-    /// [`Self::assert_invariants`] panics.
+    /// Panics if:
+    ///
+    /// * The plan of the round does not have exactly one outcome per event of `in_flight`.
+    /// * [`Self::apply_to_cache`], [`Self::publish`] or, in debug and test builds,
+    ///   [`Self::assert_invariants`] panics.
     pub(super) async fn run_round(
         &mut self,
         in_flight: &mut Vec<Pending>,
@@ -127,11 +131,32 @@ impl<
             }
         }
 
-        for (pending, outcome) in std::mem::take(in_flight).into_iter().zip(outcomes) {
-            let RoundOutcome::Planned(outcome) = outcome else {
-                in_flight.push(pending);
-                continue;
-            };
+        assert_eq!(
+            outcomes.len(),
+            in_flight.len(),
+            "the plan should have one outcome per event of the round"
+        );
+        // The planned events are answered in place, so every event not answered yet stays in
+        // `in_flight`, which the committer's context guard owns: a panic never drops an unanswered
+        // reply before the guard has shut the service down fatally, and the deferred events stay
+        // behind for the committer to requeue.
+        let mut outcomes = outcomes.into_iter();
+        let planned_outcome = Cell::new(None);
+        for pending in in_flight.extract_if(.., |_| {
+            match outcomes
+                .next()
+                .expect("the plan should have one outcome per event of the round")
+            {
+                RoundOutcome::Planned(outcome) => {
+                    planned_outcome.set(Some(outcome));
+                    true
+                }
+                RoundOutcome::Deferred => false,
+            }
+        }) {
+            let outcome = planned_outcome
+                .take()
+                .expect("an extracted event should have its planned outcome");
             // The event's waiter may have dropped its future, which is not an error of the
             // committer.
             let _ = pending.reply.send(Ok(outcome));
