@@ -12,9 +12,9 @@ use spider_storage::cache::error::StaleStateError;
 use spider_storage::job_submission::ChildJobSubmission;
 use spider_storage::limits::MAX_CHILDREN_PER_JOB;
 use spider_storage::limits::MAX_DEPTH;
-use spider_storage::limits::MAX_JOB_CHILD_BYTES;
-use spider_storage::limits::MAX_REPORT_CHILD_BYTES;
-use spider_storage::limits::MAX_REPORT_OUTPUT_BYTES;
+use spider_storage::limits::MAX_JOB_CHILDREN_SIZE;
+use spider_storage::limits::MAX_REPORT_CHILDREN_SIZE;
+use spider_storage::limits::MAX_REPORT_OUTPUTS_SIZE;
 use spider_storage::state::StorageServerError;
 use spider_storage::state::error::ReportRejection;
 
@@ -80,7 +80,7 @@ async fn a_report_over_a_limit_fails_its_task() -> anyhow::Result<()> {
         error_prefix: String,
     }
 
-    let output_limit = usize::try_from(MAX_REPORT_OUTPUT_BYTES)?;
+    let output_limit = usize::try_from(MAX_REPORT_OUTPUTS_SIZE)?;
     let cases = [
         Case {
             output_size: 4,
@@ -109,7 +109,7 @@ async fn a_report_over_a_limit_fails_its_task() -> anyhow::Result<()> {
             },
             error_prefix: ReportRejection::ChildrenTooLarge {
                 size: 5 * (3 * MIB + MIB / 2) as u64,
-                limit: MAX_REPORT_CHILD_BYTES,
+                limit: MAX_REPORT_CHILDREN_SIZE,
             }
             .to_string(),
         },
@@ -222,9 +222,9 @@ async fn children_over_the_job_limits_across_reports_fail_the_task_before_decodi
         env.service.get_job_error(job_id).await?,
         ReportRejection::JobChildrenTooLarge {
             count: 6,
-            bytes: stored_bytes + undecodable_bytes,
+            size: stored_bytes + undecodable_bytes,
             count_limit: MAX_CHILDREN_PER_JOB,
-            bytes_limit: MAX_JOB_CHILD_BYTES,
+            size_limit: MAX_JOB_CHILDREN_SIZE,
         }
         .to_string()
     );
@@ -248,7 +248,7 @@ async fn rejected_reports_release_their_children_from_the_job_limits() -> anyhow
         )
         .await;
     let child_size = large_child(2 * MIB).size();
-    let max_children = usize::try_from(MAX_JOB_CHILD_BYTES / child_size)?;
+    let max_children = usize::try_from(MAX_JOB_CHILDREN_SIZE / child_size)?;
     assert!(
         max_children >= 3,
         "a child of {child_size} bytes is too large for the test"

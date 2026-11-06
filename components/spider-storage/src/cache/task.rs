@@ -325,10 +325,10 @@ impl TaskGraph {
 /// A child job that a task's success report asks to create, validated and built into a task graph
 /// before the report reaches its job.
 pub struct PreparedChild {
-    pub graph: TaskGraph,
-    pub num_tasks: usize,
-    pub ready_task_indices: Vec<TaskIndex>,
-    pub submission: ChildJobSubmission,
+    pub(crate) graph: TaskGraph,
+    pub(crate) num_tasks: usize,
+    pub(crate) ready_task_indices: Vec<TaskIndex>,
+    pub(crate) submission: ChildJobSubmission,
 }
 
 impl PreparedChild {

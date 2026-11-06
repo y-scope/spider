@@ -45,9 +45,9 @@ use crate::job_submission::ChildJobSubmission;
 use crate::job_submission::ValidatedJobSubmission;
 use crate::limits::MAX_CHILDREN_PER_JOB;
 use crate::limits::MAX_DEPTH;
-use crate::limits::MAX_JOB_CHILD_BYTES;
-use crate::limits::MAX_REPORT_CHILD_BYTES;
-use crate::limits::MAX_REPORT_OUTPUT_BYTES;
+use crate::limits::MAX_JOB_CHILDREN_SIZE;
+use crate::limits::MAX_REPORT_CHILDREN_SIZE;
+use crate::limits::MAX_REPORT_OUTPUTS_SIZE;
 use crate::partial_mutation::PartialMutationGuard;
 use crate::state::CommitterEnv;
 use crate::state::JobCache;
@@ -1024,12 +1024,12 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`ReportRejection::OutputsTooLarge`] if the outputs exceed [`MAX_REPORT_OUTPUT_BYTES`].
+    /// * [`ReportRejection::OutputsTooLarge`] if the outputs exceed [`MAX_REPORT_OUTPUTS_SIZE`].
     /// * [`ReportRejection::TooDeep`] if the children would be deeper than [`MAX_DEPTH`].
     /// * [`ReportRejection::TooManyChildren`] if there are more than [`MAX_CHILDREN_PER_JOB`]
     ///   children.
     /// * [`ReportRejection::ChildTooLarge`] if a child exceeds the database's statement payload.
-    /// * [`ReportRejection::ChildrenTooLarge`] if the children exceed [`MAX_REPORT_CHILD_BYTES`].
+    /// * [`ReportRejection::ChildrenTooLarge`] if the children exceed [`MAX_REPORT_CHILDREN_SIZE`].
     /// * [`ReportRejection::JobChildrenTooLarge`] if the children would take the job over a per-job
     ///   child limit.
     /// * [`ReportRejection::InvalidChild`] if [`PreparedChild::create`] fails for a child.
@@ -1040,10 +1040,10 @@ impl<
         children: Vec<ChildJobSubmission>,
     ) -> Result<(Vec<PreparedChild>, ChildSetSummary), ReportRejection> {
         let outputs_size: u64 = task_outputs.iter().map(|output| output.len() as u64).sum();
-        if outputs_size > MAX_REPORT_OUTPUT_BYTES {
+        if outputs_size > MAX_REPORT_OUTPUTS_SIZE {
             return Err(ReportRejection::OutputsTooLarge {
                 size: outputs_size,
-                limit: MAX_REPORT_OUTPUT_BYTES,
+                limit: MAX_REPORT_OUTPUTS_SIZE,
             });
         }
         if children.is_empty() {
@@ -1075,23 +1075,23 @@ impl<
             });
         }
         let children_size: u64 = children.iter().map(ChildJobSubmission::size).sum();
-        if children_size > MAX_REPORT_CHILD_BYTES {
+        if children_size > MAX_REPORT_CHILDREN_SIZE {
             return Err(ReportRejection::ChildrenTooLarge {
                 size: children_size,
-                limit: MAX_REPORT_CHILD_BYTES,
+                limit: MAX_REPORT_CHILDREN_SIZE,
             });
         }
 
         let reserved_children = ChildSetSummary {
             count: children.len(),
-            bytes: children_size,
+            size: children_size,
         };
         jcb.reserve_children(reserved_children).map_err(|totals| {
             ReportRejection::JobChildrenTooLarge {
                 count: totals.count,
-                bytes: totals.bytes,
+                size: totals.size,
                 count_limit: MAX_CHILDREN_PER_JOB,
-                bytes_limit: MAX_JOB_CHILD_BYTES,
+                size_limit: MAX_JOB_CHILDREN_SIZE,
             }
         })?;
 

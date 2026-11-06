@@ -280,7 +280,7 @@ mod tests {
     use crate::limits::MAX_CHILDREN_PER_JOB;
     use crate::limits::MAX_ERROR_MESSAGE_CHARS;
     use crate::limits::MAX_EVENTS_PER_ROUND;
-    use crate::limits::MAX_JOB_CHILD_BYTES;
+    use crate::limits::MAX_JOB_CHILDREN_SIZE;
     use crate::state::test_utils::create_test_prepared_children;
 
     const PLAIN_NODE: TreeNode = TreeNode {
@@ -528,8 +528,8 @@ mod tests {
         let mut children = create_test_prepared_children(1).await;
         let child = children.first_mut().expect("one child was prepared");
         child.submission.compressed_serialized_job_inputs =
-            vec![0; usize::try_from(MAX_JOB_CHILD_BYTES)? + 1];
-        let bytes = ChildSetSummary::of(&children).bytes;
+            vec![0; usize::try_from(MAX_JOB_CHILDREN_SIZE)? + 1];
+        let size = ChildSetSummary::of(&children).size;
         let (plan, outcome) = plan_root_event(
             TreeNode {
                 state: JobState::Running,
@@ -545,8 +545,8 @@ mod tests {
             plan.updates,
             [JobStateUpdate {
                 error_message: Some(format!(
-                    "child jobs (1 of {bytes} bytes) exceed the limits of {MAX_CHILDREN_PER_JOB} \
-                     child jobs and {MAX_JOB_CHILD_BYTES} bytes per job"
+                    "child jobs (1 of {size} bytes) exceed the limits of {MAX_CHILDREN_PER_JOB} \
+                     child jobs and {MAX_JOB_CHILDREN_SIZE} bytes per job"
                 )),
                 ..JobStateUpdate::new(ROOT_ID, JobState::Running, JobState::Failed)
             }]
@@ -593,7 +593,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rounds_plan_cancels_then_failures_then_one_child_set_then_the_other_events() {
+    async fn a_round_registers_its_first_applicable_child_set_and_defers_the_other_child_sets() {
         let children = create_test_prepared_children(2).await;
         let summary = ChildSetSummary::of(&children);
         let events = vec![

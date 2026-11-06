@@ -311,13 +311,14 @@ async fn child_inserts_return_their_ids_in_order_across_chunks() -> anyhow::Resu
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn only_a_child_insert_over_the_packet_size_is_a_payload_rejection() -> anyhow::Result<()> {
+async fn a_child_insert_over_the_packet_size_is_a_payload_rejection_and_writes_nothing()
+-> anyhow::Result<()> {
     let isolated_test_db = IsolatedTestDb::create().await;
     let config = isolated_test_db.config();
     let storage = MariaDbStorageConnector::connect(&config).await?;
     let pool = create_raw_pool(&config).await;
     let resource_group_id = create_test_resource_group(&storage).await;
-    let job_ids = register_jobs(&storage, resource_group_id, 2).await;
+    let job_ids = register_jobs(&storage, resource_group_id, 1).await;
     let parent_id = job_ids[0];
     storage
         .apply_tree_transition(TreeTransition {
@@ -351,13 +352,11 @@ async fn only_a_child_insert_over_the_packet_size_is_a_payload_rejection() -> an
         matches!(result, Err(DbError::PayloadRejected(_))),
         "an oversized child insert should be a payload rejection, got {result:?}"
     );
-    for job_id in &job_ids {
-        assert_eq!(storage.get_state(*job_id).await?, JobState::Running);
-    }
+    assert_eq!(storage.get_state(parent_id).await?, JobState::Running);
     let num_jobs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `jobs`;")
         .fetch_one(&pool)
         .await?;
-    assert_eq!(num_jobs, i64::try_from(job_ids.len())?);
+    assert_eq!(num_jobs, 1);
     pool.close().await;
     drop(storage);
     isolated_test_db.drop_database().await;

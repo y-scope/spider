@@ -17,7 +17,7 @@ use crate::cache::tree::TreeStructure;
 use crate::db::JobStateUpdate;
 use crate::limits::MAX_CHILDREN_PER_JOB;
 use crate::limits::MAX_ERROR_MESSAGE_CHARS;
-use crate::limits::MAX_JOB_CHILD_BYTES;
+use crate::limits::MAX_JOB_CHILDREN_SIZE;
 use crate::limits::MAX_ROUND_PAYLOAD;
 
 /// The plan of a round of events.
@@ -71,14 +71,17 @@ impl Plan {
         }
     }
 
-    /// Adds `event_plan`, the plan of the round's next event, an event of the job `job_id`, to this
-    /// plan.
-    fn merge(&mut self, job_id: JobId, event_plan: EventPlan) {
+    /// Adds `event_plan`, the plan of the round's next event, to this plan.
+    fn merge(&mut self, event_plan: EventPlan) {
         self.payload_size += event_plan.payload_size();
-        if let Some(children) = event_plan.registration {
+        if let Some(EventRegistration {
+            parent_id,
+            children,
+        }) = event_plan.registration
+        {
             self.registration = Some(PlannedRegistration {
                 event_index: self.outcomes.len(),
-                parent_id: job_id,
+                parent_id,
                 children,
             });
         }
@@ -197,7 +200,7 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
         match admission {
             Admission::Admitted => {
                 self.overlay.merge(&event_plan);
-                self.plan.merge(event.job_id, event_plan);
+                self.plan.merge(event_plan);
             }
             Admission::JobConflict(_) => {}
             Admission::ChildSetAlreadyPlanned | Admission::PayloadBudgetExceeded => {
@@ -291,9 +294,9 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
                         node.state,
                         &format!(
                             "child jobs ({} of {} bytes) exceed the limits of \
-                             {MAX_CHILDREN_PER_JOB} child jobs and {MAX_JOB_CHILD_BYTES} bytes \
+                             {MAX_CHILDREN_PER_JOB} child jobs and {MAX_JOB_CHILDREN_SIZE} bytes \
                              per job",
-                            children.count, children.bytes
+                            children.count, children.size
                         ),
                     )
                 }
@@ -338,7 +341,14 @@ struct EventPlan {
     updates: Vec<JobStateUpdate>,
     publications: Vec<Publication>,
     outcome: TreeEventOutcome,
-    registration: Option<ChildSetSummary>,
+    registration: Option<EventRegistration>,
+}
+
+/// The children that the plan of one event registers.
+#[derive(Debug, Clone, Copy)]
+struct EventRegistration {
+    parent_id: JobId,
+    children: ChildSetSummary,
 }
 
 impl EventPlan {
@@ -397,7 +407,10 @@ impl EventPlan {
         children: ChildSetSummary,
     ) -> Self {
         Self {
-            registration: Some(children),
+            registration: Some(EventRegistration {
+                parent_id: job_id,
+                children,
+            }),
             ..Self::applying(JobStateUpdate {
                 outputs: Some(outputs),
                 ..JobStateUpdate::new(job_id, JobState::Running, JobState::BlockingOnChildren)
@@ -540,7 +553,10 @@ impl EventPlan {
             .flatten()
             .map(|output| output.len() as u64)
             .sum();
-        outputs_size + self.registration.map_or(0, |children| children.bytes)
+        outputs_size
+            + self
+                .registration
+                .map_or(0, |registration| registration.children.size)
     }
 }
 
@@ -610,7 +626,7 @@ mod tests {
             "a round without payload should admit any payload"
         );
 
-        plan.merge(JobId::from(2), completion(2, MAX_ROUND_PAYLOAD + 1));
+        plan.merge(completion(2, MAX_ROUND_PAYLOAD + 1));
         assert_eq!(
             plan.admission(&completion(3, 1)),
             Admission::PayloadBudgetExceeded
@@ -622,7 +638,7 @@ mod tests {
         );
 
         let mut plan = Plan::default();
-        plan.merge(JobId::from(2), completion(2, MAX_ROUND_PAYLOAD - 2));
+        plan.merge(completion(2, MAX_ROUND_PAYLOAD - 2));
         assert_eq!(plan.admission(&completion(3, 2)), Admission::Admitted);
         assert_eq!(
             plan.admission(&completion(3, 3)),
@@ -634,13 +650,13 @@ mod tests {
     fn a_child_set_counts_toward_the_round_payload() {
         let children = ChildSetSummary {
             count: 1,
-            bytes: MAX_ROUND_PAYLOAD,
+            size: MAX_ROUND_PAYLOAD,
         };
         let mut plan = Plan::default();
         let registration = registration(2, children);
         assert_eq!(plan.admission(&registration), Admission::Admitted);
 
-        plan.merge(JobId::from(2), registration);
+        plan.merge(registration);
         assert_eq!(
             plan.admission(&completion(3, 1)),
             Admission::PayloadBudgetExceeded
@@ -649,10 +665,10 @@ mod tests {
 
     #[test]
     fn a_second_child_set_is_deferred_but_an_event_without_one_is_admitted() {
-        let children = ChildSetSummary { count: 1, bytes: 1 };
+        let children = ChildSetSummary { count: 1, size: 1 };
         let mut plan = Plan::default();
-        plan.merge(JobId::from(2), completion(2, 1));
-        plan.merge(JobId::from(3), registration(3, children));
+        plan.merge(completion(2, 1));
+        plan.merge(registration(3, children));
         assert_eq!(
             plan.registration,
             Some(PlannedRegistration {

@@ -98,7 +98,7 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`TreeStructure::plan_events`]'s return values on failure.
-    /// * Forwards [`registered_children`]'s return values on failure.
+    /// * Forwards [`Self::child_inserts`]'s return values on failure.
     /// * Forwards [`fail_culprit`]'s return values on failure.
     /// * Forwards [`Self::apply_to_cache`]'s return values on failure.
     /// * Forwards [`Self::bind_children`]'s return values on failure.
@@ -109,8 +109,8 @@ impl<
     /// Panics if:
     ///
     /// * The plan of the round does not have exactly one outcome per event of `in_flight`.
-    /// * [`Self::apply_to_cache`], [`Self::publish`] or, in debug and test builds,
-    ///   [`Self::assert_invariants`] panics.
+    /// * [`Self::child_inserts`], [`Self::apply_to_cache`], [`Self::bind_children`],
+    ///   [`Self::publish`] or, in debug and test builds, [`Self::assert_invariants`] panics.
     pub(super) async fn run_round(
         &mut self,
         in_flight: &mut Vec<Pending>,

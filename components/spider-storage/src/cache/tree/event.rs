@@ -11,7 +11,7 @@ use crate::cache::error::CacheError;
 use crate::cache::error::StaleStateError;
 use crate::cache::task::PreparedChild;
 use crate::limits::MAX_CHILDREN_PER_JOB;
-use crate::limits::MAX_JOB_CHILD_BYTES;
+use crate::limits::MAX_JOB_CHILDREN_SIZE;
 
 /// A job-level event of one job of a tree.
 #[derive(Debug)]
@@ -220,7 +220,7 @@ pub type TreeEventReply = Result<TreeEventOutcome, CacheError>;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ChildSetSummary {
     pub count: usize,
-    pub bytes: u64,
+    pub size: u64,
 }
 
 impl ChildSetSummary {
@@ -231,9 +231,9 @@ impl ChildSetSummary {
     pub fn of(children: &[PreparedChild]) -> Self {
         Self {
             count: children.len(),
-            bytes: children
+            size: children
                 .iter()
-                .fold(0, |bytes, child| bytes.saturating_add(child.size())),
+                .fold(0, |size, child| size.saturating_add(child.size())),
         }
     }
 
@@ -245,17 +245,17 @@ impl ChildSetSummary {
     pub const fn plus(self, other: Self) -> Self {
         Self {
             count: self.count.saturating_add(other.count),
-            bytes: self.bytes.saturating_add(other.bytes),
+            size: self.size.saturating_add(other.size),
         }
     }
 
     /// # Returns
     ///
     /// Whether the children fit within the limits of one job: at most [`MAX_CHILDREN_PER_JOB`]
-    /// children of at most [`MAX_JOB_CHILD_BYTES`] bytes.
+    /// children of at most [`MAX_JOB_CHILDREN_SIZE`] bytes.
     #[must_use]
     pub const fn is_within_job_limits(self) -> bool {
-        self.count <= MAX_CHILDREN_PER_JOB && self.bytes <= MAX_JOB_CHILD_BYTES
+        self.count <= MAX_CHILDREN_PER_JOB && self.size <= MAX_JOB_CHILDREN_SIZE
     }
 }
 

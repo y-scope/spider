@@ -332,7 +332,7 @@ impl<
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         reserved_children.count = reserved_children.count.saturating_sub(children.count);
-        reserved_children.bytes = reserved_children.bytes.saturating_sub(children.bytes);
+        reserved_children.size = reserved_children.size.saturating_sub(children.size);
     }
 
     /// # Returns
@@ -1425,7 +1425,7 @@ mod tests {
     use crate::cache::error::CacheError;
     use crate::cache::error::InternalError;
     use crate::limits::MAX_CHILDREN_PER_JOB;
-    use crate::limits::MAX_JOB_CHILD_BYTES;
+    use crate::limits::MAX_JOB_CHILDREN_SIZE;
     use crate::state::test_utils::create_test_jcb;
     use crate::state::test_utils::create_test_prepared_child;
 
@@ -1494,9 +1494,9 @@ mod tests {
     async fn a_reservation_over_a_job_limit_reserves_nothing() {
         const AT_LIMITS: ChildSetSummary = ChildSetSummary {
             count: MAX_CHILDREN_PER_JOB,
-            bytes: MAX_JOB_CHILD_BYTES,
+            size: MAX_JOB_CHILDREN_SIZE,
         };
-        const ONE: ChildSetSummary = ChildSetSummary { count: 1, bytes: 1 };
+        const ONE: ChildSetSummary = ChildSetSummary { count: 1, size: 1 };
 
         let (jcb, _receivers) = create_test_jcb(JOB_ID).await;
         let reserved_children = || {
@@ -1509,7 +1509,7 @@ mod tests {
         assert_eq!(
             jcb.reserve_children(ChildSetSummary {
                 count: MAX_CHILDREN_PER_JOB - 1,
-                bytes: MAX_JOB_CHILD_BYTES - 1,
+                size: MAX_JOB_CHILDREN_SIZE - 1,
             }),
             Ok(())
         );
@@ -1517,8 +1517,8 @@ mod tests {
         assert_eq!(reserved_children(), AT_LIMITS);
 
         for over_limit in [
-            ChildSetSummary { count: 1, bytes: 0 },
-            ChildSetSummary { count: 0, bytes: 1 },
+            ChildSetSummary { count: 1, size: 0 },
+            ChildSetSummary { count: 0, size: 1 },
         ] {
             assert_eq!(
                 jcb.reserve_children(over_limit),

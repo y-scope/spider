@@ -81,14 +81,14 @@ pub enum ReportRejection {
     ChildrenTooLarge { size: u64, limit: u64 },
 
     #[error(
-        "child jobs would bring the job to {count} child jobs of {bytes} bytes, over the limits \
-         of {count_limit} child jobs and {bytes_limit} bytes per job"
+        "child jobs would bring the job to {count} child jobs of {size} bytes, over the limits of \
+         {count_limit} child jobs and {size_limit} bytes per job"
     )]
     JobChildrenTooLarge {
         count: usize,
-        bytes: u64,
+        size: u64,
         count_limit: usize,
-        bytes_limit: u64,
+        size_limit: u64,
     },
 
     #[error("child job {index} is invalid: {source}")]
