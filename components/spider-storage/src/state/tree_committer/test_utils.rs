@@ -16,13 +16,16 @@ use tokio::task::JoinHandle;
 use tokio_util::task::TaskTracker;
 
 use crate::cache::job::SharedJobControlBlock;
+use crate::cache::task::PreparedChild;
 use crate::cache::tree::Pending;
 use crate::cache::tree::TreeControlBlock;
 use crate::cache::tree::TreeEvent;
 use crate::cache::tree::TreeEventKind;
 use crate::cache::tree::TreeEventReply;
+use crate::db::DbError;
 use crate::inbound_queue::InboundQueueSender;
 use crate::job_submission::create_validated_submission;
+use crate::state::JobCache;
 use crate::state::JobCacheGcHandle;
 use crate::state::test_utils::MockDbConnector;
 use crate::state::test_utils::MockTaskInstancePoolConnector;
@@ -52,6 +55,7 @@ pub(super) struct TestTree<InboundQueueSenderType: InboundQueueSender + 'static>
     pub(super) jcb: SharedJobControlBlock<InboundQueueSenderType, MockTaskInstancePoolConnector>,
     pub(super) owner_id: ResourceGroupId,
     pub(super) db: MockDbConnector,
+    pub(super) job_cache: JobCache<InboundQueueSenderType, MockTaskInstancePoolConnector>,
     pub(super) task_tracker: TaskTracker,
     pub(super) shutdown_handle: ShutdownHandle,
     #[cfg(feature = "test-hooks")]
@@ -62,9 +66,9 @@ pub(super) struct TestTree<InboundQueueSenderType: InboundQueueSender + 'static>
 impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueueSenderType> {
     /// Factory function.
     ///
-    /// Registers a one-task root job as [`JobState::Ready`] in a mock database, with a commit
-    /// task if `has_commit` and a cleanup task if `has_cleanup`, and spawns the committer of
-    /// its tree, which publishes through `inbound_queue_sender`.
+    /// Registers a one-task root job as [`JobState::Ready`] in a mock database and a job cache,
+    /// with a commit task if `has_commit` and a cleanup task if `has_cleanup`, and spawns the
+    /// committer of its tree, which publishes through `inbound_queue_sender`.
     ///
     /// # Returns
     ///
@@ -72,7 +76,7 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
     ///
     /// # Panics
     ///
-    /// Panics if the root's control block cannot be created.
+    /// Panics if the root's control block cannot be created or cached.
     pub(super) async fn spawn(
         has_commit: bool,
         has_cleanup: bool,
@@ -100,12 +104,18 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
         )
         .await
         .expect("the root's control block should be created");
+        let job_cache = JobCache::new();
+        job_cache
+            .insert(jcb.clone())
+            .await
+            .expect("the root's control block should be cached");
         let (gc_sender, gc_receiver) = mpsc::unbounded_channel();
         let task_tracker = TaskTracker::new();
         spawn_committer(
             &task_tracker,
             Arc::new(CommitterEnv {
                 db: db.clone(),
+                job_cache: job_cache.clone(),
                 job_cache_gc_handle: JobCacheGcHandle::new(gc_sender),
                 inbound_queue_sender,
                 shutdown_handle: shutdown_handle.clone(),
@@ -119,6 +129,7 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
             jcb,
             owner_id,
             db,
+            job_cache,
             task_tracker,
             shutdown_handle,
             #[cfg(feature = "test-hooks")]
@@ -140,6 +151,20 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
             job_id: ROOT_ID,
             kind,
         })
+    }
+
+    /// Makes the next tree transition of the mock database return `error` before it checks or
+    /// writes anything.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the mutex of the injected errors is poisoned.
+    pub(super) fn inject_transition_error(&self, error: DbError) {
+        self.db
+            .injected_transition_errors
+            .lock()
+            .expect("the injected transition errors' mutex should not be poisoned")
+            .push_back(error);
     }
 
     /// Waits until the tree's committer exits.
@@ -215,9 +240,26 @@ pub(super) fn start() -> TreeEventKind {
 }
 
 pub(super) fn regular_tasks_done() -> TreeEventKind {
+    registration(Vec::new())
+}
+
+/// # Returns
+///
+/// The regular tasks of a job being done with one output and `children`.
+pub(super) fn registration(children: Vec<PreparedChild>) -> TreeEventKind {
     TreeEventKind::RegularTasksDone {
         outputs: vec![vec![1]],
+        children,
     }
+}
+
+/// # Returns
+///
+/// A rejection of a child insert's payload.
+pub(super) fn payload_rejected() -> DbError {
+    DbError::PayloadRejected(sqlx::Error::Protocol(
+        "the child payload exceeds the packet size".to_owned(),
+    ))
 }
 
 /// # Returns

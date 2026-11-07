@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use spider_core::task::Task;
+use spider_core::task::TaskGraph as SubmittedTaskGraph;
 use spider_core::task::TaskIndex;
 use spider_core::task::TaskState;
 use spider_core::task::TdlContext;
@@ -11,11 +12,13 @@ use spider_core::task::TerminationTaskDescriptor;
 use spider_core::task::TimeoutPolicy;
 use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::ExecutionContext;
+use spider_core::types::io::TaskGraphInput;
 use spider_core::types::io::TaskInputsSerializer;
 use spider_core::types::io::TaskOutput;
 use tokio::sync::RwLock;
 
 use crate::cache::error::CacheError;
+use crate::cache::error::ChildPreparationError;
 use crate::cache::error::InternalError;
 use crate::cache::error::StaleStateError;
 use crate::cache::io::InputReader;
@@ -25,6 +28,7 @@ use crate::cache::io::ValuePayload;
 use crate::cache::sync::Reader;
 use crate::cache::sync::SharedRw;
 use crate::cache::sync::Writer;
+use crate::job_submission::ChildJobSubmission;
 use crate::job_submission::ValidatedJobSubmission;
 use crate::partial_mutation::PartialMutationGuard;
 use crate::test_hooks::HookContext;
@@ -52,84 +56,14 @@ impl TaskGraph {
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError::TaskGraphCorrupted`] if:
-    ///   * Any dataflow deps' index is out-of-range.
-    ///   * Any task index is out-of-range.
-    /// * Forwards [`SharedTaskControlBlock::create`]'s return values on failure.
+    /// * Forwards [`Self::from_parts`]'s return values on failure.
     ///
     /// # Panics
     ///
-    /// Panics if the internal TCB buffer is corrupted.
+    /// Panics if [`Self::from_parts`] panics.
     pub async fn create(job_submission: ValidatedJobSubmission) -> Result<Self, InternalError> {
         let (submitted_task_graph, task_graph_input) = job_submission.into_parts();
-        let mut dataflow_dep_buffer: Vec<SharedRw<ValuePayload>> = (0..submitted_task_graph
-            .get_num_dataflow_deps())
-            .map(|_| SharedRw::new(RwLock::new(ValuePayload::default())))
-            .collect();
-        let task_graph_input_indices = submitted_task_graph.get_task_graph_input_indices();
-        let task_graph_input_slots = task_graph_input
-            .into_positional_inputs(|payload| SharedRw::new(RwLock::new(Some(payload))));
-        for (deps_index, input_slot) in task_graph_input_indices
-            .into_iter()
-            .zip(task_graph_input_slots)
-        {
-            let dataflow_dep = dataflow_dep_buffer.get_mut(deps_index).ok_or_else(|| {
-                InternalError::TaskGraphCorrupted(
-                    "dataflow dependency index out-of-range".to_owned(),
-                )
-            })?;
-            *dataflow_dep = input_slot;
-        }
-
-        let outputs: Vec<_> = submitted_task_graph
-            .get_task_graph_output_indices()
-            .into_iter()
-            .map(|output_index| {
-                let dataflow_dep = dataflow_dep_buffer.get(output_index).ok_or_else(|| {
-                    InternalError::TaskGraphCorrupted(
-                        "dataflow dependency index out-of-range".to_owned(),
-                    )
-                })?;
-
-                Ok(OutputReader::new(dataflow_dep.clone()))
-            })
-            .collect::<Result<_, InternalError>>()?;
-
-        let num_tasks = submitted_task_graph.get_num_tasks();
-        let mut tcb_buffer = HashMap::new();
-        for task_index in (0..num_tasks).rev() {
-            let task = submitted_task_graph.get_task(task_index).ok_or_else(|| {
-                InternalError::TaskGraphCorrupted("task index out-of-range".to_owned())
-            })?;
-            let tcb =
-                SharedTaskControlBlock::create(task, &tcb_buffer, &dataflow_dep_buffer).await?;
-            tcb_buffer.insert(task.get_index(), tcb);
-        }
-
-        let mut tasks = Vec::new();
-        for task_index in 0..num_tasks {
-            tasks.push(
-                tcb_buffer
-                    .get(&task_index)
-                    .expect("task index should always be valid")
-                    .clone(),
-            );
-        }
-
-        let commit_task = submitted_task_graph
-            .get_commit_task_descriptor()
-            .map(SharedTerminationTaskControlBlock::create);
-
-        let cleanup_task = submitted_task_graph
-            .get_cleanup_task_descriptor()
-            .map(SharedTerminationTaskControlBlock::create);
-
-        Ok(Self {
-            tasks,
-            outputs,
-            commit_task,
-            cleanup_task,
-        })
+        Self::from_parts(submitted_task_graph, task_graph_input).await
     }
 
     /// Recovers a task graph from the commit-ready state.
@@ -263,6 +197,27 @@ impl TaskGraph {
         Ok(outputs)
     }
 
+    /// Takes the children that the graph's tasks prepared when they succeeded, leaving the tasks
+    /// with none.
+    ///
+    /// # Returns
+    ///
+    /// The prepared children, in task-index order, and within a task in report order.
+    pub async fn take_prepared_children(&self) -> Vec<PreparedChild> {
+        let mut prepared_children = Vec::new();
+        for tcb in &self.tasks {
+            prepared_children.append(&mut tcb.inner.lock().await.prepared_children);
+        }
+        prepared_children
+    }
+
+    /// Drops the children that the graph's tasks prepared when they succeeded.
+    pub async fn drop_prepared_children(&self) {
+        for tcb in &self.tasks {
+            tcb.inner.lock().await.prepared_children.clear();
+        }
+    }
+
     #[must_use]
     pub const fn has_commit_task(&self) -> bool {
         self.commit_task.is_some()
@@ -271,6 +226,162 @@ impl TaskGraph {
     #[must_use]
     pub const fn has_cleanup_task(&self) -> bool {
         self.cleanup_task.is_some()
+    }
+
+    /// Creates a new task graph from a submitted task graph and its job inputs, which must be
+    /// consistent with each other.
+    ///
+    /// # Returns
+    ///
+    /// The created task graph instance on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::TaskGraphCorrupted`] if:
+    ///   * Any dataflow deps' index is out-of-range.
+    ///   * Any task index is out-of-range.
+    /// * Forwards [`SharedTaskControlBlock::create`]'s return values on failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal TCB buffer is corrupted.
+    async fn from_parts(
+        submitted_task_graph: SubmittedTaskGraph,
+        task_graph_input: TaskGraphInput,
+    ) -> Result<Self, InternalError> {
+        let mut dataflow_dep_buffer: Vec<SharedRw<ValuePayload>> = (0..submitted_task_graph
+            .get_num_dataflow_deps())
+            .map(|_| SharedRw::new(RwLock::new(ValuePayload::default())))
+            .collect();
+        let task_graph_input_indices = submitted_task_graph.get_task_graph_input_indices();
+        let task_graph_input_slots = task_graph_input
+            .into_positional_inputs(|payload| SharedRw::new(RwLock::new(Some(payload))));
+        for (deps_index, input_slot) in task_graph_input_indices
+            .into_iter()
+            .zip(task_graph_input_slots)
+        {
+            let dataflow_dep = dataflow_dep_buffer.get_mut(deps_index).ok_or_else(|| {
+                InternalError::TaskGraphCorrupted(
+                    "dataflow dependency index out-of-range".to_owned(),
+                )
+            })?;
+            *dataflow_dep = input_slot;
+        }
+
+        let outputs: Vec<_> = submitted_task_graph
+            .get_task_graph_output_indices()
+            .into_iter()
+            .map(|output_index| {
+                let dataflow_dep = dataflow_dep_buffer.get(output_index).ok_or_else(|| {
+                    InternalError::TaskGraphCorrupted(
+                        "dataflow dependency index out-of-range".to_owned(),
+                    )
+                })?;
+
+                Ok(OutputReader::new(dataflow_dep.clone()))
+            })
+            .collect::<Result<_, InternalError>>()?;
+
+        let num_tasks = submitted_task_graph.get_num_tasks();
+        let mut tcb_buffer = HashMap::new();
+        for task_index in (0..num_tasks).rev() {
+            let task = submitted_task_graph.get_task(task_index).ok_or_else(|| {
+                InternalError::TaskGraphCorrupted("task index out-of-range".to_owned())
+            })?;
+            let tcb =
+                SharedTaskControlBlock::create(task, &tcb_buffer, &dataflow_dep_buffer).await?;
+            tcb_buffer.insert(task.get_index(), tcb);
+        }
+
+        let mut tasks = Vec::new();
+        for task_index in 0..num_tasks {
+            tasks.push(
+                tcb_buffer
+                    .get(&task_index)
+                    .expect("task index should always be valid")
+                    .clone(),
+            );
+        }
+
+        let commit_task = submitted_task_graph
+            .get_commit_task_descriptor()
+            .map(SharedTerminationTaskControlBlock::create);
+
+        let cleanup_task = submitted_task_graph
+            .get_cleanup_task_descriptor()
+            .map(SharedTerminationTaskControlBlock::create);
+
+        Ok(Self {
+            tasks,
+            outputs,
+            commit_task,
+            cleanup_task,
+        })
+    }
+}
+
+/// A child job that a task's success report asks to create, validated and built into a task graph
+/// before the report reaches its job.
+pub struct PreparedChild {
+    pub(crate) graph: TaskGraph,
+    pub(crate) num_tasks: usize,
+    pub(crate) ready_task_indices: Vec<TaskIndex>,
+    pub(crate) submission: ChildJobSubmission,
+}
+
+impl PreparedChild {
+    /// Factory function.
+    ///
+    /// Validates `submission` and builds the child's task graph from it.
+    ///
+    /// # Returns
+    ///
+    /// The prepared child on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ChildPreparationError::NoReadyTask`] if the child's task graph has no ready task.
+    /// * Forwards [`ValidatedJobSubmission::create`]'s return values on failure.
+    /// * Forwards [`TaskGraph::from_parts`]'s return values on failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`TaskGraph::from_parts`] panics.
+    pub async fn create(submission: ChildJobSubmission) -> Result<Self, ChildPreparationError> {
+        let ChildJobSubmission {
+            compressed_serialized_task_graph,
+            compressed_serialized_job_inputs,
+        } = submission;
+        let validated_submission = ValidatedJobSubmission::create(
+            compressed_serialized_task_graph,
+            compressed_serialized_job_inputs,
+        )?;
+        let num_tasks = validated_submission.task_graph().get_num_tasks();
+        let (submitted_task_graph, task_graph_input, submission) =
+            validated_submission.into_child_parts();
+        let graph = TaskGraph::from_parts(submitted_task_graph, task_graph_input).await?;
+        let ready_task_indices = graph.get_all_ready_task_indices().await;
+        if ready_task_indices.is_empty() {
+            return Err(ChildPreparationError::NoReadyTask);
+        }
+        Ok(Self {
+            graph,
+            num_tasks,
+            ready_task_indices,
+            submission,
+        })
+    }
+
+    /// # Returns
+    ///
+    /// The total size of the child's compressed serialized task graph and job inputs.
+    #[must_use]
+    pub const fn size(&self) -> u64 {
+        self.submission.size()
     }
 }
 
@@ -310,7 +421,8 @@ impl SharedTaskControlBlock {
         })
     }
 
-    /// Marks a task instance as succeeded.
+    /// Marks a task instance as succeeded and stores the children that its report prepared. A
+    /// rejected report stores none.
     ///
     /// `new_partial_mutation_guard` creates the guard over the mutation once the task has
     /// succeeded. `hooks` fire at [`HookPoint::TaskSuccessBeforeSuccessorLock`] with the context
@@ -341,6 +453,7 @@ impl SharedTaskControlBlock {
         &self,
         instance_id: TaskInstanceId,
         task_outputs: Vec<TaskOutput>,
+        prepared_children: Vec<PreparedChild>,
         new_partial_mutation_guard: impl FnOnce() -> PartialMutationGuard<'guard>,
         hooks: &TestHooks,
         context: impl FnOnce() -> HookContext,
@@ -359,6 +472,7 @@ impl SharedTaskControlBlock {
         // NOTE: The following execution can only fail due to internal errors because the cache
         // state has already been updated.
         tcb.write_outputs(task_outputs).await?;
+        tcb.prepared_children = prepared_children;
         hooks
             .hit(HookPoint::TaskSuccessBeforeSuccessorLock, context)
             .await?;
@@ -445,6 +559,7 @@ impl SharedTaskControlBlock {
         for output_writer in &tcb.outputs {
             *output_writer.write().await = None;
         }
+        tcb.prepared_children.clear();
     }
 
     /// Marks the TCB state cancelled.
@@ -564,11 +679,22 @@ impl SharedTaskControlBlock {
             children,
             inputs: input_readers,
             outputs: output_writers,
+            prepared_children: Vec::new(),
         };
 
         Ok(Self {
             inner: Arc::new(tokio::sync::Mutex::new(tcb)),
         })
+    }
+}
+
+#[cfg(test)]
+impl SharedTaskControlBlock {
+    /// # Returns
+    ///
+    /// The number of prepared children that the task stores.
+    pub(crate) async fn num_prepared_children(&self) -> usize {
+        self.inner.lock().await.prepared_children.len()
     }
 }
 
@@ -974,6 +1100,7 @@ struct TaskControlBlock {
     children: Vec<SharedTaskControlBlock>,
     inputs: Vec<InputReader>,
     outputs: Vec<OutputWriter>,
+    prepared_children: Vec<PreparedChild>,
 }
 
 impl TaskControlBlock {
@@ -1058,23 +1185,42 @@ mod tests {
     use spider_utils::wire::unframe;
 
     use super::*;
+    use crate::job_submission::JobSubmissionError;
     use crate::job_submission::create_validated_submission;
+    use crate::state::test_utils::create_test_child_submission;
+    use crate::state::test_utils::create_test_prepared_child;
 
     /// Marks the task instance `id` of `tcb` as succeeded with `task_outputs`, with no hook armed.
     ///
     /// # Returns
     ///
-    /// Forwards [`SharedTaskControlBlock::succeed_task_instance`]'s return values.
+    /// Forwards [`succeed_instance_with_children`]'s return values.
     async fn succeed_instance(
         tcb: &SharedTaskControlBlock,
         id: TaskInstanceId,
         task_outputs: Vec<TaskOutput>,
+    ) -> Result<Vec<TaskIndex>, CacheError> {
+        succeed_instance_with_children(tcb, id, task_outputs, Vec::new()).await
+    }
+
+    /// Marks the task instance `id` of `tcb` as succeeded with `task_outputs` and
+    /// `prepared_children`, with no hook armed.
+    ///
+    /// # Returns
+    ///
+    /// Forwards [`SharedTaskControlBlock::succeed_task_instance`]'s return values.
+    async fn succeed_instance_with_children(
+        tcb: &SharedTaskControlBlock,
+        id: TaskInstanceId,
+        task_outputs: Vec<TaskOutput>,
+        prepared_children: Vec<PreparedChild>,
     ) -> Result<Vec<TaskIndex>, CacheError> {
         let shutdown_handle = ShutdownHandle::new();
         let (ready_task_indices, partial_mutation_guard) = tcb
             .succeed_task_instance(
                 id,
                 task_outputs,
+                prepared_children,
                 || PartialMutationGuard::new(&shutdown_handle, JobId::random()),
                 &TestHooks::default(),
                 HookContext::default,
@@ -2079,5 +2225,156 @@ mod tests {
         succeed_instance(&tcb, id_b, vec![vec![0u8; 4]])
             .await
             .expect("succeed B should work after A was force-removed");
+    }
+
+    #[tokio::test]
+    async fn dropped_prepared_children_leave_a_task_that_is_still_referenced() -> anyhow::Result<()>
+    {
+        let task_graph = build_task_graph_with_single_tcb(1, 0, 1, 1).await;
+        let held_tcb = task_graph
+            .get_task_control_block(0)
+            .expect("task 0 should exist");
+        let instance_id = next_instance_id();
+        held_tcb.register_task_instance(instance_id).await?;
+        succeed_instance_with_children(
+            &held_tcb,
+            instance_id,
+            vec![vec![0u8; 4]],
+            vec![create_test_prepared_child(0).await],
+        )
+        .await?;
+        assert_eq!(held_tcb.num_prepared_children().await, 1);
+
+        task_graph.drop_prepared_children().await;
+        assert_eq!(held_tcb.num_prepared_children().await, 0);
+        assert!(task_graph.take_prepared_children().await.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_rejected_success_report_stores_no_prepared_children() -> anyhow::Result<()> {
+        let task_graph = build_task_graph_with_single_tcb(1, 0, 1, 1).await;
+        let tcb = task_graph
+            .get_task_control_block(0)
+            .expect("task 0 should exist");
+        let instance_id = next_instance_id();
+        tcb.register_task_instance(instance_id).await?;
+
+        let result = succeed_instance_with_children(
+            &tcb,
+            instance_id,
+            Vec::new(),
+            vec![create_test_prepared_child(0).await],
+        )
+        .await;
+        assert!(
+            matches!(
+                result,
+                Err(CacheError::TaskOutputsLengthMismatch {
+                    expected: 1,
+                    actual: 0
+                })
+            ),
+            "a report with too few outputs gave {result:?}"
+        );
+        assert_eq!(tcb.num_prepared_children().await, 0);
+
+        succeed_instance_with_children(
+            &tcb,
+            instance_id,
+            vec![vec![0u8; 4]],
+            vec![create_test_prepared_child(1).await],
+        )
+        .await?;
+        let result = succeed_instance_with_children(
+            &tcb,
+            instance_id,
+            vec![vec![0u8; 4]],
+            vec![
+                create_test_prepared_child(2).await,
+                create_test_prepared_child(3).await,
+            ],
+        )
+        .await;
+        assert!(
+            matches!(
+                result,
+                Err(CacheError::StaleState(
+                    StaleStateError::InvalidTaskInstanceId
+                ))
+            ),
+            "a duplicate report gave {result:?}"
+        );
+        let taken_inputs: Vec<_> = task_graph
+            .take_prepared_children()
+            .await
+            .into_iter()
+            .map(|child| child.submission.compressed_serialized_job_inputs)
+            .collect();
+        assert_eq!(
+            taken_inputs,
+            vec![create_test_child_submission(1).compressed_serialized_job_inputs]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepared_children_are_taken_in_task_order() -> anyhow::Result<()> {
+        let task_graph = build_diamond_task_graph("a", "b").await;
+        for (task_index, num_outputs, input_bytes) in
+            [(0, 2, vec![0]), (2, 1, vec![20, 21]), (1, 1, vec![10])]
+        {
+            let tcb = task_graph
+                .get_task_control_block(task_index)
+                .expect("the task should exist");
+            let instance_id = next_instance_id();
+            tcb.register_task_instance(instance_id).await?;
+            let mut prepared_children = Vec::new();
+            for input_byte in input_bytes {
+                prepared_children.push(create_test_prepared_child(input_byte).await);
+            }
+            succeed_instance_with_children(
+                &tcb,
+                instance_id,
+                vec![vec![0u8; 4]; num_outputs],
+                prepared_children,
+            )
+            .await?;
+        }
+
+        let taken_inputs: Vec<_> = task_graph
+            .take_prepared_children()
+            .await
+            .into_iter()
+            .map(|child| child.submission.compressed_serialized_job_inputs)
+            .collect();
+        let expected_inputs: Vec<_> = [0, 10, 20, 21]
+            .into_iter()
+            .map(|input_byte| {
+                create_test_child_submission(input_byte).compressed_serialized_job_inputs
+            })
+            .collect();
+        assert_eq!(taken_inputs, expected_inputs);
+        assert!(task_graph.take_prepared_children().await.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_child_without_a_valid_submission_is_not_prepared() {
+        let result = PreparedChild::create(ChildJobSubmission {
+            compressed_serialized_task_graph: b"not a task graph".to_vec(),
+            ..create_test_child_submission(0)
+        })
+        .await
+        .map(|_| ());
+        assert!(
+            matches!(
+                result,
+                Err(ChildPreparationError::Submission(
+                    JobSubmissionError::TaskGraphDeserialization(_)
+                ))
+            ),
+            "an undecodable child task graph gave {result:?}"
+        );
     }
 }

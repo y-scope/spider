@@ -161,8 +161,21 @@ pub struct NoopDbConnector {}
 
 #[async_trait]
 impl InternalJobOrchestration for NoopDbConnector {
-    async fn apply_tree_transition(&self, _transition: TreeTransition) -> Result<(), DbError> {
-        Ok(())
+    async fn apply_tree_transition(
+        &self,
+        transition: TreeTransition<'_>,
+    ) -> Result<Vec<JobId>, DbError> {
+        static NEXT_CHILD_ID: AtomicU64 = AtomicU64::new(1);
+
+        Ok(transition
+            .child_inserts
+            .iter()
+            .map(|_| JobId::from(NEXT_CHILD_ID.fetch_add(1, Ordering::Relaxed)))
+            .collect())
+    }
+
+    fn max_statement_payload(&self) -> u64 {
+        4 * 1024 * 1024
     }
 
     async fn delete_expired_terminated_jobs(
@@ -344,8 +357,9 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     )
     .await
     .expect("failed to create JCB");
+    let job_cache = JobCache::<MockInboundQueueSender, MockTaskInstancePool>::new();
     let (job_cache_gc_handle, job_cache_gc_join_handle) = create_job_cache_gc(
-        JobCache::<MockInboundQueueSender, MockTaskInstancePool>::new(),
+        job_cache.clone(),
         shutdown_handle.clone(),
         &JobCacheGcConfig::default(),
     )
@@ -355,6 +369,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
         &task_tracker,
         Arc::new(CommitterEnv {
             db: db_connector,
+            job_cache,
             job_cache_gc_handle,
             inbound_queue_sender,
             shutdown_handle: shutdown_handle.clone(),
