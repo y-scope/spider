@@ -23,6 +23,24 @@ pub enum JobSubmissionError {
     TaskGraphInputSizeMismatch { expected: usize, actual: usize },
 }
 
+/// A child job that a task's success report asks to create, as submitted: its zstd-compressed
+/// serialized task graph and its zstd-compressed serialized job inputs, not validated yet.
+pub struct ChildJobSubmission {
+    pub compressed_serialized_task_graph: Vec<u8>,
+    pub compressed_serialized_job_inputs: Vec<u8>,
+}
+
+impl ChildJobSubmission {
+    /// # Returns
+    ///
+    /// The total size of the child's compressed serialized task graph and job inputs.
+    #[must_use]
+    pub const fn size(&self) -> u64 {
+        (self.compressed_serialized_task_graph.len() + self.compressed_serialized_job_inputs.len())
+            as u64
+    }
+}
+
 /// A validated wrapper around a task graph, its corresponding job inputs, and the compressed
 /// serializations that the database persists verbatim.
 ///
@@ -133,6 +151,25 @@ impl ValidatedJobSubmission {
     #[must_use]
     pub fn into_parts(self) -> (TaskGraph, TaskGraphInput) {
         (self.task_graph, self.task_graph_input)
+    }
+
+    /// Consumes the wrapper of a child job's submission and returns the owned task graph and job
+    /// inputs with the compressed serializations, which the child's database row stores verbatim.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of `(task_graph, task_graph_input, submission)`, where `submission` holds the
+    /// compressed serializations as submitted.
+    #[must_use]
+    pub fn into_child_parts(self) -> (TaskGraph, TaskGraphInput, ChildJobSubmission) {
+        (
+            self.task_graph,
+            self.task_graph_input,
+            ChildJobSubmission {
+                compressed_serialized_task_graph: self.compressed_serialized_task_graph,
+                compressed_serialized_job_inputs: self.compressed_serialized_job_inputs,
+            },
+        )
     }
 }
 

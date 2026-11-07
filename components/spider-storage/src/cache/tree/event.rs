@@ -9,6 +9,9 @@ use spider_core::types::io::TaskOutput;
 
 use crate::cache::error::CacheError;
 use crate::cache::error::StaleStateError;
+use crate::cache::task::PreparedChild;
+use crate::limits::MAX_CHILDREN_PER_JOB;
+use crate::limits::MAX_JOB_CHILDREN_SIZE;
 
 /// A job-level event of one job of a tree.
 #[derive(Debug)]
@@ -198,6 +201,49 @@ pub enum TreeEventOutcome {
 
 /// The reply to an event.
 pub type TreeEventReply = Result<TreeEventOutcome, CacheError>;
+
+/// The number of child jobs of a set of children and their total number of compressed bytes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ChildSetSummary {
+    pub count: usize,
+    pub size: u64,
+}
+
+impl ChildSetSummary {
+    /// # Returns
+    ///
+    /// The summary of `children`.
+    #[must_use]
+    pub fn of(children: &[PreparedChild]) -> Self {
+        Self {
+            count: children.len(),
+            size: children
+                .iter()
+                .fold(0, |size, child| size.saturating_add(child.size())),
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The summary of the union of the children of `self` and `other`, saturating at the numeric
+    /// bounds.
+    #[must_use]
+    pub const fn plus(self, other: Self) -> Self {
+        Self {
+            count: self.count.saturating_add(other.count),
+            size: self.size.saturating_add(other.size),
+        }
+    }
+
+    /// # Returns
+    ///
+    /// Whether the children fit within the limits of one job: at most [`MAX_CHILDREN_PER_JOB`]
+    /// children of at most [`MAX_JOB_CHILDREN_SIZE`] bytes.
+    #[must_use]
+    pub const fn is_within_job_limits(self) -> bool {
+        self.count <= MAX_CHILDREN_PER_JOB && self.size <= MAX_JOB_CHILDREN_SIZE
+    }
+}
 
 #[cfg(test)]
 mod tests {
