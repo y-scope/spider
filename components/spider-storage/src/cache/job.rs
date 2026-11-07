@@ -738,6 +738,12 @@ impl<
         if let Some(partial_mutation_guard) = partial_mutation_guard {
             partial_mutation_guard.disarm();
         }
+        // The submitted event belongs to the committer, so a pause that the service's shutdown
+        // ends lets the wait for its reply go on, as it would without the hook.
+        let _ = jcb
+            .hooks
+            .hit(HookPoint::JobEventAfterSubmit, || jcb.hook_context(None))
+            .await;
         match reply.await? {
             TreeEventOutcome::Applied(state) => Ok(state),
             TreeEventOutcome::Stale(error) => Err(error.into()),

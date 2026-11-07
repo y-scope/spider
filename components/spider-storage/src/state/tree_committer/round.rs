@@ -1,22 +1,20 @@
-//! A round of a tree's committer: one event planned, written, applied, answered and published.
+//! A round of a tree's committer: its events planned, written, applied, answered and published.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use spider_core::job::JobState;
 use spider_core::types::id::JobId;
-use tokio::sync::oneshot;
 
 use crate::cache::error::CacheError;
 use crate::cache::job::SharedJobControlBlock;
 use crate::cache::tree::Lane;
+use crate::cache::tree::Pending;
 use crate::cache::tree::Plan;
-use crate::cache::tree::PlannedUpdates;
 use crate::cache::tree::Publication;
-use crate::cache::tree::TreeEvent;
+use crate::cache::tree::RoundOutcome;
 use crate::cache::tree::TreeEventKind;
-use crate::cache::tree::TreeEventOutcome;
-use crate::cache::tree::TreeEventReply;
 use crate::cache::tree::TreeStructure;
 use crate::db::DbError;
 use crate::db::InternalJobOrchestration;
@@ -81,56 +79,95 @@ impl<
         }
     }
 
-    /// Runs one round for `event`, answering it through `in_flight_reply`, which
-    /// [`super::CommitterContextGuard`] owns.
-    ///
-    /// # Returns
-    ///
-    /// The failure to plan in place of `event`, whose reply stays in `in_flight_reply`, if the
-    /// database rejected the outputs of `event`'s job as too large; [`None`] once the round has
-    /// answered `event`.
+    /// Runs one round for the events of `in_flight`, in their order, and answers each event that
+    /// the round plans. `in_flight`, which [`super::CommitterContextGuard`] owns, keeps the events
+    /// to put back at the front of the pending queue, in their order: the events that the round
+    /// defers or, if the database rejects the outputs of a job as too large, every event of the
+    /// round, with that job's event turned into the job's failure.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`Self::execute_plan`]'s return values on failure.
+    /// * Forwards [`TreeStructure::plan_events`]'s return values on failure.
+    /// * Forwards [`fail_job_with_oversized_outputs`]'s return values on failure.
+    /// * Forwards [`Self::apply_to_cache`]'s return values on failure.
     /// * Forwards [`Self::publish`]'s return values on failure.
     ///
     /// # Panics
     ///
     /// Panics if:
     ///
-    /// * `in_flight_reply` is empty when the round answers its event.
-    /// * [`Self::execute_plan`] or [`Self::publish`] panics.
+    /// * The plan of the round does not have exactly one outcome per event of `in_flight`.
+    /// * [`Self::apply_to_cache`], [`Self::publish`] or, in debug and test builds,
+    ///   [`Self::assert_invariants`] panics.
     pub(super) async fn run_round(
         &mut self,
-        event: TreeEvent,
-        in_flight_reply: &mut Option<oneshot::Sender<TreeEventReply>>,
-    ) -> Result<Option<TreeEvent>, CacheError> {
-        let job_id = event.job_id;
-        let (outcome, publications) = match self.structure.plan_event(event) {
-            Plan::Apply(plan) => match self.execute_plan(job_id, plan).await? {
-                Execution::Executed {
-                    new_state,
-                    publications,
-                } => (TreeEventOutcome::Applied(new_state), publications),
-                Execution::OutputsRejected(failure) => return Ok(Some(failure)),
-            },
-            Plan::Stale(error) => (TreeEventOutcome::Stale(error), Vec::new()),
-            Plan::Untracked => (TreeEventOutcome::Untracked, Vec::new()),
-        };
+        in_flight: &mut Vec<Pending>,
+    ) -> Result<(), CacheError> {
+        let Plan {
+            updates,
+            publications,
+            outcomes,
+            ..
+        } = self
+            .structure
+            .plan_events(in_flight.iter().map(|pending| &pending.event))?;
 
-        // The event's waiter may have dropped its future, which is not an error of the committer.
-        let _ = in_flight_reply
-            .take()
-            .expect("a round should answer its event once")
-            .send(Ok(outcome));
+        if !updates.is_empty() {
+            let transitions: Vec<Transition> = updates.iter().map(Transition::from).collect();
+            if let Err(error) = self
+                .env
+                .db
+                .apply_tree_transition(TreeTransition { updates })
+                .await
+            {
+                return fail_job_with_oversized_outputs(in_flight, &outcomes, error);
+            }
+            self.hit_hook(HookPoint::CommitterRoundAfterDbWrite, &transitions)
+                .await;
+            for transition in transitions {
+                self.apply_to_cache(transition).await?;
+            }
+        }
+
+        assert_eq!(
+            outcomes.len(),
+            in_flight.len(),
+            "the plan should have one outcome per event of the round"
+        );
+        // The planned events are answered in place, so every event not answered yet stays in
+        // `in_flight`, which the committer's context guard owns: a panic never drops an unanswered
+        // reply before the guard has shut the service down fatally, and the deferred events stay
+        // behind for the committer to requeue.
+        let mut outcomes = outcomes.into_iter();
+        let planned_outcome = Cell::new(None);
+        for pending in in_flight.extract_if(.., |_| {
+            match outcomes
+                .next()
+                .expect("the plan should have one outcome per event of the round")
+            {
+                RoundOutcome::Planned(outcome) => {
+                    planned_outcome.set(Some(outcome));
+                    true
+                }
+                RoundOutcome::Deferred => false,
+            }
+        }) {
+            let outcome = planned_outcome
+                .take()
+                .expect("an extracted event should have its planned outcome");
+            // The event's waiter may have dropped its future, which is not an error of the
+            // committer.
+            let _ = pending.reply.send(Ok(outcome));
+        }
 
         for publication in publications {
             self.publish(publication).await?;
         }
-        Ok(None)
+        #[cfg(any(test, debug_assertions))]
+        self.assert_invariants().await;
+        Ok(())
     }
 
     /// # Returns
@@ -138,83 +175,6 @@ impl<
     /// Whether the committer's tree has no job left.
     pub(super) fn is_quiescent(&self) -> bool {
         self.structure.is_quiescent()
-    }
-
-    /// Writes `plan` to the database and applies it to the cache.
-    ///
-    /// # Returns
-    ///
-    /// [`Execution::Executed`] once the plan is written and applied, or
-    /// [`Execution::OutputsRejected`] if the database rejects the outputs of `job_id` as too large.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`fail_job_with_oversized_outputs`]'s return values on failure.
-    /// * Forwards [`Self::write_to_db`]'s return values on failure.
-    /// * Forwards [`Self::apply_to_cache`]'s return values on failure.
-    ///
-    /// # Panics
-    ///
-    /// Panics if [`Self::apply_to_cache`] panics.
-    async fn execute_plan(
-        &mut self,
-        job_id: JobId,
-        plan: PlannedUpdates,
-    ) -> Result<Execution, CacheError> {
-        let WrittenPlan {
-            transitions,
-            publications,
-            new_state,
-        } = match self.write_to_db(plan).await {
-            Ok(written_plan) => written_plan,
-            Err(error) => {
-                return Ok(Execution::OutputsRejected(fail_job_with_oversized_outputs(
-                    job_id, error,
-                )?));
-            }
-        };
-        self.hit_hook(HookPoint::CommitterRoundAfterDbWrite, job_id)
-            .await;
-
-        for transition in transitions {
-            self.apply_to_cache(transition).await?;
-        }
-        Ok(Execution::Executed {
-            new_state,
-            publications,
-        })
-    }
-
-    /// Writes `plan`'s updates to the database in one transaction.
-    ///
-    /// # Returns
-    ///
-    /// The written plan, with its updates as the transitions to apply to the cached jobs, on
-    /// success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`InternalJobOrchestration::apply_tree_transition`]'s return values on failure.
-    async fn write_to_db(&self, plan: PlannedUpdates) -> Result<WrittenPlan, DbError> {
-        let PlannedUpdates {
-            updates,
-            publications,
-            new_state,
-        } = plan;
-        let transitions = updates.iter().map(Transition::from).collect();
-        self.env
-            .db
-            .apply_tree_transition(TreeTransition { updates })
-            .await?;
-        Ok(WrittenPlan {
-            transitions,
-            publications,
-            new_state,
-        })
     }
 
     /// Applies `transition`, which the round has written to the database, to its job's control
@@ -281,6 +241,34 @@ impl<
         Ok(())
     }
 
+    /// Checks that the tree's structure keeps the tree invariants, and that the committer holds
+    /// the control blocks of exactly the structure's jobs, each in the job's state in the
+    /// structure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any check fails.
+    #[cfg(any(test, debug_assertions))]
+    async fn assert_invariants(&self) {
+        if let Err(violation) = self.structure.check_invariants() {
+            panic!("the tree should keep its invariants after a round: {violation}");
+        }
+        let job_ids = self.structure.sorted_job_ids();
+        assert_eq!(
+            job_ids.len(),
+            self.jcbs.len(),
+            "the committer should hold the control blocks of exactly its structure's jobs"
+        );
+        for job_id in job_ids {
+            let cached_state = self.jcb(job_id).state().await;
+            assert_eq!(
+                self.structure.node(job_id).map(|node| node.state),
+                Some(cached_state),
+                "the structure should hold the cached state of the job {job_id:?}"
+            );
+        }
+    }
+
     /// # Returns
     ///
     /// The control block of the tree's non-terminal job `job_id`.
@@ -297,33 +285,22 @@ impl<
             .expect("a job of the tree's structure should have its control block in the committer")
     }
 
-    /// Fires the committer's hooks at `point` for the job `job_id`.
-    async fn hit_hook(&self, point: HookPoint, job_id: JobId) {
+    /// Fires the committer's hooks at `point` for the jobs of `transitions`.
+    async fn hit_hook(&self, point: HookPoint, transitions: &[Transition]) {
         // A pause that the service's shutdown ends lets the round go on, as the round would without
         // the hook.
-        let _ = self.env.hooks.hit(point, || HookContext::job(job_id)).await;
+        let _ = self
+            .env
+            .hooks
+            .hit(point, || HookContext {
+                job_ids: transitions
+                    .iter()
+                    .map(|transition| transition.job_id)
+                    .collect(),
+                ..HookContext::default()
+            })
+            .await;
     }
-}
-
-/// A plan written to the database: the transitions to apply to the cached jobs, the publications
-/// and the event's new state.
-struct WrittenPlan {
-    transitions: Vec<Transition>,
-    publications: Vec<Publication>,
-    new_state: JobState,
-}
-
-/// The result of executing a plan.
-enum Execution {
-    /// The plan is written and applied. Carries the event's new state and the plan's publications.
-    Executed {
-        new_state: JobState,
-        publications: Vec<Publication>,
-    },
-
-    /// The database rejected the outputs of the event's job as too large, so nothing is written.
-    /// Carries the failure of the job to plan in place of the event.
-    OutputsRejected(TreeEvent),
 }
 
 /// The state change of one job that a round applies after its write.
@@ -343,40 +320,50 @@ impl From<&JobStateUpdate> for Transition {
     }
 }
 
-/// Turns a [`DbError::OutputsTooLarge`] of the round's job `job_id` into a failure of that job on
-/// the regular lane.
-///
-/// # Returns
-///
-/// The failure event on success.
+/// Turns a [`DbError::OutputsTooLarge`] of a round's write into a failure, on the regular lane, of
+/// the job whose outputs the database rejects: the round's planned
+/// [`TreeEventKind::RegularTasksDone`] event of that job in `in_flight`, whose outcomes are
+/// `outcomes`, becomes that failure.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
-/// * [`CacheError`] converted from `error` if it is not a [`DbError::OutputsTooLarge`] of `job_id`.
-fn fail_job_with_oversized_outputs(job_id: JobId, error: DbError) -> Result<TreeEvent, CacheError> {
+/// * [`CacheError`] converted from `error` if it is not a [`DbError::OutputsTooLarge`] of the job
+///   of a planned [`TreeEventKind::RegularTasksDone`] event of the round.
+fn fail_job_with_oversized_outputs(
+    in_flight: &mut [Pending],
+    outcomes: &[RoundOutcome],
+    error: DbError,
+) -> Result<(), CacheError> {
     let DbError::OutputsTooLarge {
         job_id: culprit_id, ..
     } = &error
     else {
         return Err(error.into());
     };
-    if *culprit_id != job_id {
+    let Some(culprit) = in_flight
+        .iter_mut()
+        .zip(outcomes)
+        .find_map(|(pending, outcome)| {
+            (matches!(outcome, RoundOutcome::Planned(_))
+                && pending.event.job_id == *culprit_id
+                && matches!(pending.event.kind, TreeEventKind::RegularTasksDone { .. }))
+            .then_some(pending)
+        })
+    else {
         return Err(error.into());
-    }
+    };
     tracing::warn!(
-        job_id = ? job_id,
+        job_id = ? culprit_id,
         error = % error,
         "The database rejected a job's outputs. Failing the job."
     );
-    Ok(TreeEvent {
-        job_id,
-        kind: TreeEventKind::TerminalFailure {
-            lane: Lane::Regular,
-            message: error.to_string(),
-        },
-    })
+    culprit.event.kind = TreeEventKind::TerminalFailure {
+        lane: Lane::Regular,
+        message: error.to_string(),
+    };
+    Ok(())
 }
 
 #[cfg(test)]
@@ -388,6 +375,7 @@ mod tests {
     use super::*;
     use crate::cache::error::InternalError;
     use crate::cache::error::StaleStateError;
+    use crate::cache::tree::TreeEventOutcome;
     use crate::inbound_queue::CleanupTaskMarker;
     use crate::inbound_queue::CommitTaskMarker;
     use crate::inbound_queue::InboundQueueEntry;
@@ -401,6 +389,7 @@ mod tests {
     use crate::state::tree_committer::test_utils::ROOT_ID;
     use crate::state::tree_committer::test_utils::TIMEOUT;
     use crate::state::tree_committer::test_utils::TestTree;
+    use crate::state::tree_committer::test_utils::pending;
     use crate::state::tree_committer::test_utils::regular_tasks_done;
     use crate::state::tree_committer::test_utils::reply;
     use crate::state::tree_committer::test_utils::start;
@@ -442,6 +431,55 @@ mod tests {
         assert_eq!(tree.gc_receiver.try_recv(), Ok(ROOT_ID));
         tree.wait_for_exit().await;
         assert!(!tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[test]
+    fn rejected_outputs_fail_only_the_planned_completion_of_their_job() -> anyhow::Result<()> {
+        let mut in_flight = vec![
+            pending(ROOT_ID.get() + 1, regular_tasks_done()),
+            pending(ROOT_ID.get(), TreeEventKind::CommitDone),
+            pending(ROOT_ID.get(), regular_tasks_done()),
+        ];
+        let outcomes = [
+            RoundOutcome::Planned(TreeEventOutcome::Untracked),
+            RoundOutcome::Planned(TreeEventOutcome::Stale(
+                StaleStateError::JobNoLongerCommitReady,
+            )),
+            RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::Succeeded)),
+        ];
+        let error = DbError::OutputsTooLarge {
+            job_id: ROOT_ID,
+            size: MOCK_MAX_OUTPUTS_SIZE + 1,
+            limit: MOCK_MAX_OUTPUTS_SIZE,
+        };
+        let expected_message = error.to_string();
+
+        fail_job_with_oversized_outputs(&mut in_flight, &outcomes, error)?;
+        let [other_job_completion, stale_commit_done, completion] = in_flight.as_slice() else {
+            panic!("the round should keep its three events");
+        };
+        assert!(
+            matches!(
+                other_job_completion.event.kind,
+                TreeEventKind::RegularTasksDone { .. }
+            ),
+            "the completion of another job should be kept"
+        );
+        assert!(
+            matches!(stale_commit_done.event.kind, TreeEventKind::CommitDone),
+            "a stale event of the job should be kept"
+        );
+        assert!(
+            matches!(
+                &completion.event.kind,
+                TreeEventKind::TerminalFailure {
+                    lane: Lane::Regular,
+                    message,
+                } if *message == expected_message
+            ),
+            "the job's planned completion should become its failure"
+        );
         Ok(())
     }
 
@@ -548,6 +586,30 @@ mod tests {
         assert_eq!(
             tree.db.states.get(&ROOT_ID).map(|state| *state),
             Some(JobState::Running)
+        );
+        tree.wait_for_exit().await;
+        assert!(tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_cache_diverging_from_the_structure_after_a_round_poisons_the_service()
+    -> anyhow::Result<()> {
+        let tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+        reply(tree.submit(TreeEventKind::CommitDone)).await?;
+
+        tree.jcb
+            .apply_tree_state(JobState::Ready, JobState::Running)
+            .await?;
+        let commit_done = reply(tree.submit(TreeEventKind::CommitDone)).await;
+        assert!(
+            matches!(
+                commit_done,
+                Ok(TreeEventOutcome::Stale(
+                    StaleStateError::JobNoLongerCommitReady
+                ))
+            ),
+            "a commit of a job whose cached state diverges gave {commit_done:?}"
         );
         tree.wait_for_exit().await;
         assert!(tree.shutdown_handle.is_fatal());
