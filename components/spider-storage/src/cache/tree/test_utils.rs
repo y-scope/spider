@@ -2,6 +2,7 @@
 
 use spider_core::types::id::JobId;
 
+use crate::cache::task::PreparedChild;
 use crate::cache::tree::Lane;
 use crate::cache::tree::TreeEvent;
 use crate::cache::tree::TreeEventKind;
@@ -25,5 +26,15 @@ pub(super) fn failure(lane: Lane, message: &str) -> TreeEventKind {
     TreeEventKind::TerminalFailure {
         lane,
         message: message.to_owned(),
+    }
+}
+
+/// # Returns
+///
+/// The regular tasks of a job being done with one output and `children`.
+pub(super) fn registration(children: Vec<PreparedChild>) -> TreeEventKind {
+    TreeEventKind::RegularTasksDone {
+        outputs: vec![vec![1]],
+        children,
     }
 }

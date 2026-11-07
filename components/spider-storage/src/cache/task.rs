@@ -327,6 +327,7 @@ impl TaskGraph {
 pub struct PreparedChild {
     pub(crate) graph: TaskGraph,
     pub(crate) num_tasks: usize,
+    pub(crate) ready_task_indices: Vec<TaskIndex>,
     pub(crate) submission: ChildJobSubmission,
 }
 
@@ -363,12 +364,14 @@ impl PreparedChild {
         let (submitted_task_graph, task_graph_input, submission) =
             validated_submission.into_child_parts();
         let graph = TaskGraph::from_parts(submitted_task_graph, task_graph_input).await?;
-        if graph.get_all_ready_task_indices().await.is_empty() {
+        let ready_task_indices = graph.get_all_ready_task_indices().await;
+        if ready_task_indices.is_empty() {
             return Err(ChildPreparationError::NoReadyTask);
         }
         Ok(Self {
             graph,
             num_tasks,
+            ready_task_indices,
             submission,
         })
     }

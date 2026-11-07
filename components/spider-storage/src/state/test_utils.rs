@@ -1,5 +1,7 @@
+use std::collections::VecDeque;
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -110,6 +112,10 @@ pub struct MockDbConnector {
 
     pub next_job_id: Arc<AtomicU64>,
 
+    /// The errors that the next tree transitions return, in order, before they check or write
+    /// anything.
+    pub injected_transition_errors: Arc<Mutex<VecDeque<DbError>>>,
+
     pub resource_groups: Arc<DashMap<ResourceGroupId, ExternalResourceGroupCredentials>>,
     pub resource_group_ids: Arc<DashMap<String, ResourceGroupId>>,
     pub next_resource_group_id: Arc<AtomicUsize>,
@@ -136,6 +142,7 @@ impl Default for MockDbConnector {
             outputs: Arc::new(DashMap::new()),
             parents: Arc::new(DashMap::new()),
             next_job_id: Arc::new(AtomicU64::new(MOCK_FIRST_JOB_ID)),
+            injected_transition_errors: Arc::new(Mutex::new(VecDeque::new())),
             resource_groups: Arc::new(DashMap::new()),
             resource_group_ids: Arc::new(DashMap::new()),
             next_resource_group_id: Arc::new(AtomicUsize::new(1)),
@@ -187,6 +194,14 @@ impl InternalJobOrchestration for MockDbConnector {
         &self,
         transition: TreeTransition<'_>,
     ) -> Result<Vec<JobId>, DbError> {
+        let injected_error = self
+            .injected_transition_errors
+            .lock()
+            .expect("the injected transition errors' mutex should not be poisoned")
+            .pop_front();
+        if let Some(error) = injected_error {
+            return Err(error);
+        }
         for update in &transition.updates {
             let size: u64 = update
                 .outputs
@@ -507,6 +522,22 @@ pub async fn create_test_prepared_child(input_byte: u8) -> PreparedChild {
     PreparedChild::create(create_test_child_submission(input_byte))
         .await
         .expect("child preparation should succeed")
+}
+
+/// # Returns
+///
+/// The prepared children of [`create_test_prepared_child`] for the input bytes `0` to
+/// `num_children - 1`, in order.
+///
+/// # Panics
+///
+/// Panics if [`create_test_prepared_child`] panics.
+pub async fn create_test_prepared_children(num_children: u8) -> Vec<PreparedChild> {
+    let mut children = Vec::with_capacity(usize::from(num_children));
+    for input_byte in 0..num_children {
+        children.push(create_test_prepared_child(input_byte).await);
+    }
+    children
 }
 
 pub async fn create_test_jcb(job_id: JobId) -> (TestJcb, EventReceivers) {
