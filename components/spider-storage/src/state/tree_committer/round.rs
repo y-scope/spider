@@ -119,7 +119,10 @@ impl<
             if let Err(error) = self
                 .env
                 .db
-                .apply_tree_transition(TreeTransition { updates })
+                .apply_tree_transition(TreeTransition {
+                    updates,
+                    child_inserts: Vec::new(),
+                })
                 .await
             {
                 return fail_job_with_oversized_outputs(in_flight, &outcomes, error);
