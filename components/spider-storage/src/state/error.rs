@@ -60,6 +60,14 @@ impl From<CacheError> for StorageServerError {
     }
 }
 
+/// Reasons to reject a task's success report before it reaches its job. The rejection's message
+/// is the failure message of the task instance that the report fails.
+#[derive(thiserror::Error, Debug)]
+pub enum ReportRejection {
+    #[error("task outputs of {size} bytes exceed the limit of {limit} bytes")]
+    OutputsTooLarge { size: u64, limit: u64 },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
