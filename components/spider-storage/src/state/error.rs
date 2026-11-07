@@ -3,6 +3,7 @@ use spider_core::types::id::SessionId;
 use spider_tdl::error::TdlError;
 
 use crate::cache::error::CacheError;
+use crate::cache::error::ChildPreparationError;
 use crate::db::DbError;
 
 /// Errors that can occur during storage server operations.
@@ -66,6 +67,36 @@ impl From<CacheError> for StorageServerError {
 pub enum ReportRejection {
     #[error("task outputs of {size} bytes exceed the limit of {limit} bytes")]
     OutputsTooLarge { size: u64, limit: u64 },
+
+    #[error("child jobs at depth {depth} exceed the maximum depth {limit}")]
+    TooDeep { depth: u32, limit: u32 },
+
+    #[error("{count} child jobs exceed the limit of {limit} per report")]
+    TooManyChildren { count: usize, limit: usize },
+
+    #[error("child job {index} of {size} bytes exceeds the limit of {limit} bytes")]
+    ChildTooLarge { index: usize, size: u64, limit: u64 },
+
+    #[error("child jobs of {size} bytes exceed the limit of {limit} bytes per report")]
+    ChildrenTooLarge { size: u64, limit: u64 },
+
+    #[error(
+        "child jobs would bring the job to {count} child jobs of {size} bytes, over the limits of \
+         {count_limit} child jobs and {size_limit} bytes per job"
+    )]
+    JobChildrenTooLarge {
+        count: usize,
+        size: u64,
+        count_limit: usize,
+        size_limit: u64,
+    },
+
+    #[error("child job {index} is invalid: {source}")]
+    InvalidChild {
+        index: usize,
+        #[source]
+        source: ChildPreparationError,
+    },
 }
 
 #[cfg(test)]
