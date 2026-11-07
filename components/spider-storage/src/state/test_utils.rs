@@ -51,7 +51,7 @@ use crate::test_hooks::TestHooks;
 
 /// The maximum total size of one job's outputs that [`MockDbConnector`] accepts in a tree
 /// transition.
-pub const MOCK_MAX_OUTPUTS_SIZE: u64 = 4 * 1024 * 1024;
+pub const MOCK_MAX_OUTPUTS_SIZE: u64 = 1024 * 1024;
 
 pub type TestJcb = SharedJobControlBlock<MockInboundQueueSender, MockTaskInstancePoolConnector>;
 
