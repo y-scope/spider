@@ -1,14 +1,17 @@
-//! Unit tests for the tree committer's loop and its context guard.
+//! Unit tests for the tree committer's loop, its pending queue and its context guard.
 
 use spider_core::job::JobState;
 
 use super::*;
 use crate::cache::error::InternalError;
+use crate::cache::error::StaleStateError;
+use crate::cache::tree::Lane;
 use crate::cache::tree::TreeControlBlock;
-use crate::cache::tree::TreeEventKind;
+use crate::cache::tree::TreeEvent;
 use crate::state::test_utils::MockInboundQueueSender;
 use crate::state::tree_committer::test_utils::ROOT_ID;
 use crate::state::tree_committer::test_utils::TestTree;
+use crate::state::tree_committer::test_utils::pending;
 use crate::state::tree_committer::test_utils::reply;
 use crate::state::tree_committer::test_utils::start;
 
@@ -55,9 +58,179 @@ async fn a_fast_forward_event_is_planned_before_an_earlier_regular_event() {
     );
     let start = reply(start).await;
     assert!(
-        matches!(start, Ok(TreeEventOutcome::Untracked)),
+        matches!(
+            start,
+            Ok(TreeEventOutcome::Stale(StaleStateError::JobAlreadyStarted))
+        ),
         "a start submitted before the cancel gave {start:?}"
     );
+}
+
+#[test]
+fn take_events_fills_a_round_with_cancels_and_failures_first() {
+    const NUM_FAST_FORWARD: u64 = 300;
+    const NUM_REGULAR: u64 = 5;
+    let mut pending_queue = PendingQueue {
+        fast_forward: (0..NUM_FAST_FORWARD)
+            .map(|id| {
+                let kind = if id % 2 == 0 {
+                    failure("boom")
+                } else {
+                    TreeEventKind::CancelRoot
+                };
+                pending(id, kind)
+            })
+            .collect(),
+        regular: (NUM_FAST_FORWARD..NUM_FAST_FORWARD + NUM_REGULAR)
+            .map(|id| pending(id, TreeEventKind::CommitDone))
+            .collect(),
+    };
+    let num_cancels = NUM_FAST_FORWARD / 2;
+    let num_failures_taken = MAX_EVENTS_PER_ROUND as u64 - num_cancels;
+
+    let round = pending_queue.take_events();
+    assert_eq!(
+        job_ids_of(&round),
+        (0..num_cancels)
+            .map(|index| 2 * index + 1)
+            .chain((0..num_failures_taken).map(|index| 2 * index))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        job_ids_of(&pending_queue.fast_forward),
+        (num_failures_taken..num_cancels)
+            .map(|index| 2 * index)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        job_ids_of(&pending_queue.regular),
+        (NUM_FAST_FORWARD..NUM_FAST_FORWARD + NUM_REGULAR).collect::<Vec<_>>()
+    );
+
+    let round = pending_queue.take_events();
+    assert_eq!(
+        job_ids_of(&round),
+        (num_failures_taken..num_cancels)
+            .map(|index| 2 * index)
+            .chain(NUM_FAST_FORWARD..NUM_FAST_FORWARD + NUM_REGULAR)
+            .collect::<Vec<_>>()
+    );
+    assert!(pending_queue.is_empty());
+}
+
+#[test]
+fn take_events_takes_the_cancels_beyond_a_round_before_the_failures_of_the_next_round() {
+    const NUM_FAILURES: u64 = 10;
+    const NUM_FAST_FORWARD: u64 = NUM_FAILURES + MAX_EVENTS_PER_ROUND as u64 + 20;
+    const NUM_REGULAR: u64 = 5;
+    let mut pending_queue = PendingQueue {
+        fast_forward: (0..NUM_FAST_FORWARD)
+            .map(|id| {
+                let kind = if id < NUM_FAILURES {
+                    failure("boom")
+                } else {
+                    TreeEventKind::CancelRoot
+                };
+                pending(id, kind)
+            })
+            .collect(),
+        regular: (NUM_FAST_FORWARD..NUM_FAST_FORWARD + NUM_REGULAR)
+            .map(|id| pending(id, TreeEventKind::CommitDone))
+            .collect(),
+    };
+    let first_cancel_left = NUM_FAILURES + MAX_EVENTS_PER_ROUND as u64;
+
+    let round = pending_queue.take_events();
+    assert_eq!(
+        job_ids_of(&round),
+        (NUM_FAILURES..first_cancel_left).collect::<Vec<_>>()
+    );
+
+    let round = pending_queue.take_events();
+    assert_eq!(
+        job_ids_of(&round),
+        (first_cancel_left..NUM_FAST_FORWARD)
+            .chain(0..NUM_FAILURES)
+            .chain(NUM_FAST_FORWARD..NUM_FAST_FORWARD + NUM_REGULAR)
+            .collect::<Vec<_>>()
+    );
+    assert!(pending_queue.is_empty());
+}
+
+#[test]
+fn take_events_takes_at_most_a_round_of_regular_events() {
+    let mut pending_queue = PendingQueue {
+        fast_forward: VecDeque::from([pending(0, TreeEventKind::CancelRoot)]),
+        regular: (1..=MAX_EVENTS_PER_ROUND as u64)
+            .map(|id| pending(id, TreeEventKind::CommitDone))
+            .collect(),
+    };
+
+    let round = pending_queue.take_events();
+    assert_eq!(
+        job_ids_of(&round),
+        (0..MAX_EVENTS_PER_ROUND as u64).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        job_ids_of(&pending_queue.regular),
+        [MAX_EVENTS_PER_ROUND as u64]
+    );
+}
+
+#[test]
+fn receive_moves_every_cancel_and_failure_but_at_most_a_round_of_other_events() {
+    const NUM_FAST_FORWARD: usize = MAX_EVENTS_PER_ROUND + 44;
+    const NUM_REGULAR: usize = MAX_EVENTS_PER_ROUND + 10;
+    const NUM_TAKEN: usize = 20;
+    let (control_block, mut receivers) = TreeControlBlock::new(ShutdownHandle::new());
+    for _ in 0..NUM_REGULAR {
+        drop(control_block.submit(TreeEvent {
+            job_id: ROOT_ID,
+            kind: TreeEventKind::CommitDone,
+        }));
+    }
+    for _ in 0..NUM_FAST_FORWARD {
+        drop(control_block.submit(TreeEvent {
+            job_id: ROOT_ID,
+            kind: TreeEventKind::CancelRoot,
+        }));
+    }
+    let mut pending_queue = PendingQueue::default();
+
+    pending_queue.receive(&mut receivers);
+    assert_eq!(
+        (
+            pending_queue.fast_forward.len(),
+            pending_queue.regular.len()
+        ),
+        (NUM_FAST_FORWARD, MAX_EVENTS_PER_ROUND)
+    );
+    pending_queue.receive(&mut receivers);
+    assert_eq!(pending_queue.regular.len(), MAX_EVENTS_PER_ROUND);
+
+    pending_queue.regular.drain(..NUM_TAKEN);
+    pending_queue.receive(&mut receivers);
+    assert_eq!(pending_queue.regular.len(), NUM_REGULAR - NUM_TAKEN);
+    assert!(
+        receivers.fast_forward.is_empty() && receivers.regular.is_empty(),
+        "every submitted event should be in the pending queue"
+    );
+}
+
+#[test]
+fn requeued_events_go_back_to_the_front_of_their_own_channel_in_order() {
+    let mut pending_queue = PendingQueue {
+        fast_forward: VecDeque::from([pending(9, TreeEventKind::CancelRoot)]),
+        regular: VecDeque::from([pending(8, start())]),
+    };
+    pending_queue.requeue(vec![
+        pending(1, failure("first")),
+        pending(2, TreeEventKind::CommitDone),
+        pending(3, failure("second")),
+        pending(4, TreeEventKind::CleanupDone),
+    ]);
+    assert_eq!(job_ids_of(&pending_queue.fast_forward), [1, 3, 9]);
+    assert_eq!(job_ids_of(&pending_queue.regular), [2, 4, 8]);
 }
 
 #[test]
@@ -76,7 +249,7 @@ fn an_armed_context_guard_shuts_the_service_down_fatally_even_during_a_graceful_
         drop(CommitterContextGuard {
             receivers,
             pending_queue: PendingQueue::default(),
-            in_flight_reply: None,
+            in_flight: Vec::new(),
             shutdown_handle: shutdown_handle.clone(),
             root_id: ROOT_ID,
             is_disarmed,
@@ -90,6 +263,32 @@ fn an_armed_context_guard_shuts_the_service_down_fatally_even_during_a_graceful_
     }
 }
 
+/// # Returns
+///
+/// A terminal failure, with `message`, of a regular task.
+fn failure(message: &str) -> TreeEventKind {
+    TreeEventKind::TerminalFailure {
+        lane: Lane::Regular,
+        message: message.to_owned(),
+    }
+}
+
+/// # Type Parameters
+///
+/// * `'pending_lifetime` - The lifetime of the borrowed events.
+///
+/// # Returns
+///
+/// The job IDs of `events`, in order.
+fn job_ids_of<'pending_lifetime>(
+    events: impl IntoIterator<Item = &'pending_lifetime Pending>,
+) -> Vec<u64> {
+    events
+        .into_iter()
+        .map(|pending| pending.event.job_id.get())
+        .collect()
+}
+
 #[cfg(feature = "test-hooks")]
 mod hooked {
     use std::time::Duration;
@@ -98,10 +297,16 @@ mod hooked {
     use spider_core::types::id::ResourceGroupId;
 
     use super::*;
+    use crate::db::DbError;
     use crate::inbound_queue::InboundQueueEntry;
     use crate::inbound_queue::create_inbound_queue;
+    use crate::state::test_utils::MOCK_MAX_OUTPUTS_SIZE;
     use crate::state::tree_committer::test_utils::TIMEOUT;
+    use crate::state::tree_committer::test_utils::join_reply;
     use crate::state::tree_committer::test_utils::regular_tasks_done;
+    use crate::test_hooks::HookAction;
+    use crate::test_hooks::HookCount;
+    use crate::test_hooks::HookFilter;
 
     /// An inbound queue sender that panics on every send.
     #[derive(Clone)]
@@ -145,10 +350,10 @@ mod hooked {
             "a start gave {start:?}"
         );
 
-        let pause = tree.arm_pause();
+        let pause = tree.arm_pause(HookPoint::CommitterRoundAfterDbWrite);
         let regular_tasks_done = tree.submit(regular_tasks_done());
-        let commit_done = tree.submit(TreeEventKind::CommitDone);
         pause.reached(1, TIMEOUT).await?;
+        let commit_done = tree.submit(TreeEventKind::CommitDone);
         let cancel = tree.submit(TreeEventKind::CancelRoot);
         pause.release();
 
@@ -174,11 +379,35 @@ mod hooked {
     }
 
     #[tokio::test]
+    async fn a_round_of_stale_events_writes_nothing_to_the_database() -> anyhow::Result<()> {
+        let tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+        let write_pause = tree.hooks.arm(
+            HookPoint::CommitterRoundAfterDbWrite,
+            HookFilter::default(),
+            HookAction::Pause,
+            HookCount::Once,
+        );
+
+        let commit_done = reply(tree.submit(TreeEventKind::CommitDone)).await;
+        assert!(
+            matches!(
+                commit_done,
+                Ok(TreeEventOutcome::Stale(
+                    StaleStateError::JobNoLongerCommitReady
+                ))
+            ),
+            "a commit of a ready job gave {commit_done:?}"
+        );
+        assert_eq!(write_pause.hits(), 0);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn shutdown_finishes_the_round_in_flight_and_answers_waiting_events_with_stopping()
     -> anyhow::Result<()> {
         let (inbound_queue_sender, inbound_queue_receiver) = create_inbound_queue();
         let tree = TestTree::spawn(false, false, inbound_queue_sender).await;
-        let pause = tree.arm_pause();
+        let pause = tree.arm_pause(HookPoint::CommitterRoundAfterDbWrite);
         let start = tree.submit(start());
         tokio::pin!(start);
         pause.reached(1, TIMEOUT).await?;
@@ -234,7 +463,7 @@ mod hooked {
     async fn a_panic_in_a_round_poisons_the_service_even_during_a_graceful_shutdown()
     -> anyhow::Result<()> {
         let tree = TestTree::spawn(false, false, PanickingInboundQueueSender).await;
-        let pause = tree.arm_pause();
+        let pause = tree.arm_pause(HookPoint::CommitterRoundAfterDbWrite);
         let start = tree.submit(start());
         pause.reached(1, TIMEOUT).await?;
         let cancel = tree.submit(TreeEventKind::CancelRoot);
@@ -255,6 +484,158 @@ mod hooked {
         );
         tree.wait_for_exit().await;
         assert!(tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn two_failures_of_one_job_in_one_round_fail_it_once() -> anyhow::Result<()> {
+        let tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+
+        let reply_join_handles = tree
+            .submit_in_one_round(vec![failure("first"), failure("second")])
+            .await;
+        let [first_join_handle, second_join_handle] =
+            <[_; 2]>::try_from(reply_join_handles).expect("two events were submitted");
+        let first = join_reply(first_join_handle).await;
+        assert!(
+            matches!(first, Ok(TreeEventOutcome::Applied(JobState::Failed))),
+            "the first failure gave {first:?}"
+        );
+        let second = join_reply(second_join_handle).await;
+        assert!(
+            matches!(
+                second,
+                Ok(TreeEventOutcome::Stale(
+                    StaleStateError::JobAlreadyTerminated(JobState::Failed)
+                ))
+            ),
+            "the second failure of the round gave {second:?}"
+        );
+        assert_eq!(
+            tree.db.errors.get(&ROOT_ID).as_deref(),
+            Some(&"first".to_owned())
+        );
+        assert_eq!(tree.jcb.state().await, JobState::Failed);
+        tree.wait_for_exit().await;
+        assert!(!tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_cancel_is_planned_before_a_failure_that_arrived_first() -> anyhow::Result<()> {
+        let tree = TestTree::spawn(false, true, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+
+        let reply_join_handles = tree
+            .submit_in_one_round(vec![failure("boom"), TreeEventKind::CancelRoot])
+            .await;
+        let [failure_join_handle, cancel_join_handle] =
+            <[_; 2]>::try_from(reply_join_handles).expect("two events were submitted");
+        let failure = join_reply(failure_join_handle).await;
+        assert!(
+            matches!(
+                failure,
+                Ok(TreeEventOutcome::Stale(StaleStateError::JobNoLongerRunning))
+            ),
+            "a failure that arrived before the round's cancel gave {failure:?}"
+        );
+        let cancel = join_reply(cancel_join_handle).await;
+        assert!(
+            matches!(
+                cancel,
+                Ok(TreeEventOutcome::Applied(JobState::CleanupReady))
+            ),
+            "a cancel gave {cancel:?}"
+        );
+        assert!(
+            !tree.db.errors.contains_key(&ROOT_ID),
+            "a stale failure should store no error"
+        );
+        assert_eq!(
+            tree.db.states.get(&ROOT_ID).map(|state| *state),
+            Some(JobState::CleanupReady)
+        );
+        assert_eq!(tree.jcb.state().await, JobState::CleanupReady);
+        assert!(!tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_event_that_would_change_a_job_twice_in_one_round_poisons_the_service()
+    -> anyhow::Result<()> {
+        let tree = TestTree::spawn(false, true, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+
+        let reply_join_handles = tree
+            .submit_in_one_round(vec![TreeEventKind::CleanupDone, TreeEventKind::CancelRoot])
+            .await;
+        for reply_join_handle in reply_join_handles {
+            let reply = join_reply(reply_join_handle).await;
+            assert!(
+                matches!(
+                    reply,
+                    Err(CacheError::Internal(InternalError::TreePoisoned))
+                ),
+                "an event of a round that would change its job twice gave {reply:?}"
+            );
+        }
+        assert_eq!(
+            tree.db.states.get(&ROOT_ID).map(|state| *state),
+            Some(JobState::Running)
+        );
+        tree.wait_for_exit().await;
+        assert!(tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn rejected_outputs_put_the_whole_round_back_and_fail_their_job_in_the_next_round()
+    -> anyhow::Result<()> {
+        let mut tree = TestTree::spawn(true, false, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+
+        let outputs = vec![vec![0; usize::try_from(MOCK_MAX_OUTPUTS_SIZE)? + 1]];
+        let reply_join_handles = tree
+            .submit_in_one_round(vec![
+                TreeEventKind::RegularTasksDone { outputs },
+                regular_tasks_done(),
+            ])
+            .await;
+        let [oversized_join_handle, stale_join_handle] =
+            <[_; 2]>::try_from(reply_join_handles).expect("two events were submitted");
+        let oversized = join_reply(oversized_join_handle).await;
+        assert!(
+            matches!(oversized, Ok(TreeEventOutcome::Applied(JobState::Failed))),
+            "outputs too large for the database gave {oversized:?}"
+        );
+        let stale = join_reply(stale_join_handle).await;
+        assert!(
+            matches!(
+                stale,
+                Ok(TreeEventOutcome::Stale(
+                    StaleStateError::JobAlreadyTerminated(JobState::Failed)
+                ))
+            ),
+            "a stale completion of the round that the database rejected gave {stale:?}"
+        );
+        let expected_message = DbError::OutputsTooLarge {
+            job_id: ROOT_ID,
+            size: MOCK_MAX_OUTPUTS_SIZE + 1,
+            limit: MOCK_MAX_OUTPUTS_SIZE,
+        }
+        .to_string();
+        assert_eq!(
+            tree.db.errors.get(&ROOT_ID).as_deref(),
+            Some(&expected_message)
+        );
+        assert!(
+            !tree.db.outputs.contains_key(&ROOT_ID),
+            "outputs too large for the database should not be stored"
+        );
+        assert_eq!(tree.gc_receiver.try_recv(), Ok(ROOT_ID));
+        tree.wait_for_exit().await;
+        assert!(!tree.shutdown_handle.is_fatal());
         Ok(())
     }
 }

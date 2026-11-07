@@ -6,14 +6,16 @@
 //! * The tree's structure.
 //! * The control blocks of the tree's non-terminal jobs.
 //!
-//! The committer takes one event at a time (fast-forward events first) and runs a *round* for it,
-//! where each round executes the following steps:
+//! The committer takes its received events in rounds of at most
+//! [`MAX_EVENTS_PER_ROUND`](crate::limits::MAX_EVENTS_PER_ROUND) events, every cancel first, then
+//! the terminal failures, then the other events, and runs each *round* in the following steps:
 //!
-//! 1. Plans the event against the tree's structure.
-//! 2. Writes the plan to the database.
+//! 1. Plans the events against the tree's structure.
+//! 2. Writes the plan to the database in one transaction.
 //! 3. Applies the plan to the cached jobs and the structure, and enqueues newly terminal jobs for
 //!    cache GC.
-//! 4. Replies to the event.
+//! 4. Replies to the planned events. The events that the plan defers go back to the front of the
+//!    pending queue for the next round.
 //! 5. Publishes the ready work.
 //!
 //! The committer exits once its tree is quiescent or the service shuts down. Any other exit, from
@@ -30,20 +32,23 @@ use std::sync::Arc;
 
 use spider_core::types::id::JobId;
 use spider_utils::shutdown::ShutdownHandle;
-use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 
 use crate::cache::error::CacheError;
 use crate::cache::job::SharedJobControlBlock;
 use crate::cache::tree::EventReceivers;
 use crate::cache::tree::Pending;
+use crate::cache::tree::TreeEventKind;
 use crate::cache::tree::TreeEventOutcome;
 use crate::cache::tree::TreeEventReply;
 use crate::db::InternalJobOrchestration;
 use crate::inbound_queue::InboundQueueSender;
+use crate::limits::MAX_EVENTS_PER_ROUND;
 use crate::state::JobCacheGcHandle;
 use crate::state::tree_committer::round::Committer;
 use crate::task_instance_pool::TaskInstancePoolConnector;
+use crate::test_hooks::HookContext;
+use crate::test_hooks::HookPoint;
 use crate::test_hooks::TestHooks;
 
 /// Everything a tree's committer uses besides its tree.
@@ -89,8 +94,8 @@ pub fn spawn_committer<
     task_tracker.spawn(run_committer(env, root, receivers));
 }
 
-/// The committer's queue of received events that are not yet planned, whose [`Self::take`] returns
-/// the fast-forward events first.
+/// The committer's queue of received events that are not yet planned, one queue per event channel.
+/// Each holds the events that earlier rounds deferred first, then the events received since.
 #[derive(Default)]
 struct PendingQueue {
     fast_forward: VecDeque<Pending>,
@@ -108,51 +113,69 @@ impl PendingQueue {
         self.fast_forward.is_empty() && self.regular.is_empty()
     }
 
-    /// Puts `pending` at the front of the queue, ahead of the queued events of its channel.
-    fn push_front(&mut self, pending: Pending) {
-        if pending.event.kind.is_fast_forward() {
-            self.fast_forward.push_front(pending);
-        } else {
-            self.regular.push_front(pending);
-        }
-    }
-
-    /// Takes the oldest fast-forward event, or else the oldest regular event.
-    ///
-    /// # Returns
-    ///
-    /// The taken event, or [`None`] if the queue is empty.
-    fn take(&mut self) -> Option<Pending> {
-        self.fast_forward
-            .pop_front()
-            .or_else(|| self.regular.pop_front())
-    }
-
-    /// Moves every event already in `receivers` to the queue without waiting: every fast-forward
-    /// event, then every regular one.
+    /// Moves, without waiting, every event queued in `receivers`' fast-forward channel to the back
+    /// of the queue, then the events queued in the regular channel until the queue holds
+    /// [`MAX_EVENTS_PER_ROUND`] regular events.
     fn receive(&mut self, receivers: &mut EventReceivers) {
         while let Ok(pending) = receivers.fast_forward.try_recv() {
             self.fast_forward.push_back(pending);
         }
-        while let Ok(pending) = receivers.regular.try_recv() {
+        while self.regular.len() < MAX_EVENTS_PER_ROUND
+            && let Ok(pending) = receivers.regular.try_recv()
+        {
             self.regular.push_back(pending);
+        }
+    }
+
+    /// Takes the events of the next round, at most [`MAX_EVENTS_PER_ROUND`], in this order: every
+    /// queued [`TreeEventKind::CancelRoot`], then the queued [`TreeEventKind::TerminalFailure`]s,
+    /// then the regular events, each in its channel's order.
+    ///
+    /// # Returns
+    ///
+    /// The taken events, in that order.
+    fn take_events(&mut self) -> Vec<Pending> {
+        let (mut cancels, mut failures): (VecDeque<Pending>, VecDeque<Pending>) =
+            std::mem::take(&mut self.fast_forward)
+                .into_iter()
+                .partition(|pending| matches!(pending.event.kind, TreeEventKind::CancelRoot));
+        let mut events = Vec::new();
+        for queue in [&mut cancels, &mut failures, &mut self.regular] {
+            let num_taken = queue.len().min(MAX_EVENTS_PER_ROUND - events.len());
+            events.extend(queue.drain(..num_taken));
+        }
+        cancels.append(&mut failures);
+        self.fast_forward = cancels;
+        events
+    }
+
+    /// Puts each event of `events` back at the front of the queue, ahead of the queued events of
+    /// its channel, keeping their order.
+    fn requeue(&mut self, events: Vec<Pending>) {
+        for pending in events.into_iter().rev() {
+            if pending.event.kind.is_fast_forward() {
+                self.fast_forward.push_front(pending);
+            } else {
+                self.regular.push_front(pending);
+            }
         }
     }
 }
 
 /// The committer's context: the tree's event receivers, its received events not yet planned and
-/// the reply of the event whose round is running. Dropping it armed shuts the service down
-/// fatally before its fields drop; they then drop every unanswered event's reply, which wakes its
+/// the events of the round that is running. Dropping it armed shuts the service down fatally
+/// before its fields drop; they then drop every unanswered event's reply, which wakes its
 /// waiter with [`InternalError::TreePoisoned`](crate::cache::error::InternalError::TreePoisoned).
 struct CommitterContextGuard {
     receivers: EventReceivers,
     pending_queue: PendingQueue,
 
-    /// The reply of the event whose round is running, which the round takes once it answers the
-    /// event. The guard owns it, rather than the loop body, so that a round that errors or panics
-    /// before answering drops it only after [`Drop::drop`] has shut the service down: the event's
-    /// waiter never sees `TreePoisoned` before the service is fatal.
-    in_flight_reply: Option<oneshot::Sender<TreeEventReply>>,
+    /// The events of the round that is running, which the round answers and removes, leaving the
+    /// events to put back in the pending queue (see [`Committer::run_round`]). The guard owns
+    /// them, rather than the round, so that a round that errors or panics before answering drops
+    /// them only after [`Drop::drop`] has shut the service down: an event's waiter never sees
+    /// `TreePoisoned` before the service is fatal.
+    in_flight: Vec<Pending>,
 
     shutdown_handle: ShutdownHandle,
     root_id: JobId,
@@ -180,7 +203,12 @@ impl CommitterContextGuard {
         while let Some(pending) = self.receivers.regular.recv().await {
             self.pending_queue.regular.push_back(pending);
         }
-        while let Some(Pending { reply, .. }) = self.pending_queue.take() {
+        let pending_queue = std::mem::take(&mut self.pending_queue);
+        for Pending { reply, .. } in pending_queue
+            .fast_forward
+            .into_iter()
+            .chain(pending_queue.regular)
+        {
             // The event's waiter may have dropped its future, which is not an error of the
             // committer.
             let _ = reply.send(make_reply());
@@ -220,10 +248,11 @@ async fn run_committer<
 ) {
     let root_id = root.id();
     let shutdown_handle = env.shutdown_handle.clone();
+    let hooks = env.hooks.clone();
     let mut ctx = CommitterContextGuard {
         receivers,
         pending_queue: PendingQueue::default(),
-        in_flight_reply: None,
+        in_flight: Vec::new(),
         shutdown_handle: shutdown_handle.clone(),
         root_id,
         is_disarmed: false,
@@ -242,36 +271,30 @@ async fn run_committer<
                 () = shutdown_handle.cancelled() => {}
             }
         }
+        // A pause that the service's shutdown ends lets the committer go on to stop, as it would
+        // without the hook.
+        let _ = hooks
+            .hit(HookPoint::CommitterBeforeReceive, || {
+                HookContext::job(root_id)
+            })
+            .await;
         ctx.pending_queue.receive(&mut ctx.receivers);
         if shutdown_handle.is_cancelled() {
             ctx.close_and_answer(|| Err(CacheError::ServiceStopping))
                 .await;
             return;
         }
-        let Pending { event, reply } = ctx.pending_queue.take().expect(
-            "the pending queue should hold an event once the committer wakes before a shutdown",
-        );
-        ctx.in_flight_reply = Some(reply);
-        match committer.run_round(event, &mut ctx.in_flight_reply).await {
-            Ok(Some(failure)) => {
-                let reply = ctx.in_flight_reply.take().expect(
-                    "a round that answered nothing should leave its event's reply in flight",
-                );
-                ctx.pending_queue.push_front(Pending {
-                    event: failure,
-                    reply,
-                });
-            }
-            Ok(None) => {}
-            Err(error) => {
-                tracing::error!(
-                    root_id = ? root_id,
-                    error = % error,
-                    "A round of a tree's committer failed."
-                );
-                return;
-            }
+        ctx.in_flight = ctx.pending_queue.take_events();
+        if let Err(error) = committer.run_round(&mut ctx.in_flight).await {
+            tracing::error!(
+                root_id = ? root_id,
+                error = % error,
+                "A round of a tree's committer failed."
+            );
+            return;
         }
+        ctx.pending_queue
+            .requeue(std::mem::take(&mut ctx.in_flight));
         if committer.is_quiescent() {
             ctx.close_and_answer(|| Ok(TreeEventOutcome::Untracked))
                 .await;
