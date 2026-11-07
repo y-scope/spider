@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -39,11 +40,13 @@ use crate::inbound_queue::InboundQueueEntry;
 use crate::inbound_queue::InboundQueueReceiverHandle;
 use crate::inbound_queue::InboundQueueSender;
 use crate::job_submission::ValidatedJobSubmission;
+use crate::limits::MAX_REPORT_OUTPUTS_SIZE;
 use crate::partial_mutation::PartialMutationGuard;
 use crate::state::CommitterEnv;
 use crate::state::JobCache;
 use crate::state::JobCacheGcHandle;
 use crate::state::StorageServerError;
+use crate::state::error::ReportRejection;
 use crate::state::spawn_committer;
 use crate::task_instance_pool::TaskInstancePoolConnector;
 use crate::test_hooks::HookContext;
@@ -468,6 +471,9 @@ impl<
 
     /// Marks a task instance as succeeded.
     ///
+    /// A report that breaks a limit of [`crate::limits`] or whose number of outputs doesn't match
+    /// its task's fails the task instance instead.
+    ///
     /// # Returns
     ///
     /// The current job state after the operation on success.
@@ -481,7 +487,7 @@ impl<
     /// * Forwards [`spider_core::types::io::TaskOutputsSerializer::deserialize`]'s return values on
     ///   failure.
     /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
-    /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
+    /// * Forwards [`Self::fail_rejected_report`]'s return values on failure.
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn succeed_task_instance(
         &self,
@@ -502,33 +508,22 @@ impl<
                 .get(job_id)
                 .await
                 .ok_or(StorageServerError::JobNotFound(job_id))?;
+            if let Err(rejection) = Self::prepare_report(&task_outputs) {
+                return Self::fail_rejected_report(&jcb, task_instance_id, task_index, &rejection)
+                    .await;
+            }
             let state = match jcb
                 .succeed_task_instance(task_instance_id, task_index, task_outputs)
                 .await
             {
                 Err(rejection @ CacheError::TaskOutputsLengthMismatch { .. }) => {
-                    tracing::warn!(
-                        job_id = ? job_id,
-                        task_id = ? TaskId::Index(task_index),
-                        task_instance_id = ? task_instance_id,
-                        error = % rejection,
-                        "Task success report rejected. Failing the task instance."
-                    );
-                    let state = jcb
-                        .fail_task_instance(
-                            task_instance_id,
-                            TaskId::Index(task_index),
-                            rejection.to_string(),
-                        )
-                        .await?;
-                    tracing::info!(
-                        job_id = ? job_id,
-                        task_id = ? TaskId::Index(task_index),
-                        task_instance_id = ? task_instance_id,
-                        job_state = ? state,
-                        "Task instance failed.",
-                    );
-                    return Ok(state);
+                    return Self::fail_rejected_report(
+                        &jcb,
+                        task_instance_id,
+                        task_index,
+                        &rejection,
+                    )
+                    .await;
                 }
                 result => result?,
             };
@@ -957,6 +952,64 @@ impl<
             return Err(StorageServerError::StaleSession(self.inner.session_id));
         }
         Ok(())
+    }
+
+    /// Checks a success report of a task against the limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ReportRejection::OutputsTooLarge`] if the outputs exceed [`MAX_REPORT_OUTPUTS_SIZE`].
+    fn prepare_report(task_outputs: &[TaskOutput]) -> Result<(), ReportRejection> {
+        let outputs_size: u64 = task_outputs.iter().map(|output| output.len() as u64).sum();
+        if outputs_size > MAX_REPORT_OUTPUTS_SIZE {
+            return Err(ReportRejection::OutputsTooLarge {
+                size: outputs_size,
+                limit: MAX_REPORT_OUTPUTS_SIZE,
+            });
+        }
+        Ok(())
+    }
+
+    /// Fails the task instance `task_instance_id` of the task `task_index` of `jcb`, whose success
+    /// report is rejected for `rejection`.
+    ///
+    /// # Returns
+    ///
+    /// The current job state after the failure on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
+    async fn fail_rejected_report(
+        jcb: &SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
+        task_instance_id: TaskInstanceId,
+        task_index: TaskIndex,
+        rejection: &(impl Display + Sync),
+    ) -> Result<JobState, StorageServerError> {
+        let job_id = jcb.id();
+        let task_id = TaskId::Index(task_index);
+        tracing::warn!(
+            job_id = ? job_id,
+            task_id = ? task_id,
+            task_instance_id = ? task_instance_id,
+            error = % rejection,
+            "Task success report rejected. Failing the task instance."
+        );
+        let state = jcb
+            .fail_task_instance(task_instance_id, task_id, rejection.to_string())
+            .await?;
+        tracing::info!(
+            job_id = ? job_id,
+            task_id = ? task_id,
+            task_instance_id = ? task_instance_id,
+            job_state = ? state,
+            "Task instance failed for its rejected success report.",
+        );
+        Ok(state)
     }
 
     /// Runs a handler body as a task in the service's task tracker, so that dropping the caller's

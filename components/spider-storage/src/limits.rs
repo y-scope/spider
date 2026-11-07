@@ -10,3 +10,11 @@ pub const MAX_ROUND_PAYLOAD: u64 = 16 * 1024 * 1024;
 /// The maximum number of characters of a terminal failure's message that the failed job stores. A
 /// longer message is cut to this many characters.
 pub const MAX_ERROR_MESSAGE_CHARS: usize = 64 * 1024;
+
+/// The maximum number of bytes of the outputs of one success report.
+pub const MAX_REPORT_OUTPUTS_SIZE: u64 = 4 * 1024 * 1024;
+
+/// The maximum size of a decoded message of the task instance management service.
+pub const MAX_TASK_INSTANCE_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
+
+const _: () = assert!(MAX_REPORT_OUTPUTS_SIZE <= MAX_TASK_INSTANCE_MESSAGE_SIZE as u64);
