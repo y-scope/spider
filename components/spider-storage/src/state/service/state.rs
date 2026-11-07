@@ -130,6 +130,7 @@ impl<
         hooks.register_runtime(&shutdown_handle);
         let committer_env = Arc::new(CommitterEnv {
             db: db.clone(),
+            job_cache: job_cache.clone(),
             job_cache_gc_handle,
             inbound_queue_sender: inbound_queue_sender.clone(),
             shutdown_handle: shutdown_handle.clone(),
@@ -1048,7 +1049,8 @@ pub(super) struct ServiceStateInner<
     inbound_queue_sender: InboundQueueSenderType,
     inbound_queue_receiver: InboundQueueReceiverHandle,
     task_instance_pool_connector: TaskInstancePoolConnectorType,
-    committer_env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
+    committer_env:
+        Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>,
     has_previous_scheduler_connection: tokio::sync::Mutex<bool>,
     pub(super) shutdown_handle: ShutdownHandle,
     pub(super) task_tracker: TaskTracker,

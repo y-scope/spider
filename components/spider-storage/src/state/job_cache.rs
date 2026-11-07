@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
@@ -64,6 +65,31 @@ impl<
                 InternalError::JobAlreadyExists(job_id),
             ))),
         }
+    }
+
+    /// Inserts job control blocks into the cache under one write lock, either all of them or none.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::JobAlreadyExists`] if a job control block with the ID of any of `jcbs`
+    ///   already exists, or two of `jcbs` share an ID. Nothing is inserted then.
+    pub async fn insert_many(
+        &self,
+        jcbs: Vec<SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>>,
+    ) -> Result<(), CacheError> {
+        let mut job_map = self.jobs.write().await;
+        let mut job_ids = HashSet::with_capacity(jcbs.len());
+        for jcb in &jcbs {
+            let job_id = jcb.id();
+            if job_map.contains_key(&job_id) || !job_ids.insert(job_id) {
+                return Err(InternalError::JobAlreadyExists(job_id).into());
+            }
+        }
+        job_map.extend(jcbs.into_iter().map(|jcb| (jcb.id(), jcb)));
+        drop(job_map);
+        Ok(())
     }
 
     /// Gets a job control block from the cache.
@@ -298,6 +324,46 @@ mod tests {
         {
             assert_eq!(id, job_id, "error should contain the duplicate job ID");
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn insert_many_inserts_nothing_if_a_job_exists() -> anyhow::Result<()> {
+        let cache: JobCache<MockInboundQueueSender, MockTaskInstancePoolConnector> =
+            JobCache::new();
+        let existing_job_id = JobId::random();
+        let new_job_id = JobId::random();
+        cache.insert(create_test_jcb(existing_job_id).await).await?;
+
+        for job_ids in [[new_job_id, existing_job_id], [new_job_id, new_job_id]] {
+            let mut jcbs = Vec::new();
+            for job_id in job_ids {
+                jcbs.push(create_test_jcb(job_id).await);
+            }
+            let result = cache.insert_many(jcbs).await;
+            assert!(
+                matches!(
+                    result,
+                    Err(CacheError::Internal(InternalError::JobAlreadyExists(job_id)))
+                        if job_id == job_ids[1]
+                ),
+                "an insert of {job_ids:?} gave {result:?}"
+            );
+            assert!(
+                cache.get(new_job_id).await.is_none(),
+                "a failed insert should insert no job"
+            );
+        }
+
+        let other_job_id = JobId::random();
+        cache
+            .insert_many(vec![
+                create_test_jcb(new_job_id).await,
+                create_test_jcb(other_job_id).await,
+            ])
+            .await?;
+        assert!(cache.get(new_job_id).await.is_some());
+        assert!(cache.get(other_job_id).await.is_some());
         Ok(())
     }
 

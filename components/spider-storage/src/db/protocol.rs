@@ -64,11 +64,54 @@ impl JobStateUpdate {
     }
 }
 
-/// The database part of one tree state transaction: every job row it updates.
+/// One child job row to insert in [`JobState::Running`] in a tree transition, under `parent_id` in
+/// the tree of `root_id`. The compressed serializations are stored verbatim.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ChildJobInsert<'buffer_lifetime> {
+    pub parent_id: JobId,
+    pub root_id: JobId,
+    pub resource_group_id: ResourceGroupId,
+    pub compressed_serialized_task_graph: &'buffer_lifetime [u8],
+    pub compressed_serialized_job_inputs: &'buffer_lifetime [u8],
+}
+
+impl ChildJobInsert<'_> {
+    /// # Returns
+    ///
+    /// The total size of the child's compressed serialized task graph and job inputs.
+    #[must_use]
+    pub const fn payload_size(&self) -> u64 {
+        (self.compressed_serialized_task_graph.len() + self.compressed_serialized_job_inputs.len())
+            as u64
+    }
+}
+
+impl std::fmt::Debug for ChildJobInsert<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChildJobInsert")
+            .field("parent_id", &self.parent_id)
+            .field("root_id", &self.root_id)
+            .field("resource_group_id", &self.resource_group_id)
+            .field(
+                "compressed_serialized_task_graph_size",
+                &self.compressed_serialized_task_graph.len(),
+            )
+            .field(
+                "compressed_serialized_job_inputs_size",
+                &self.compressed_serialized_job_inputs.len(),
+            )
+            .finish()
+    }
+}
+
+/// The database part of one tree state transaction: every job row it updates and every child row
+/// it inserts.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TreeTransition {
+pub struct TreeTransition<'buffer_lifetime> {
     /// At most one update per job.
     pub updates: Vec<JobStateUpdate>,
+
+    pub child_inserts: Vec<ChildJobInsert<'buffer_lifetime>>,
 }
 
 /// The database storage interface. A database storage must implement the following traits:
@@ -184,12 +227,17 @@ pub trait ExternalJobOrchestration {
 pub trait InternalJobOrchestration: Clone + Send + Sync {
     /// Writes one tree transition in a single fenced database transaction.
     ///
-    /// Every update is guarded by its exact `from` state. Nothing is written unless every update
-    /// matches its row.
+    /// Every update is guarded by its exact `from` state, and every child is inserted in
+    /// [`JobState::Running`] after every update. Nothing is written unless every update matches its
+    /// row and every child is inserted.
     ///
     /// # Parameters
     ///
-    /// * `transition` - The updates to write.
+    /// * `transition` - The updates and the child inserts to write.
+    ///
+    /// # Returns
+    ///
+    /// The IDs of the inserted child jobs, in the order of `transition.child_inserts`, on success.
     ///
     /// # Errors
     ///
@@ -200,12 +248,24 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///   are too large for one statement. Nothing is sent to the database then.
     /// * [`DbError::ErrorMessageTooLarge`] if an update's error message alone is too large for one
     ///   statement. Nothing is sent to the database then.
+    /// * [`DbError::PayloadRejected`] if the database rejects a child insert's payload as too
+    ///   large.
     /// * [`DbError::ValueSerializationFailure`] if an update's outputs fail to serialize.
     /// * [`DbError::CorruptedDbState`] if:
     ///   * An update's row is missing or not in its `from` state.
     ///   * The storage fence row does not exist.
+    ///   * The database returns a different number of child IDs than it was asked to insert.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn apply_tree_transition(&self, transition: TreeTransition) -> Result<(), DbError>;
+    async fn apply_tree_transition(
+        &self,
+        transition: TreeTransition<'_>,
+    ) -> Result<Vec<JobId>, DbError>;
+
+    /// # Returns
+    ///
+    /// The maximum payload of one statement of [`Self::apply_tree_transition`], which also bounds
+    /// the compressed serialized size of one child job.
+    fn max_statement_payload(&self) -> u64;
 
     /// Deletes all expired terminated jobs.
     ///
