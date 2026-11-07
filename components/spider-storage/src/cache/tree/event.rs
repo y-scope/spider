@@ -9,6 +9,9 @@ use spider_core::types::io::TaskOutput;
 
 use crate::cache::error::CacheError;
 use crate::cache::error::StaleStateError;
+use crate::cache::task::PreparedChild;
+use crate::limits::MAX_CHILDREN_PER_JOB;
+use crate::limits::MAX_JOB_CHILDREN_SIZE;
 
 /// A job-level event of one job of a tree.
 #[derive(Debug)]
@@ -26,8 +29,12 @@ pub enum TreeEventKind {
     /// The root is started. Carries the root's ready task indices.
     Start { ready_task_indices: Vec<TaskIndex> },
 
-    /// The job's last regular task succeeded. Carries the job's outputs.
-    RegularTasksDone { outputs: Vec<TaskOutput> },
+    /// The job's last regular task succeeded. Carries the job's outputs and the children that its
+    /// tasks prepared, in task order.
+    RegularTasksDone {
+        outputs: Vec<TaskOutput>,
+        children: Vec<PreparedChild>,
+    },
 
     /// The job's commit task succeeded.
     CommitDone,
@@ -50,6 +57,15 @@ impl TreeEventKind {
     #[must_use]
     pub const fn is_fast_forward(&self) -> bool {
         matches!(self, Self::CancelRoot | Self::TerminalFailure { .. })
+    }
+
+    /// # Returns
+    ///
+    /// Whether an event of this kind registers a child set: a [`Self::RegularTasksDone`] with
+    /// children.
+    #[must_use]
+    pub const fn registers(&self) -> bool {
+        matches!(self, Self::RegularTasksDone { children, .. } if !children.is_empty())
     }
 
     /// # Returns
@@ -87,9 +103,10 @@ impl fmt::Debug for TreeEventKind {
                 .debug_struct(name)
                 .field("num_ready_tasks", &ready_task_indices.len())
                 .finish(),
-            Self::RegularTasksDone { outputs } => f
+            Self::RegularTasksDone { outputs, children } => f
                 .debug_struct(name)
                 .field("num_outputs", &outputs.len())
+                .field("num_children", &children.len())
                 .finish(),
             Self::TerminalFailure { lane, .. } => f
                 .debug_struct(name)
@@ -199,6 +216,49 @@ pub enum TreeEventOutcome {
 /// The reply to an event.
 pub type TreeEventReply = Result<TreeEventOutcome, CacheError>;
 
+/// The number of child jobs of a set of children and their total number of compressed bytes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ChildSetSummary {
+    pub count: usize,
+    pub size: u64,
+}
+
+impl ChildSetSummary {
+    /// # Returns
+    ///
+    /// The summary of `children`.
+    #[must_use]
+    pub fn of(children: &[PreparedChild]) -> Self {
+        Self {
+            count: children.len(),
+            size: children
+                .iter()
+                .fold(0, |size, child| size.saturating_add(child.size())),
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The summary of the union of the children of `self` and `other`, saturating at the numeric
+    /// bounds.
+    #[must_use]
+    pub const fn plus(self, other: Self) -> Self {
+        Self {
+            count: self.count.saturating_add(other.count),
+            size: self.size.saturating_add(other.size),
+        }
+    }
+
+    /// # Returns
+    ///
+    /// Whether the children fit within the limits of one job: at most [`MAX_CHILDREN_PER_JOB`]
+    /// children of at most [`MAX_JOB_CHILDREN_SIZE`] bytes.
+    #[must_use]
+    pub const fn is_within_job_limits(self) -> bool {
+        self.count <= MAX_CHILDREN_PER_JOB && self.size <= MAX_JOB_CHILDREN_SIZE
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use spider_core::job::JobState;
@@ -209,6 +269,7 @@ mod tests {
     use crate::cache::tree::TreeEventKind;
     use crate::cache::tree::test_utils::failure;
     use crate::cache::tree::test_utils::start;
+    use crate::state::test_utils::create_test_prepared_child;
 
     #[test]
     fn start_is_accepted_only_by_a_ready_job() {
@@ -231,6 +292,7 @@ mod tests {
             (
                 TreeEventKind::RegularTasksDone {
                     outputs: Vec::new(),
+                    children: Vec::new(),
                 },
                 JobState::Running,
                 StaleStateError::JobNoLongerRunning,
@@ -324,11 +386,15 @@ mod tests {
         }
     }
 
-    #[test]
-    fn debug_shows_the_number_of_outputs_but_not_their_content() {
+    #[tokio::test]
+    async fn debug_shows_the_number_of_outputs_and_children_but_not_their_content() {
         let kind = TreeEventKind::RegularTasksDone {
             outputs: vec![b"recognizable output".to_vec(); 2],
+            children: vec![create_test_prepared_child(0).await],
         };
-        assert_eq!(format!("{kind:?}"), "RegularTasksDone { num_outputs: 2 }");
+        assert_eq!(
+            format!("{kind:?}"),
+            "RegularTasksDone { num_outputs: 2, num_children: 1 }"
+        );
     }
 }

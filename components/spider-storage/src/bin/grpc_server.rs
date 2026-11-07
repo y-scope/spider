@@ -16,6 +16,7 @@ use spider_proto_rust::storage::SessionManagementServiceServer;
 use spider_proto_rust::storage::TaskInstanceManagementServiceServer;
 use spider_storage::ServerConfig;
 use spider_storage::grpc::GrpcServiceState;
+use spider_storage::limits::MAX_TASK_INSTANCE_MESSAGE_SIZE;
 use spider_storage::state::StorageServerError;
 use spider_storage::state::runtime::create_runtime;
 use spider_utils::config::YamlConfig;
@@ -102,9 +103,10 @@ async fn run() -> Result<ExitCode, Box<dyn Error>> {
     let server = tokio::spawn(
         Server::builder()
             .add_service(JobOrchestrationServiceServer::new(grpc_service.clone()))
-            .add_service(TaskInstanceManagementServiceServer::new(
-                grpc_service.clone(),
-            ))
+            .add_service(
+                TaskInstanceManagementServiceServer::new(grpc_service.clone())
+                    .max_decoding_message_size(MAX_TASK_INSTANCE_MESSAGE_SIZE),
+            )
             .add_service(InboundQueueServiceServer::new(grpc_service.clone()))
             .add_service(ResourceGroupManagementServiceServer::new(
                 grpc_service.clone(),

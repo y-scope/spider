@@ -4,6 +4,7 @@ use spider_core::types::id::JobId;
 use spider_utils::wire::WireError;
 
 use crate::db::DbError;
+use crate::job_submission::JobSubmissionError;
 
 /// Enums for all possible errors that can occur in a cache operation.
 #[derive(thiserror::Error, Debug)]
@@ -69,6 +70,9 @@ pub enum InternalError {
 
     #[error("job {0:?} would change twice in one round")]
     JobChangedTwiceInRound(JobId),
+
+    #[error("the round's event that registers the children of job {0:?} differs from its plan")]
+    RegistrationMismatch(JobId),
 
     #[error("task index out of bound")]
     TaskIndexOutOfBound,
@@ -168,4 +172,17 @@ pub enum StaleStateError {
 
     #[error("job not succeeded: in state {0:?}")]
     JobNotSucceeded(JobState),
+}
+
+/// Enums for all errors that can occur while preparing a child job of a task's success report.
+#[derive(thiserror::Error, Debug)]
+pub enum ChildPreparationError {
+    #[error(transparent)]
+    Submission(#[from] JobSubmissionError),
+
+    #[error(transparent)]
+    TaskGraph(#[from] InternalError),
+
+    #[error("the child job's task graph has no ready task")]
+    NoReadyTask,
 }

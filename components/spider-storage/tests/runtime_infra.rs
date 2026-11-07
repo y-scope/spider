@@ -1,5 +1,6 @@
 //! An in-process storage runtime on its own isolated test database, with test hooks.
 
+use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -18,9 +19,11 @@ use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
 use spider_core::types::io::TaskGraphInput;
 use spider_core::types::io::TaskGraphInputBuilder;
+use spider_core::types::io::TaskOutputsSerializer;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::inbound_queue::InboundQueueSenderHandle;
+use spider_storage::job_submission::ChildJobSubmission;
 use spider_storage::state::JobCacheGcConfig;
 use spider_storage::state::Runtime;
 use spider_storage::state::ServiceState;
@@ -367,6 +370,43 @@ impl TestEnv {
             .task_instance_id
     }
 
+    /// Reports the success of the task instance `task_instance_id` of the task `task_index` of
+    /// `job_id`, whose only output is `output`, with `children`.
+    ///
+    /// # Returns
+    ///
+    /// The job state that the report returns on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ServiceState::succeed_task_instance_with_children`]'s return values on failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the output fails to serialize.
+    pub async fn report_success(
+        &self,
+        job_id: JobId,
+        task_index: TaskIndex,
+        task_instance_id: u64,
+        output: Vec<u8>,
+        children: Vec<ChildJobSubmission>,
+    ) -> Result<JobState, StorageServerError> {
+        self.service
+            .succeed_task_instance_with_children(
+                self.service.session_id(),
+                job_id,
+                task_instance_id,
+                task_index,
+                TaskOutputsSerializer::from_tuple(&(output,))
+                    .expect("output serialization should succeed"),
+                children,
+            )
+            .await
+    }
+
     /// Polls the task lane until it has returned `num_entries` ready tasks of `job_id`, ignoring
     /// other jobs' entries.
     ///
@@ -397,6 +437,52 @@ impl TestEnv {
         .await
         .expect("the ready tasks should be published");
         task_indices
+    }
+
+    /// Polls the task lane until every job of `job_ids` has published its task 0, then checks that
+    /// none of them publishes another task, ignoring other jobs' entries.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the entries do not arrive within 10 seconds, or if a job of `job_ids` publishes
+    /// any other task.
+    pub async fn poll_first_task_of_each(&self, job_ids: &[JobId]) {
+        let mut remaining_job_ids: HashSet<JobId> = job_ids.iter().copied().collect();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !remaining_job_ids.is_empty() {
+                let entries = self
+                    .service
+                    .poll_ready_tasks(remaining_job_ids.len(), Duration::from_secs(1))
+                    .await
+                    .expect("polling should succeed");
+                for entry in entries {
+                    if !job_ids.contains(&entry.job_id) {
+                        continue;
+                    }
+                    assert_eq!(entry.task_kind, 0);
+                    assert!(
+                        remaining_job_ids.remove(&entry.job_id),
+                        "job {:?} published its first task twice",
+                        entry.job_id
+                    );
+                }
+            }
+        })
+        .await
+        .expect("every job's first task should be published");
+        let entries = self
+            .service
+            .poll_ready_tasks(job_ids.len(), Duration::from_millis(200))
+            .await
+            .expect("polling should succeed");
+        assert_eq!(
+            entries
+                .into_iter()
+                .filter(|entry| job_ids.contains(&entry.job_id))
+                .map(|entry| (entry.job_id, entry.task_kind))
+                .collect::<Vec<_>>(),
+            Vec::new()
+        );
     }
 
     /// Polls the commit lane until it has returned the commit task of `job_id`, ignoring other
@@ -499,6 +585,35 @@ impl TestEnv {
         .expect("the outputs query should succeed")
     }
 
+    /// # Returns
+    ///
+    /// The rows of the children of `parent_id` in the database, by ascending ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the query fails.
+    pub async fn child_rows(&self, parent_id: JobId) -> Vec<ChildRow> {
+        sqlx::query_as::<_, (JobId, Option<JobId>, Option<JobId>, JobState, Vec<u8>)>(
+            "SELECT `id`, `parent_id`, `root_id`, `state`, `compressed_serialized_task_graph` \
+             FROM `jobs` WHERE `parent_id` = ? ORDER BY `id`;",
+        )
+        .bind(parent_id)
+        .fetch_all(&self.pool)
+        .await
+        .expect("the child row query should succeed")
+        .into_iter()
+        .map(
+            |(id, parent_id, root_id, state, compressed_serialized_task_graph)| ChildRow {
+                id,
+                parent_id,
+                root_id,
+                state,
+                compressed_serialized_task_graph,
+            },
+        )
+        .collect()
+    }
+
     /// Asserts that the job's cached and persisted states are both `expected`, and that the service
     /// has not shut down fatally.
     pub async fn assert_job_state(&self, job_id: JobId, expected: JobState) {
@@ -533,6 +648,16 @@ impl TestEnv {
             .expect("the ready-task resend should succeed");
         runtime
     }
+}
+
+/// A row of the `jobs` table that has a parent.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ChildRow {
+    pub id: JobId,
+    pub parent_id: Option<JobId>,
+    pub root_id: Option<JobId>,
+    pub state: JobState,
+    pub compressed_serialized_task_graph: Vec<u8>,
 }
 
 /// Builds a graph of `num_tasks` tasks under `execution_policy`, where every task but the first

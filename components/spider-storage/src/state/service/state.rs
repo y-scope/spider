@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -30,6 +31,8 @@ use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
 use crate::cache::error::StaleStateError;
 use crate::cache::job::SharedJobControlBlock;
+use crate::cache::task::PreparedChild;
+use crate::cache::tree::ChildSetSummary;
 use crate::cache::tree::EventReceivers;
 use crate::cache::tree::TreeControlBlock;
 use crate::db::DbStorage;
@@ -38,12 +41,19 @@ use crate::inbound_queue::CommitTaskMarker;
 use crate::inbound_queue::InboundQueueEntry;
 use crate::inbound_queue::InboundQueueReceiverHandle;
 use crate::inbound_queue::InboundQueueSender;
+use crate::job_submission::ChildJobSubmission;
 use crate::job_submission::ValidatedJobSubmission;
+use crate::limits::MAX_CHILDREN_PER_JOB;
+use crate::limits::MAX_DEPTH;
+use crate::limits::MAX_JOB_CHILDREN_SIZE;
+use crate::limits::MAX_REPORT_CHILDREN_SIZE;
+use crate::limits::MAX_REPORT_OUTPUTS_SIZE;
 use crate::partial_mutation::PartialMutationGuard;
 use crate::state::CommitterEnv;
 use crate::state::JobCache;
 use crate::state::JobCacheGcHandle;
 use crate::state::StorageServerError;
+use crate::state::error::ReportRejection;
 use crate::state::spawn_committer;
 use crate::task_instance_pool::TaskInstancePoolConnector;
 use crate::test_hooks::HookContext;
@@ -130,6 +140,7 @@ impl<
         hooks.register_runtime(&shutdown_handle);
         let committer_env = Arc::new(CommitterEnv {
             db: db.clone(),
+            job_cache: job_cache.clone(),
             job_cache_gc_handle,
             inbound_queue_sender: inbound_queue_sender.clone(),
             shutdown_handle: shutdown_handle.clone(),
@@ -466,7 +477,40 @@ impl<
         .await
     }
 
-    /// Marks a task instance as succeeded.
+    /// Marks a task instance as succeeded, with no child jobs.
+    ///
+    /// # Returns
+    ///
+    /// The current job state after the operation on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::succeed_task_instance_with_children`]'s return values on failure.
+    pub async fn succeed_task_instance(
+        &self,
+        session_id: SessionId,
+        job_id: JobId,
+        task_instance_id: TaskInstanceId,
+        task_index: TaskIndex,
+        serialized_outputs: Vec<u8>,
+    ) -> Result<JobState, StorageServerError> {
+        self.succeed_task_instance_with_children(
+            session_id,
+            job_id,
+            task_instance_id,
+            task_index,
+            serialized_outputs,
+            Vec::new(),
+        )
+        .await
+    }
+
+    /// Marks a task instance as succeeded, with the child jobs that its report creates.
+    ///
+    /// A report that breaks a limit of [`crate::limits`], whose children fail to decode or build,
+    /// or whose number of outputs doesn't match its task's fails the task instance instead.
     ///
     /// # Returns
     ///
@@ -480,16 +524,18 @@ impl<
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`spider_core::types::io::TaskOutputsSerializer::deserialize`]'s return values on
     ///   failure.
-    /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
-    /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
+    /// * Forwards [`SharedJobControlBlock::succeed_task_instance_with_children`]'s return values on
+    ///   failure.
+    /// * Forwards [`Self::fail_rejected_report`]'s return values on failure.
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
-    pub async fn succeed_task_instance(
+    pub async fn succeed_task_instance_with_children(
         &self,
         session_id: SessionId,
         job_id: JobId,
         task_instance_id: TaskInstanceId,
         task_index: TaskIndex,
         serialized_outputs: Vec<u8>,
+        children: Vec<ChildJobSubmission>,
     ) -> Result<JobState, StorageServerError> {
         self.validate_session(session_id)?;
         let task_outputs = TaskOutputsSerializer::deserialize(&serialized_outputs)
@@ -502,33 +548,37 @@ impl<
                 .get(job_id)
                 .await
                 .ok_or(StorageServerError::JobNotFound(job_id))?;
+            let (prepared_children, reserved_children) =
+                match this.prepare_report(&jcb, &task_outputs, children).await {
+                    Ok(prepared_report) => prepared_report,
+                    Err(rejection) => {
+                        return Self::fail_rejected_report(
+                            &jcb,
+                            task_instance_id,
+                            task_index,
+                            &rejection,
+                        )
+                        .await;
+                    }
+                };
             let state = match jcb
-                .succeed_task_instance(task_instance_id, task_index, task_outputs)
+                .succeed_task_instance_with_children(
+                    task_instance_id,
+                    task_index,
+                    task_outputs,
+                    prepared_children,
+                )
                 .await
+                .inspect_err(|_| jcb.release_children(reserved_children))
             {
                 Err(rejection @ CacheError::TaskOutputsLengthMismatch { .. }) => {
-                    tracing::warn!(
-                        job_id = ? job_id,
-                        task_id = ? TaskId::Index(task_index),
-                        task_instance_id = ? task_instance_id,
-                        error = % rejection,
-                        "Task success report rejected. Failing the task instance."
-                    );
-                    let state = jcb
-                        .fail_task_instance(
-                            task_instance_id,
-                            TaskId::Index(task_index),
-                            rejection.to_string(),
-                        )
-                        .await?;
-                    tracing::info!(
-                        job_id = ? job_id,
-                        task_id = ? TaskId::Index(task_index),
-                        task_instance_id = ? task_instance_id,
-                        job_state = ? state,
-                        "Task instance failed.",
-                    );
-                    return Ok(state);
+                    return Self::fail_rejected_report(
+                        &jcb,
+                        task_instance_id,
+                        task_index,
+                        &rejection,
+                    )
+                    .await;
                 }
                 result => result?,
             };
@@ -959,6 +1009,146 @@ impl<
         Ok(())
     }
 
+    /// Checks a success report of a task of `jcb` against the limits, reserves its children against
+    /// `jcb`'s per-job child limits, then decodes and builds every child, yielding to the runtime
+    /// between children.
+    ///
+    /// # Returns
+    ///
+    /// A pair on success, containing:
+    ///
+    /// * The prepared children, in report order.
+    /// * The children's reservation, which the caller releases if they are not stored.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ReportRejection::OutputsTooLarge`] if the outputs exceed [`MAX_REPORT_OUTPUTS_SIZE`].
+    /// * [`ReportRejection::TooDeep`] if the children would be deeper than [`MAX_DEPTH`].
+    /// * [`ReportRejection::TooManyChildren`] if there are more than [`MAX_CHILDREN_PER_JOB`]
+    ///   children.
+    /// * [`ReportRejection::ChildTooLarge`] if a child exceeds the database's statement payload.
+    /// * [`ReportRejection::ChildrenTooLarge`] if the children exceed [`MAX_REPORT_CHILDREN_SIZE`].
+    /// * [`ReportRejection::JobChildrenTooLarge`] if the children would take the job over a per-job
+    ///   child limit.
+    /// * [`ReportRejection::InvalidChild`] if [`PreparedChild::create`] fails for a child.
+    async fn prepare_report(
+        &self,
+        jcb: &SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
+        task_outputs: &[TaskOutput],
+        children: Vec<ChildJobSubmission>,
+    ) -> Result<(Vec<PreparedChild>, ChildSetSummary), ReportRejection> {
+        let outputs_size: u64 = task_outputs.iter().map(|output| output.len() as u64).sum();
+        if outputs_size > MAX_REPORT_OUTPUTS_SIZE {
+            return Err(ReportRejection::OutputsTooLarge {
+                size: outputs_size,
+                limit: MAX_REPORT_OUTPUTS_SIZE,
+            });
+        }
+        if children.is_empty() {
+            return Ok((Vec::new(), ChildSetSummary::default()));
+        }
+        let child_depth = jcb.depth() + 1;
+        if child_depth > MAX_DEPTH {
+            return Err(ReportRejection::TooDeep {
+                depth: child_depth,
+                limit: MAX_DEPTH,
+            });
+        }
+        if children.len() > MAX_CHILDREN_PER_JOB {
+            return Err(ReportRejection::TooManyChildren {
+                count: children.len(),
+                limit: MAX_CHILDREN_PER_JOB,
+            });
+        }
+        let max_child_size = self.inner.db.max_statement_payload();
+        if let Some((index, child)) = children
+            .iter()
+            .enumerate()
+            .find(|(_, child)| child.size() > max_child_size)
+        {
+            return Err(ReportRejection::ChildTooLarge {
+                index,
+                size: child.size(),
+                limit: max_child_size,
+            });
+        }
+        let children_size: u64 = children.iter().map(ChildJobSubmission::size).sum();
+        if children_size > MAX_REPORT_CHILDREN_SIZE {
+            return Err(ReportRejection::ChildrenTooLarge {
+                size: children_size,
+                limit: MAX_REPORT_CHILDREN_SIZE,
+            });
+        }
+
+        let reserved_children = ChildSetSummary {
+            count: children.len(),
+            size: children_size,
+        };
+        jcb.reserve_children(reserved_children).map_err(|totals| {
+            ReportRejection::JobChildrenTooLarge {
+                count: totals.count,
+                size: totals.size,
+                count_limit: MAX_CHILDREN_PER_JOB,
+                size_limit: MAX_JOB_CHILDREN_SIZE,
+            }
+        })?;
+
+        let mut prepared_children = Vec::with_capacity(children.len());
+        for (index, child) in children.into_iter().enumerate() {
+            tokio::task::yield_now().await;
+            match PreparedChild::create(child).await {
+                Ok(prepared_child) => prepared_children.push(prepared_child),
+                Err(source) => {
+                    jcb.release_children(reserved_children);
+                    return Err(ReportRejection::InvalidChild { index, source });
+                }
+            }
+        }
+        Ok((prepared_children, reserved_children))
+    }
+
+    /// Fails the task instance `task_instance_id` of the task `task_index` of `jcb`, whose success
+    /// report is rejected for `rejection`.
+    ///
+    /// # Returns
+    ///
+    /// The current job state after the failure on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
+    async fn fail_rejected_report(
+        jcb: &SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
+        task_instance_id: TaskInstanceId,
+        task_index: TaskIndex,
+        rejection: &(impl Display + Sync),
+    ) -> Result<JobState, StorageServerError> {
+        let job_id = jcb.id();
+        let task_id = TaskId::Index(task_index);
+        tracing::warn!(
+            job_id = ? job_id,
+            task_id = ? task_id,
+            task_instance_id = ? task_instance_id,
+            error = % rejection,
+            "Task success report rejected. Failing the task instance."
+        );
+        let state = jcb
+            .fail_task_instance(task_instance_id, task_id, rejection.to_string())
+            .await?;
+        tracing::info!(
+            job_id = ? job_id,
+            task_id = ? task_id,
+            task_instance_id = ? task_instance_id,
+            job_state = ? state,
+            "Task instance failed for its rejected success report.",
+        );
+        Ok(state)
+    }
+
     /// Runs a handler body as a task in the service's task tracker, so that dropping the caller's
     /// future does not cut the body short, and waits for its result, raced against the service's
     /// shutdown.
@@ -1048,7 +1238,8 @@ pub(super) struct ServiceStateInner<
     inbound_queue_sender: InboundQueueSenderType,
     inbound_queue_receiver: InboundQueueReceiverHandle,
     task_instance_pool_connector: TaskInstancePoolConnectorType,
-    committer_env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
+    committer_env:
+        Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>,
     has_previous_scheduler_connection: tokio::sync::Mutex<bool>,
     pub(super) shutdown_handle: ShutdownHandle,
     pub(super) task_tracker: TaskTracker,

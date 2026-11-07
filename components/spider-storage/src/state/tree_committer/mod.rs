@@ -8,12 +8,13 @@
 //!
 //! The committer takes its received events in rounds of at most
 //! [`MAX_EVENTS_PER_ROUND`](crate::limits::MAX_EVENTS_PER_ROUND) events, every cancel first, then
-//! the terminal failures, then the other events, and runs each *round* in the following steps:
+//! the terminal failures, then the oldest event that registers a child set, then the other events,
+//! and runs each *round* in the following steps:
 //!
 //! 1. Plans the events against the tree's structure.
-//! 2. Writes the plan to the database in one transaction.
-//! 3. Applies the plan to the cached jobs and the structure, and enqueues newly terminal jobs for
-//!    cache GC.
+//! 2. Writes the plan, with the children that it registers, to the database in one transaction.
+//! 3. Applies the plan to the cached jobs and the structure, adds the registered children to the
+//!    tree and the job cache, and enqueues newly terminal jobs for cache GC.
 //! 4. Replies to the planned events. The events that the plan defers go back to the front of the
 //!    pending queue for the next round.
 //! 5. Publishes the ready work.
@@ -44,6 +45,7 @@ use crate::cache::tree::TreeEventReply;
 use crate::db::InternalJobOrchestration;
 use crate::inbound_queue::InboundQueueSender;
 use crate::limits::MAX_EVENTS_PER_ROUND;
+use crate::state::JobCache;
 use crate::state::JobCacheGcHandle;
 use crate::state::tree_committer::round::Committer;
 use crate::task_instance_pool::TaskInstancePoolConnector;
@@ -57,11 +59,14 @@ use crate::test_hooks::TestHooks;
 ///
 /// * `InboundQueueSenderType` - The type of the inbound queue sender.
 /// * `DbConnectorType` - The type of the DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
 pub struct CommitterEnv<
     InboundQueueSenderType: InboundQueueSender,
     DbConnectorType: InternalJobOrchestration,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
     pub db: DbConnectorType,
+    pub job_cache: JobCache<InboundQueueSenderType, TaskInstancePoolConnectorType>,
     pub job_cache_gc_handle: JobCacheGcHandle,
     pub inbound_queue_sender: InboundQueueSenderType,
     pub shutdown_handle: ShutdownHandle,
@@ -79,15 +84,14 @@ pub struct CommitterEnv<
 ///
 /// * `InboundQueueSenderType` - The type of the inbound queue sender.
 /// * `DbConnectorType` - The type of the DB-layer connector.
-/// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector, which only
-///   types the tree's job control blocks.
+/// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
 pub fn spawn_committer<
     InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: InternalJobOrchestration + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 >(
     task_tracker: &TaskTracker,
-    env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
+    env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>,
     root: SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
     receivers: EventReceivers,
 ) {
@@ -129,7 +133,8 @@ impl PendingQueue {
 
     /// Takes the events of the next round, at most [`MAX_EVENTS_PER_ROUND`], in this order: every
     /// queued [`TreeEventKind::CancelRoot`], then the queued [`TreeEventKind::TerminalFailure`]s,
-    /// then the regular events, each in its channel's order.
+    /// then the oldest queued regular event that registers a child set (see
+    /// [`TreeEventKind::registers`]), then the other regular events, each in its channel's order.
     ///
     /// # Returns
     ///
@@ -140,12 +145,22 @@ impl PendingQueue {
                 .into_iter()
                 .partition(|pending| matches!(pending.event.kind, TreeEventKind::CancelRoot));
         let mut events = Vec::new();
-        for queue in [&mut cancels, &mut failures, &mut self.regular] {
+        for queue in [&mut cancels, &mut failures] {
             let num_taken = queue.len().min(MAX_EVENTS_PER_ROUND - events.len());
             events.extend(queue.drain(..num_taken));
         }
         cancels.append(&mut failures);
         self.fast_forward = cancels;
+        if events.len() < MAX_EVENTS_PER_ROUND
+            && let Some(registration_index) = self
+                .regular
+                .iter()
+                .position(|pending| pending.event.kind.registers())
+        {
+            events.extend(self.regular.remove(registration_index));
+        }
+        let num_taken = self.regular.len().min(MAX_EVENTS_PER_ROUND - events.len());
+        events.extend(self.regular.drain(..num_taken));
         events
     }
 
@@ -242,7 +257,7 @@ async fn run_committer<
     DbConnectorType: InternalJobOrchestration + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 >(
-    env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
+    env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>,
     root: SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
     receivers: EventReceivers,
 ) {

@@ -6,42 +6,55 @@ use sqlx::MySql;
 use sqlx::MySqlConnection;
 use sqlx::QueryBuilder;
 
+use crate::db::ChildJobInsert;
 use crate::db::DbError;
 use crate::db::JobStateUpdate;
 use crate::db::TreeTransition;
 use crate::db::mariadb::MariaDbStorageConnector;
 use crate::db::mariadb::fence::FencePredicate;
+use crate::db::mariadb::mysql_error::is_payload_rejection;
 use crate::db::mariadb::schema::JOBS_TABLE_NAME;
 use crate::db::mariadb::schema::STORAGE_FENCE_TABLE_NAME;
 
 impl MariaDbStorageConnector {
     /// Atomically writes job state updates guarded by their expected states and this connector's
-    /// session fence.
+    /// session fence, then inserts the transition's child jobs.
+    ///
+    /// # Returns
+    ///
+    /// The IDs of the inserted child jobs, in the order of `transition.child_inserts`, on success.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
+    /// * [`DbError::PayloadRejected`] if the database rejects a child insert's payload as too
+    ///   large.
     /// * Forwards [`UpdateStatement::group`]'s return values on failure.
     /// * Forwards [`Self::apply_single_row_update_in_statement`]'s return values on failure.
     /// * Forwards [`sqlx::Pool::begin`]'s return values on failure.
     /// * Forwards [`Self::check_fence`]'s return values on failure.
     /// * Forwards [`Self::execute_update_statement`]'s return values on failure.
     /// * Forwards [`UpdateStatement::ensure_every_row_matched`]'s return values on failure.
+    /// * Forwards [`insert_child_job_rows`]'s return values on failure.
     /// * Forwards [`sqlx::Transaction::commit`]'s return values on failure.
     pub(super) async fn write_tree_transition(
         &self,
-        transition: TreeTransition,
-    ) -> Result<(), DbError> {
+        transition: TreeTransition<'_>,
+    ) -> Result<Vec<JobId>, DbError> {
         let statements = UpdateStatement::group(
             transition.updates,
             self.max_statement_payload,
             self.max_row_payload,
         )?;
-        if let [statement] = statements.as_slice()
+        let insert_chunks =
+            chunk_child_inserts(&transition.child_inserts, self.max_statement_payload);
+        if insert_chunks.is_empty()
+            && let [statement] = statements.as_slice()
             && statement.rows.len() == 1
         {
-            return self.apply_single_row_update_in_statement(statement).await;
+            self.apply_single_row_update_in_statement(statement).await?;
+            return Ok(Vec::new());
         }
 
         let mut tx = self.pool.begin().await?;
@@ -52,8 +65,19 @@ impl MariaDbStorageConnector {
                 .await?;
             statement.ensure_every_row_matched(matched_rows)?;
         }
+        let mut child_ids = Vec::with_capacity(transition.child_inserts.len());
+        for chunk in insert_chunks {
+            child_ids.extend(
+                insert_child_job_rows(&mut tx, chunk)
+                    .await
+                    .map_err(|e| match e {
+                        DbError::Sql(e) if is_payload_rejection(&e) => DbError::PayloadRejected(e),
+                        e => e,
+                    })?,
+            );
+        }
         tx.commit().await?;
-        Ok(())
+        Ok(child_ids)
     }
 
     /// Writes `statement`, a guarded update of one row, as one autocommit statement with the fence
@@ -448,14 +472,119 @@ impl<RowType> UpdateGroup<RowType> {
     }
 }
 
+/// Cuts `inserts` into the chunks of one multi-row child job insert each, by
+/// [`chunk_by_rows_and_payload`] over each insert's [`ChildJobInsert::payload_size`].
+///
+/// # Type Parameters
+///
+/// * `'insert_lifetime` - The lifetime of `inserts`, which the returned chunks borrow.
+/// * `'buffer_lifetime` - The lifetime of the buffers that the inserts borrow.
+///
+/// # Returns
+///
+/// The chunks, in the order of `inserts`.
+fn chunk_child_inserts<'insert_lifetime, 'buffer_lifetime>(
+    inserts: &'insert_lifetime [ChildJobInsert<'buffer_lifetime>],
+    max_payload: u64,
+) -> Vec<&'insert_lifetime [ChildJobInsert<'buffer_lifetime>]> {
+    chunk_by_rows_and_payload(inserts, max_payload, ChildJobInsert::payload_size)
+}
+
+/// Cuts `rows` into chunks of at most [`IN_LIST_MAX_IDS`] rows. A chunk takes no further row once
+/// that row would push the sum of the chunk's `row_payload` past `max_payload`, but always takes
+/// its first row.
+///
+/// # Type Parameters
+///
+/// * `RowType` - The type of the rows.
+/// * `RowPayloadType` - The type of `row_payload`, which returns a row's payload size.
+///
+/// # Returns
+///
+/// The chunks, in the order of `rows`.
+fn chunk_by_rows_and_payload<RowType, RowPayloadType: Fn(&RowType) -> u64>(
+    rows: &[RowType],
+    max_payload: u64,
+    row_payload: RowPayloadType,
+) -> Vec<&[RowType]> {
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    let mut payload: u64 = 0;
+    for (index, row) in rows.iter().enumerate() {
+        let row_payload = row_payload(row);
+        if index > start
+            && (index - start == IN_LIST_MAX_IDS || payload + row_payload > max_payload)
+        {
+            chunks.push(&rows[start..index]);
+            start = index;
+            payload = 0;
+        }
+        payload += row_payload;
+    }
+    if start < rows.len() {
+        chunks.push(&rows[start..]);
+    }
+    chunks
+}
+
+/// Inserts `chunk` as child jobs in [`JobState::Running`] with one multi-row `INSERT ...
+/// RETURNING`.
+///
+/// # Returns
+///
+/// The IDs of the inserted jobs, in the order of `chunk`, on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`DbError::CorruptedDbState`] if the database returns a different number of IDs than rows.
+/// * Forwards [`sqlx::query::QueryScalar::fetch_all`]'s return values on failure.
+async fn insert_child_job_rows(
+    connection: &mut MySqlConnection,
+    chunk: &[ChildJobInsert<'_>],
+) -> Result<Vec<JobId>, DbError> {
+    const INSERT_PREFIX: &str = formatcp!(
+        "INSERT INTO `{table}` (`resource_group_id`, `parent_id`, `root_id`, `state`, \
+         `compressed_serialized_task_graph`, `compressed_serialized_job_inputs`) ",
+        table = JOBS_TABLE_NAME,
+    );
+
+    let mut query_builder = QueryBuilder::<MySql>::new(INSERT_PREFIX);
+    query_builder.push_values(chunk, |mut row, insert| {
+        row.push_bind(insert.resource_group_id)
+            .push_bind(insert.parent_id)
+            .push_bind(insert.root_id)
+            .push_bind(JobState::Running)
+            .push_bind(insert.compressed_serialized_task_graph)
+            .push_bind(insert.compressed_serialized_job_inputs);
+    });
+    query_builder.push(" RETURNING `id`;");
+    let child_ids: Vec<JobId> = query_builder
+        .build_query_scalar()
+        .fetch_all(connection)
+        .await?;
+    if child_ids.len() != chunk.len() {
+        return Err(DbError::CorruptedDbState(format!(
+            "inserted {} child jobs, but the database returned {} IDs",
+            chunk.len(),
+            child_ids.len()
+        )));
+    }
+    Ok(child_ids)
+}
+
 #[cfg(test)]
 mod tests {
     use spider_core::job::JobState;
     use spider_core::types::id::JobId;
+    use spider_core::types::id::ResourceGroupId;
     use spider_core::types::io::SerializedTaskOutputs;
 
     use super::IN_LIST_MAX_IDS;
     use super::UpdateStatement;
+    use super::chunk_child_inserts;
+    use crate::db::ChildJobInsert;
     use crate::db::DbError;
     use crate::db::JobStateUpdate;
     use crate::db::mariadb::fence::FencePredicate;
@@ -621,6 +750,38 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn child_inserts_are_cut_by_rows_and_by_payload() {
+        let blob = [0u8; 100];
+        let chunk_sizes = |num_inserts: usize, max_payload: u64| {
+            let inserts: Vec<ChildJobInsert<'_>> = (0..num_inserts)
+                .map(|_| ChildJobInsert {
+                    parent_id: JobId::from(1),
+                    root_id: JobId::from(1),
+                    resource_group_id: ResourceGroupId::from(1),
+                    compressed_serialized_task_graph: &blob[..60],
+                    compressed_serialized_job_inputs: &blob[60..],
+                })
+                .collect();
+            chunk_child_inserts(&inserts, max_payload)
+                .iter()
+                .map(|chunk| chunk.len())
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            chunk_sizes(1_200, u64::MAX),
+            vec![IN_LIST_MAX_IDS, IN_LIST_MAX_IDS, 200]
+        );
+        assert_eq!(chunk_sizes(5, 250), vec![2, 2, 1]);
+        assert_eq!(
+            chunk_sizes(3, 50),
+            vec![1, 1, 1],
+            "every chunk should carry at least one row"
+        );
+        assert_eq!(chunk_sizes(0, 50), Vec::<usize>::new());
+    }
 }
 
 #[cfg(test)]
@@ -689,6 +850,7 @@ mod fence_tests {
                                 JobState::Ready,
                                 JobState::Running,
                             )],
+                            child_inserts: Vec::new(),
                         })
                         .await?;
                     JobStateUpdate {
@@ -744,6 +906,7 @@ mod fence_tests {
                                 JobState::Ready,
                                 JobState::Running,
                             )],
+                            child_inserts: Vec::new(),
                         })
                         .await?;
                     JobState::Running
