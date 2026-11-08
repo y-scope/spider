@@ -2,7 +2,7 @@ use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::io::TaskOutput;
-use spider_storage::db::ChildJobInsert;
+use spider_storage::db::ChildJobInsertion;
 use spider_storage::db::DbError;
 use spider_storage::db::ExternalJobOrchestration;
 use spider_storage::db::InternalJobOrchestration;
@@ -46,7 +46,7 @@ async fn guard_miss_is_corruption_and_rolls_back_every_earlier_statement() -> an
                 JobState::Ready,
                 JobState::Running,
             ),
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
     let mut tree_updates = job_ids[..NUM_OUTPUT_JOBS]
@@ -64,7 +64,7 @@ async fn guard_miss_is_corruption_and_rolls_back_every_earlier_statement() -> an
     let result = storage
         .apply_tree_transition(TreeTransition {
             updates: tree_updates,
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await;
 
@@ -118,7 +118,7 @@ async fn outputs_larger_than_one_statement_payload_are_all_written() -> anyhow::
     storage
         .apply_tree_transition(TreeTransition {
             updates: updates(&job_ids, JobState::Ready, JobState::Running),
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
 
@@ -156,7 +156,7 @@ async fn outputs_larger_than_one_statement_payload_are_all_written() -> anyhow::
     storage
         .apply_tree_transition(TreeTransition {
             updates: tree_updates,
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
 
@@ -183,7 +183,7 @@ async fn only_terminal_states_set_the_end_timestamp() -> anyhow::Result<()> {
     storage
         .apply_tree_transition(TreeTransition {
             updates: updates(&job_ids, JobState::Ready, JobState::Running),
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
     storage
@@ -198,7 +198,7 @@ async fn only_terminal_states_set_the_end_timestamp() -> anyhow::Result<()> {
                     ..JobStateUpdate::new(failing, JobState::Running, JobState::Failed)
                 },
             ],
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
     let ended: Vec<bool> = sqlx::query_scalar(
@@ -213,7 +213,7 @@ async fn only_terminal_states_set_the_end_timestamp() -> anyhow::Result<()> {
     storage
         .apply_tree_transition(TreeTransition {
             updates: updates(&[committing], JobState::CommitReady, JobState::Succeeded),
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
     let has_ended_at: bool =
@@ -231,7 +231,7 @@ async fn only_terminal_states_set_the_end_timestamp() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn child_inserts_return_their_ids_in_order_across_chunks() -> anyhow::Result<()> {
+async fn child_insertions_return_their_ids_in_order_across_chunks() -> anyhow::Result<()> {
     const NUM_CHILDREN: usize = 1_200;
 
     let isolated_test_db = IsolatedTestDb::create().await;
@@ -243,7 +243,7 @@ async fn child_inserts_return_their_ids_in_order_across_chunks() -> anyhow::Resu
     storage
         .apply_tree_transition(TreeTransition {
             updates: updates(&[parent_id], JobState::Ready, JobState::Running),
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
     let task_graphs: Vec<Vec<u8>> = (0..NUM_CHILDREN)
@@ -257,9 +257,9 @@ async fn child_inserts_return_their_ids_in_order_across_chunks() -> anyhow::Resu
                 JobState::Running,
                 JobState::BlockingOnChildren,
             ),
-            child_inserts: task_graphs
+            child_insertions: task_graphs
                 .iter()
-                .map(|task_graph| ChildJobInsert {
+                .map(|task_graph| ChildJobInsertion {
                     parent_id,
                     root_id: parent_id,
                     resource_group_id,
@@ -311,7 +311,7 @@ async fn child_inserts_return_their_ids_in_order_across_chunks() -> anyhow::Resu
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn a_child_insert_over_the_packet_size_is_a_payload_rejection_and_writes_nothing()
+async fn a_child_insertion_over_the_packet_size_is_a_payload_rejection_and_writes_nothing()
 -> anyhow::Result<()> {
     let isolated_test_db = IsolatedTestDb::create().await;
     let config = isolated_test_db.config();
@@ -323,7 +323,7 @@ async fn a_child_insert_over_the_packet_size_is_a_payload_rejection_and_writes_n
     storage
         .apply_tree_transition(TreeTransition {
             updates: updates(&job_ids, JobState::Ready, JobState::Running),
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
     let max_allowed_packet: u64 = sqlx::query_scalar("SELECT @@max_allowed_packet;")
@@ -338,7 +338,7 @@ async fn a_child_insert_over_the_packet_size_is_a_payload_rejection_and_writes_n
                 JobState::Running,
                 JobState::BlockingOnChildren,
             ),
-            child_inserts: vec![ChildJobInsert {
+            child_insertions: vec![ChildJobInsertion {
                 parent_id,
                 root_id: parent_id,
                 resource_group_id,
@@ -350,7 +350,7 @@ async fn a_child_insert_over_the_packet_size_is_a_payload_rejection_and_writes_n
 
     assert!(
         matches!(result, Err(DbError::PayloadRejected(_))),
-        "an oversized child insert should be a payload rejection, got {result:?}"
+        "an oversized child insertion should be a payload rejection, got {result:?}"
     );
     assert_eq!(storage.get_state(parent_id).await?, JobState::Running);
     let num_jobs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `jobs`;")

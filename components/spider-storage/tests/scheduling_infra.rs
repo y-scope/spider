@@ -168,7 +168,7 @@ impl InternalJobOrchestration for NoopDbConnector {
         static NEXT_CHILD_ID: AtomicU64 = AtomicU64::new(1);
 
         Ok(transition
-            .child_inserts
+            .child_insertions
             .iter()
             .map(|_| JobId::from(NEXT_CHILD_ID.fetch_add(1, Ordering::Relaxed)))
             .collect())

@@ -138,7 +138,7 @@ async fn apply_update(storage: &MariaDbStorageConnector, update: JobStateUpdate)
     storage
         .apply_tree_transition(TreeTransition {
             updates: vec![update],
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await
         .expect("apply_tree_transition should succeed");

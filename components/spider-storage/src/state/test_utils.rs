@@ -217,12 +217,12 @@ impl InternalJobOrchestration for MockDbConnector {
             }
         }
         Ok(transition
-            .child_inserts
+            .child_insertions
             .iter()
-            .map(|insert| {
+            .map(|insertion| {
                 let child_id = self.allocate_job_id();
                 self.states.insert(child_id, JobState::Running);
-                self.parents.insert(child_id, insert.parent_id);
+                self.parents.insert(child_id, insertion.parent_id);
                 child_id
             })
             .collect())

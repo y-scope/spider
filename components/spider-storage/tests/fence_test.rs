@@ -48,7 +48,7 @@ async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyh
                 error_message: Some("expired".to_owned()),
                 ..JobStateUpdate::new(expired_job_id, JobState::Running, JobState::Failed)
             }],
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
     sqlx::query("UPDATE `jobs` SET `ended_at` = NOW() - INTERVAL 1 HOUR WHERE `id` = ?;")
@@ -64,7 +64,7 @@ async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyh
                 ..JobStateUpdate::new(running_job_id, JobState::Running, JobState::Succeeded)
             },
         ],
-        child_inserts: Vec::new(),
+        child_insertions: Vec::new(),
     };
 
     let results = [
@@ -577,7 +577,7 @@ async fn a_tree_transition_issued_while_the_fence_bump_is_queued_is_fenced() -> 
         let storage = older.clone();
         let transition = TreeTransition {
             updates: job_ids.iter().copied().map(success_update).collect(),
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         };
         transitions.push(tokio::spawn(async move {
             storage.apply_tree_transition(transition).await
@@ -906,7 +906,7 @@ async fn start(storage: &MariaDbStorageConnector, job_ids: &[JobId]) -> Result<(
                 .iter()
                 .map(|job_id| JobStateUpdate::new(*job_id, JobState::Ready, JobState::Running))
                 .collect(),
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
     Ok(())

@@ -56,7 +56,7 @@ pub enum DbError {
     #[error("Value deserialization failure: {0}")]
     ValueDeserializationFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
 
-    #[error("a child insert's payload was rejected by the database: {0}")]
+    #[error("a child insertion's payload was rejected by the database: {0}")]
     PayloadRejected(#[source] sqlx::error::Error),
 
     #[error("job outputs of {size} serialized bytes exceed the limit of {limit} bytes")]

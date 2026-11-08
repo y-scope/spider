@@ -121,7 +121,7 @@ impl<
                 .db
                 .apply_tree_transition(TreeTransition {
                     updates,
-                    child_inserts: Vec::new(),
+                    child_insertions: Vec::new(),
                 })
                 .await
             {
