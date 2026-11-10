@@ -4,6 +4,9 @@ version = { workspace = true }
 edition = { workspace = true }
 autotests = false
 
+[features]
+test-hooks = []
+
 [lib]
 name = "spider_storage"
 path = "src/lib.rs"
@@ -50,6 +53,3 @@ serde_json = { workspace = true }
 serial_test = { workspace = true }
 tabled = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
-
-[features]
-test-hooks = []
