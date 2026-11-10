@@ -680,7 +680,7 @@ mod fence_tests {
             for has_outputs in [false, true] {
                 let holder = connect(&config).await;
                 let rg_id = create_test_resource_group(&holder).await;
-                let job_id = holder.register(rg_id, &job_submission).await?;
+                let job_id = holder.register(rg_id, job_submission.compressed()).await?;
                 let update = if has_outputs {
                     holder
                         .apply_tree_transition(TreeTransition {
@@ -735,7 +735,7 @@ mod fence_tests {
             ] {
                 let holder = connect(&config).await;
                 let rg_id = create_test_resource_group(&holder).await;
-                let job_id = holder.register(rg_id, &job_submission).await?;
+                let job_id = holder.register(rg_id, job_submission.compressed()).await?;
                 let initial_state = if write == StaleWrite::SucceedWithOutputs {
                     holder
                         .apply_tree_transition(TreeTransition {
@@ -764,7 +764,7 @@ mod fence_tests {
 
                 let result = match write {
                     StaleWrite::Register => holder
-                        .fenced_register_query(rg_id, &job_submission)
+                        .fenced_register_query(rg_id, job_submission.compressed())
                         .execute(&mut *raw_connection)
                         .await
                         .map(|result| result.rows_affected())
