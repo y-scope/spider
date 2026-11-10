@@ -479,7 +479,8 @@ impl<RowType> UpdateGroup<RowType> {
 /// # Type Parameters
 ///
 /// * `'insertion_lifetime` - The lifetime of `insertions`, which the returned chunks borrow.
-/// * `'buffer_lifetime` - The lifetime of the buffers that the insertions borrow.
+/// * `'buffer_lifetime` - The lifetime of the compressed job submissions that the insertions
+///   borrow.
 ///
 /// # Returns
 ///
@@ -557,8 +558,16 @@ async fn insert_child_job_rows(
             .push_bind(insertion.parent_id)
             .push_bind(insertion.root_id)
             .push_bind(JobState::Running)
-            .push_bind(insertion.compressed_serialized_task_graph)
-            .push_bind(insertion.compressed_serialized_job_inputs);
+            .push_bind(
+                insertion
+                    .compressed_job_submission
+                    .compressed_serialized_task_graph(),
+            )
+            .push_bind(
+                insertion
+                    .compressed_job_submission
+                    .compressed_serialized_job_inputs(),
+            );
     });
     query_builder.push(" RETURNING `id`;");
     let child_ids: Vec<JobId> = query_builder
@@ -579,13 +588,11 @@ async fn insert_child_job_rows(
 mod tests {
     use spider_core::job::JobState;
     use spider_core::types::id::JobId;
-    use spider_core::types::id::ResourceGroupId;
     use spider_core::types::io::SerializedTaskOutputs;
 
     use super::IN_LIST_MAX_IDS;
     use super::UpdateStatement;
-    use super::chunk_child_insertions;
-    use crate::db::ChildJobInsertion;
+    use super::chunk_by_rows_and_payload;
     use crate::db::DbError;
     use crate::db::JobStateUpdate;
     use crate::db::mariadb::fence::FencePredicate;
@@ -753,19 +760,10 @@ mod tests {
     }
 
     #[test]
-    fn child_insertions_are_cut_by_rows_and_by_payload() {
-        let blob = [0u8; 100];
-        let chunk_sizes = |num_insertions: usize, max_payload: u64| {
-            let insertions: Vec<ChildJobInsertion<'_>> = (0..num_insertions)
-                .map(|_| ChildJobInsertion {
-                    parent_id: JobId::from(1),
-                    root_id: JobId::from(1),
-                    resource_group_id: ResourceGroupId::from(1),
-                    compressed_serialized_task_graph: &blob[..60],
-                    compressed_serialized_job_inputs: &blob[60..],
-                })
-                .collect();
-            chunk_child_insertions(&insertions, max_payload)
+    fn rows_are_cut_by_rows_and_by_payload() {
+        let chunk_sizes = |num_rows: usize, max_payload: u64| {
+            let row_payloads = vec![100u64; num_rows];
+            chunk_by_rows_and_payload(&row_payloads, max_payload, |row_payload| *row_payload)
                 .iter()
                 .map(|chunk| chunk.len())
                 .collect::<Vec<_>>()

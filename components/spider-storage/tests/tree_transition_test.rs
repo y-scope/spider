@@ -16,6 +16,8 @@ use super::mariadb_infra::create_raw_pool;
 use super::mariadb_infra::create_test_resource_group;
 use super::task_graph_builder::build_flat_task_graph;
 use super::task_graph_builder::create_validated_submission;
+use super::task_graph_builder::incompressible;
+use super::task_graph_builder::submission_with_input;
 
 /// # Returns
 ///
@@ -246,8 +248,8 @@ async fn child_insertions_return_their_ids_in_order_across_chunks() -> anyhow::R
             child_insertions: Vec::new(),
         })
         .await?;
-    let task_graphs: Vec<Vec<u8>> = (0..NUM_CHILDREN)
-        .map(|index| index.to_le_bytes().to_vec())
+    let job_submissions: Vec<_> = (0..NUM_CHILDREN)
+        .map(|index| submission_with_input(&index.to_le_bytes()))
         .collect();
 
     let child_ids = storage
@@ -257,22 +259,21 @@ async fn child_insertions_return_their_ids_in_order_across_chunks() -> anyhow::R
                 JobState::Running,
                 JobState::BlockingOnChildren,
             ),
-            child_insertions: task_graphs
+            child_insertions: job_submissions
                 .iter()
-                .map(|task_graph| ChildJobInsertion {
+                .map(|job_submission| ChildJobInsertion {
                     parent_id,
                     root_id: parent_id,
                     resource_group_id,
-                    compressed_serialized_task_graph: task_graph,
-                    compressed_serialized_job_inputs: &[],
+                    compressed_job_submission: job_submission.compressed(),
                 })
                 .collect(),
         })
         .await?;
 
     let rows = sqlx::query(
-        "SELECT `id`, `compressed_serialized_task_graph`, `parent_id`, `root_id`, `state` FROM \
-         `jobs` WHERE `id` <> ? ORDER BY `id`;",
+        "SELECT `id`, `compressed_serialized_task_graph`, `compressed_serialized_job_inputs`, \
+         `parent_id`, `root_id`, `state` FROM `jobs` WHERE `id` <> ? ORDER BY `id`;",
     )
     .bind(parent_id)
     .fetch_all(&pool)
@@ -285,9 +286,24 @@ async fn child_insertions_return_their_ids_in_order_across_chunks() -> anyhow::R
     );
     assert_eq!(
         rows.iter()
-            .map(|row| row.get::<Vec<u8>, _>("compressed_serialized_task_graph"))
+            .map(|row| (
+                row.get::<Vec<u8>, _>("compressed_serialized_task_graph"),
+                row.get::<Vec<u8>, _>("compressed_serialized_job_inputs"),
+            ))
             .collect::<Vec<_>>(),
-        task_graphs
+        job_submissions
+            .iter()
+            .map(|job_submission| (
+                job_submission
+                    .compressed()
+                    .compressed_serialized_task_graph()
+                    .to_vec(),
+                job_submission
+                    .compressed()
+                    .compressed_serialized_job_inputs()
+                    .to_vec(),
+            ))
+            .collect::<Vec<_>>()
     );
     for row in rows {
         assert_eq!(
@@ -329,7 +345,15 @@ async fn a_child_insertion_over_the_packet_size_is_a_payload_rejection_and_write
     let max_allowed_packet: u64 = sqlx::query_scalar("SELECT @@max_allowed_packet;")
         .fetch_one(&pool)
         .await?;
-    let oversized_task_graph = vec![7u8; usize::try_from(max_allowed_packet)? + 1];
+    let oversized = submission_with_input(&incompressible(max_allowed_packet + 1));
+    assert!(
+        oversized
+            .compressed()
+            .compressed_serialized_job_inputs()
+            .len() as u64
+            > max_allowed_packet,
+        "the oversized job inputs should not compress below the packet size"
+    );
 
     let result = storage
         .apply_tree_transition(TreeTransition {
@@ -342,8 +366,7 @@ async fn a_child_insertion_over_the_packet_size_is_a_payload_rejection_and_write
                 parent_id,
                 root_id: parent_id,
                 resource_group_id,
-                compressed_serialized_task_graph: &oversized_task_graph,
-                compressed_serialized_job_inputs: &[],
+                compressed_job_submission: oversized.compressed(),
             }],
         })
         .await;

@@ -9,7 +9,6 @@ use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SchedulerId;
 use spider_core::types::io::TaskGraphInput;
-use spider_core::types::io::TaskGraphInputBuilder;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_storage::db::DbError;
 use spider_storage::db::ExecutionManagerLivenessManagement;
@@ -21,7 +20,6 @@ use spider_storage::db::ResourceGroupManagement;
 use spider_storage::db::SchedulerRegistrationManagement;
 use spider_storage::db::SessionManagement;
 use spider_storage::db::TreeTransition;
-use spider_storage::job_submission::ValidatedJobSubmission;
 use sqlx::MySqlPool;
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
@@ -34,6 +32,8 @@ use super::mariadb_infra::create_test_resource_group;
 use super::task_graph_builder::SubmittedTaskGraph;
 use super::task_graph_builder::build_flat_task_graph;
 use super::task_graph_builder::create_validated_submission;
+use super::task_graph_builder::incompressible;
+use super::task_graph_builder::submission_with_input;
 
 /// Number of zero bytes in each msgpack-serialized input value for the single-task graph used by
 /// DB-layer tests.
@@ -51,41 +51,6 @@ const TEST_UPDATED_SCHEDULER_PORT: u16 = 6789;
 /// Forwards `build_flat_task_graph`'s return values.
 fn single_task_graph() -> (SubmittedTaskGraph, TaskGraphInput) {
     build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, false, false)
-}
-
-/// # Returns
-///
-/// A validated submission of a one-task job whose only input is `input`.
-///
-/// # Panics
-///
-/// Panics if the job fails to build, compress or validate.
-fn submission_with_input(input: &[u8]) -> ValidatedJobSubmission {
-    let (graph, _) = build_flat_task_graph(1, 0, false, false);
-    let mut inputs = TaskGraphInputBuilder::new();
-    inputs
-        .append_task_input(input)
-        .expect("task input appending should succeed");
-    create_validated_submission(graph, inputs.build())
-}
-
-/// # Returns
-///
-/// `size` pseudo-random bytes.
-///
-/// # Panics
-///
-/// Panics if `size` does not fit in `usize`.
-fn incompressible(size: u64) -> Vec<u8> {
-    let mut xorshift_state = 0x9e37_79b9_7f4a_7c15_u64;
-    (0..usize::try_from(size).expect("the size should fit in `usize`"))
-        .map(|_| {
-            xorshift_state ^= xorshift_state << 13;
-            xorshift_state ^= xorshift_state >> 7;
-            xorshift_state ^= xorshift_state << 17;
-            xorshift_state.to_le_bytes()[0]
-        })
-        .collect()
 }
 
 /// # Returns

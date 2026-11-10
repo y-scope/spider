@@ -66,19 +66,17 @@ impl JobStateUpdate {
 }
 
 /// One child job row to insert in [`JobState::Running`] in a tree transition, under `parent_id` in
-/// the tree of `root_id`. The compressed serializations are stored verbatim.
+/// the tree of `root_id`. Its compressed job submission is stored verbatim.
 ///
 /// # Type Parameters
 ///
-/// * `'buffer_lifetime` - The lifetime of the compressed serialized task graph and job inputs that
-///   the insertion borrows.
+/// * `'buffer_lifetime` - The lifetime of the compressed job submission that the insertion borrows.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ChildJobInsertion<'buffer_lifetime> {
     pub parent_id: JobId,
     pub root_id: JobId,
     pub resource_group_id: ResourceGroupId,
-    pub compressed_serialized_task_graph: &'buffer_lifetime [u8],
-    pub compressed_serialized_job_inputs: &'buffer_lifetime [u8],
+    pub compressed_job_submission: &'buffer_lifetime ValidatedCompressedJobSubmission,
 }
 
 impl ChildJobInsertion<'_> {
@@ -87,8 +85,7 @@ impl ChildJobInsertion<'_> {
     /// The total size of the child's compressed serialized task graph and job inputs.
     #[must_use]
     pub const fn payload_size(&self) -> u64 {
-        (self.compressed_serialized_task_graph.len() + self.compressed_serialized_job_inputs.len())
-            as u64
+        self.compressed_job_submission.size()
     }
 }
 
@@ -100,11 +97,17 @@ impl std::fmt::Debug for ChildJobInsertion<'_> {
             .field("resource_group_id", &self.resource_group_id)
             .field(
                 "compressed_serialized_task_graph_size",
-                &self.compressed_serialized_task_graph.len(),
+                &self
+                    .compressed_job_submission
+                    .compressed_serialized_task_graph()
+                    .len(),
             )
             .field(
                 "compressed_serialized_job_inputs_size",
-                &self.compressed_serialized_job_inputs.len(),
+                &self
+                    .compressed_job_submission
+                    .compressed_serialized_job_inputs()
+                    .len(),
             )
             .finish()
     }
@@ -115,8 +118,8 @@ impl std::fmt::Debug for ChildJobInsertion<'_> {
 ///
 /// # Type Parameters
 ///
-/// * `'buffer_lifetime` - The lifetime of the compressed serialized task graphs and job inputs that
-///   its child insertions borrow.
+/// * `'buffer_lifetime` - The lifetime of the compressed job submissions that its child insertions
+///   borrow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TreeTransition<'buffer_lifetime> {
     /// At most one update per job.
