@@ -12,6 +12,7 @@ use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_core::types::scheduler::RegisteredScheduler;
 
 use crate::db::error::DbError;
+use crate::job_submission::ValidatedCompressedJobSubmission;
 use crate::job_submission::ValidatedJobSubmission;
 
 /// A job persisted in the database that should be rebuilt in the storage cache on startup. Jobs in
@@ -150,8 +151,8 @@ pub trait ExternalJobOrchestration {
     /// # Parameters
     ///
     /// * `resource_group_id` - The owner of the created job.
-    /// * `job_submission` - The validated job submission containing the task graph, job inputs, and
-    ///   the compressed serializations to persist verbatim.
+    /// * `compressed_job_submission` - The compressed serializations of a validated job submission
+    ///   to persist verbatim.
     ///
     /// # Returns
     ///
@@ -168,7 +169,7 @@ pub trait ExternalJobOrchestration {
     async fn register(
         &self,
         resource_group_id: ResourceGroupId,
-        job_submission: &ValidatedJobSubmission,
+        compressed_job_submission: &ValidatedCompressedJobSubmission,
     ) -> Result<JobId, DbError>;
 
     /// Gets the state of a job.

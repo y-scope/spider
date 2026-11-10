@@ -153,7 +153,7 @@ async fn test_register_job() {
     let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
-        .register(rg_id, &job_submission)
+        .register(rg_id, job_submission.compressed())
         .await
         .expect("register should succeed");
 
@@ -172,7 +172,9 @@ async fn test_register_job_invalid_resource_group() {
     let (graph, task_graph_input) = single_task_graph();
     let job_submission = create_validated_submission(graph, task_graph_input);
 
-    let result = storage.register(fake_rg_id, &job_submission).await;
+    let result = storage
+        .register(fake_rg_id, job_submission.compressed())
+        .await;
 
     assert!(
         matches!(result, Err(DbError::ResourceGroupNotFound(_))),
@@ -194,18 +196,22 @@ async fn a_register_over_the_packet_size_writes_no_row() -> anyhow::Result<()> {
         .await?;
     let oversized = submission_with_input(&incompressible(max_allowed_packet + 1));
     assert!(
-        oversized.compressed_serialized_job_inputs().len() as u64 > max_allowed_packet,
+        oversized
+            .compressed()
+            .compressed_serialized_job_inputs()
+            .len() as u64
+            > max_allowed_packet,
         "the oversized job inputs should not compress below the packet size"
     );
 
-    let result = storage.register(rg_id, &oversized).await;
+    let result = storage.register(rg_id, oversized.compressed()).await;
 
     assert!(
         matches!(result, Err(DbError::Sql(_))),
         "a register over the packet size should be an SQL error with {config:?}, got {result:?}"
     );
     assert_eq!(job_ids(&raw_pool).await?, Vec::new(), "{config:?}");
-    let job_id = storage.register(rg_id, &job_submission).await?;
+    let job_id = storage.register(rg_id, job_submission.compressed()).await?;
     assert_eq!(job_ids(&raw_pool).await?, vec![job_id], "{config:?}");
 
     raw_pool.close().await;
@@ -223,7 +229,7 @@ async fn test_get_outputs_succeeded_job() {
     let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
-        .register(rg_id, &job_submission)
+        .register(rg_id, job_submission.compressed())
         .await
         .expect("register should succeed");
 
@@ -258,7 +264,7 @@ async fn test_get_outputs_wrong_state() {
     let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
-        .register(rg_id, &job_submission)
+        .register(rg_id, job_submission.compressed())
         .await
         .expect("register should succeed");
 
@@ -278,7 +284,7 @@ async fn test_get_error_failed_job() {
     let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
-        .register(rg_id, &job_submission)
+        .register(rg_id, job_submission.compressed())
         .await
         .expect("register should succeed");
 
@@ -312,7 +318,7 @@ async fn test_get_error_wrong_state() {
     let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
-        .register(rg_id, &job_submission)
+        .register(rg_id, job_submission.compressed())
         .await
         .expect("register should succeed");
 
@@ -333,7 +339,7 @@ async fn test_delete_expired_terminated_jobs() {
     let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
-        .register(rg_id, &job_submission)
+        .register(rg_id, job_submission.compressed())
         .await
         .expect("register should succeed");
 
@@ -606,7 +612,7 @@ async fn test_delete_expired_terminated_jobs_no_match() {
     let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
-        .register(rg_id, &job_submission)
+        .register(rg_id, job_submission.compressed())
         .await
         .expect("register should succeed");
 

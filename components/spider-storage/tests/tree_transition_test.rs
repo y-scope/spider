@@ -383,7 +383,7 @@ async fn register_jobs(
     for _ in 0..num_jobs {
         job_ids.push(
             storage
-                .register(resource_group_id, &submission)
+                .register(resource_group_id, submission.compressed())
                 .await
                 .expect("register should succeed"),
         );
