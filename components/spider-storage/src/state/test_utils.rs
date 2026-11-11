@@ -45,7 +45,7 @@ use crate::db::SessionManagement;
 use crate::db::TreeTransition;
 use crate::inbound_queue::InboundQueueSender;
 use crate::job_submission::ChildJobSubmission;
-use crate::job_submission::ValidatedJobSubmission;
+use crate::job_submission::ValidatedCompressedJobSubmission;
 use crate::job_submission::compress_job_inputs;
 use crate::job_submission::compress_task_graph;
 use crate::job_submission::create_validated_submission;
@@ -55,7 +55,7 @@ use crate::test_hooks::TestHooks;
 
 /// The maximum total size of one job's outputs that [`MockDbConnector`] accepts in a tree
 /// transition.
-pub const MOCK_MAX_OUTPUTS_SIZE: u64 = 4 * 1024 * 1024;
+pub const MOCK_MAX_OUTPUTS_SIZE: u64 = 1024 * 1024;
 
 pub type TestJcb = SharedJobControlBlock<MockInboundQueueSender, MockTaskInstancePoolConnector>;
 
@@ -128,7 +128,7 @@ impl ExternalJobOrchestration for MockDbConnector {
     async fn register(
         &self,
         _resource_group_id: ResourceGroupId,
-        _job_submission: &ValidatedJobSubmission,
+        _compressed_job_submission: &ValidatedCompressedJobSubmission,
     ) -> Result<JobId, DbError> {
         let job_id = JobId::random();
         self.states.insert(job_id, JobState::Ready);

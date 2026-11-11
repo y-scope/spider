@@ -16,3 +16,11 @@ pub const MAX_CHILDREN_PER_JOB: usize = 10_000;
 
 /// The maximum number of compressed bytes of the child jobs of one job.
 pub const MAX_JOB_CHILDREN_SIZE: u64 = 16 * 1024 * 1024;
+
+/// The maximum number of bytes of the outputs of one success report.
+pub const MAX_REPORT_OUTPUTS_SIZE: u64 = 4 * 1024 * 1024;
+
+/// The maximum size of a decoded message of the task instance management service.
+pub const MAX_TASK_INSTANCE_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
+
+const _: () = assert!(2 * MAX_REPORT_OUTPUTS_SIZE <= MAX_TASK_INSTANCE_MESSAGE_SIZE as u64);

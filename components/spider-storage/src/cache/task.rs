@@ -29,6 +29,7 @@ use crate::cache::sync::Reader;
 use crate::cache::sync::SharedRw;
 use crate::cache::sync::Writer;
 use crate::job_submission::ChildJobSubmission;
+use crate::job_submission::ValidatedCompressedJobSubmission;
 use crate::job_submission::ValidatedJobSubmission;
 use crate::partial_mutation::PartialMutationGuard;
 use crate::test_hooks::HookContext;
@@ -327,7 +328,7 @@ impl TaskGraph {
 pub struct PreparedChild {
     pub(crate) graph: TaskGraph,
     pub(crate) num_tasks: usize,
-    pub(crate) submission: ChildJobSubmission,
+    pub(crate) submission: ValidatedCompressedJobSubmission,
 }
 
 impl PreparedChild {
@@ -2306,7 +2307,7 @@ mod tests {
             .take_prepared_children()
             .await
             .into_iter()
-            .map(|child| child.submission.compressed_serialized_job_inputs)
+            .map(|child| child.submission.compressed_serialized_job_inputs().to_vec())
             .collect();
         assert_eq!(
             taken_inputs,
@@ -2343,7 +2344,7 @@ mod tests {
             .take_prepared_children()
             .await
             .into_iter()
-            .map(|child| child.submission.compressed_serialized_job_inputs)
+            .map(|child| child.submission.compressed_serialized_job_inputs().to_vec())
             .collect();
         let expected_inputs: Vec<_> = [0, 10, 20, 21]
             .into_iter()

@@ -8,11 +8,14 @@ use std::time::Duration;
 
 use spider_core::compression::encode_zstd_bytes;
 use spider_core::job::JobState;
+use spider_core::task::DataTypeDescriptor;
 use spider_core::task::ExecutionPolicy;
+use spider_core::task::TaskDescriptor;
 use spider_core::task::TaskGraph as SubmittedTaskGraph;
 use spider_core::task::TaskIndex;
 use spider_core::task::TdlContext;
 use spider_core::task::TerminationTaskDescriptor;
+use spider_core::task::ValueTypeDescriptor;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -41,9 +44,11 @@ use crate::inbound_queue::InboundQueueSenderHandle;
 use crate::job_submission::compress_job_inputs;
 use crate::job_submission::compress_task_graph;
 use crate::job_submission::create_validated_submission;
+use crate::limits::MAX_REPORT_OUTPUTS_SIZE;
 use crate::state::JobCache;
 use crate::state::JobCacheGcHandle;
 use crate::state::StorageServerError;
+use crate::state::error::ReportRejection;
 use crate::state::service::ServiceState;
 use crate::state::service::ServiceStateParams;
 use crate::state::service::test_utils::TEST_SESSION_ID;
@@ -817,6 +822,90 @@ async fn a_report_with_the_wrong_output_count_fails_the_task_instance() -> anyho
     assert_eq!(state, JobState::Failed);
     assert_eq!(service.get_job_state(job_id).await?, JobState::Failed);
     assert!(!service.inner.shutdown_handle.is_cancelled());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_report_with_outputs_over_the_limit_fails_the_task_instance() -> anyhow::Result<()> {
+    let serialized_outputs =
+        TaskOutputsSerializer::from_tuple(&(vec![
+            0u8;
+            usize::try_from(MAX_REPORT_OUTPUTS_SIZE)? + 1
+        ],))?;
+    let size = TaskOutputsSerializer::deserialize(&serialized_outputs)?
+        .iter()
+        .map(|output| output.len() as u64)
+        .sum();
+    let expected_message = ReportRejection::OutputsTooLarge {
+        size,
+        limit: MAX_REPORT_OUTPUTS_SIZE,
+    }
+    .to_string();
+
+    for max_num_retry in [0, 1] {
+        let db = MockDbConnector::default();
+        let service = create_test_service_with_db(db.clone());
+        let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
+        let mut task_graph = SubmittedTaskGraph::new(None, None)?;
+        task_graph.insert_task(TaskDescriptor {
+            tdl_context: TdlContext {
+                package: "test_pkg".to_owned(),
+                task_func: "test_fn".to_owned(),
+            },
+            execution_policy: Some(ExecutionPolicy {
+                max_num_retry,
+                ..ExecutionPolicy::default()
+            }),
+            inputs: vec![bytes_type.clone()],
+            outputs: vec![bytes_type],
+            input_sources: None,
+        })?;
+        let job_id = service
+            .register_job(
+                ResourceGroupId::random(),
+                compress_task_graph(&task_graph),
+                compress_job_inputs(&create_test_task_graph_input()),
+            )
+            .await?;
+        service.start_job(job_id).await?;
+
+        for attempt in 0..=max_num_retry {
+            let expected_state = if attempt == max_num_retry {
+                JobState::Failed
+            } else {
+                JobState::Running
+            };
+            let context = service
+                .create_task_instance(
+                    TEST_SESSION_ID,
+                    job_id,
+                    TaskId::Index(0),
+                    ExecutionManagerId::random(),
+                )
+                .await?;
+            let state = service
+                .succeed_task_instance(
+                    TEST_SESSION_ID,
+                    job_id,
+                    context.task_instance_id,
+                    0,
+                    serialized_outputs.clone(),
+                )
+                .await?;
+            assert_eq!(
+                state, expected_state,
+                "attempt {attempt} of {max_num_retry}"
+            );
+        }
+
+        assert_eq!(service.get_job_state(job_id).await?, JobState::Failed);
+        assert_eq!(
+            db.errors.get(&job_id).map(|stored| stored.clone()),
+            Some(expected_message.clone())
+        );
+        assert_eq!(db.outputs.get(&job_id).map(|stored| stored.clone()), None);
+        assert!(!service.inner.shutdown_handle.is_fatal());
+    }
     Ok(())
 }
 
