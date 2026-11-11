@@ -132,7 +132,7 @@ impl ValidatedJobSubmission {
 ///
 /// Only a [`ValidatedJobSubmission`] creates this type, so the serializations are guaranteed to
 /// deserialize into a valid task graph and matching job inputs.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedCompressedJobSubmission {
     compressed_serialized_task_graph: Vec<u8>,
     compressed_serialized_job_inputs: Vec<u8>,
@@ -155,6 +155,15 @@ impl ValidatedCompressedJobSubmission {
     #[must_use]
     pub fn compressed_serialized_job_inputs(&self) -> &[u8] {
         &self.compressed_serialized_job_inputs
+    }
+
+    /// # Returns
+    ///
+    /// The total size of the compressed serialized task graph and job inputs.
+    #[must_use]
+    pub const fn size(&self) -> u64 {
+        (self.compressed_serialized_task_graph.len() + self.compressed_serialized_job_inputs.len())
+            as u64
     }
 }
 

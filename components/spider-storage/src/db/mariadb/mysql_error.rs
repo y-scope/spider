@@ -18,6 +18,12 @@ const MYSQL_ER_SPECIFIC_ACCESS_DENIED: u16 = 1227;
 /// `MySQL` error number for a missing privilege on a table.
 const MYSQL_ER_TABLE_ACCESS_DENIED: u16 = 1142;
 
+/// `MySQL` error number for a packet larger than `max_allowed_packet`.
+const MYSQL_ER_NET_PACKET_TOO_LARGE: u16 = 1153;
+
+/// `MySQL` error number for a value too long for its column.
+const MYSQL_ER_DATA_TOO_LONG: u16 = 1406;
+
 /// # Returns
 ///
 /// Whether `error` is a duplicate-entry error reported by the database.
@@ -42,6 +48,16 @@ pub(super) fn is_access_denied(error: &sqlx::Error) -> bool {
             MYSQL_ER_SPECIFIC_ACCESS_DENIED,
             MYSQL_ER_TABLE_ACCESS_DENIED,
         ],
+    )
+}
+
+/// # Returns
+///
+/// Whether `error` is the database rejecting a statement's payload as too large.
+pub(super) fn is_payload_rejection(error: &sqlx::Error) -> bool {
+    has_mysql_error_number(
+        error,
+        &[MYSQL_ER_NET_PACKET_TOO_LARGE, MYSQL_ER_DATA_TOO_LONG],
     )
 }
 
