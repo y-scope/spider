@@ -482,9 +482,10 @@ pub fn mariadb_db_connector_factory(
     rg_id: ResourceGroupId,
 ) -> impl DbConnectorFactory<MariaDbStorageConnector> {
     async move |job_submission: &ValidatedJobSubmission| {
-        let job_id = ExternalJobOrchestration::register(&storage, rg_id, job_submission)
-            .await
-            .expect("register should succeed");
+        let job_id =
+            ExternalJobOrchestration::register(&storage, rg_id, job_submission.compressed())
+                .await
+                .expect("register should succeed");
         (storage, job_id, rg_id)
     }
 }

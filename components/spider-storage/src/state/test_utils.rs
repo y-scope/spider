@@ -43,7 +43,7 @@ use crate::db::SchedulerRegistrationManagement;
 use crate::db::SessionManagement;
 use crate::db::TreeTransition;
 use crate::inbound_queue::InboundQueueSender;
-use crate::job_submission::ValidatedJobSubmission;
+use crate::job_submission::ValidatedCompressedJobSubmission;
 use crate::job_submission::create_validated_submission;
 use crate::task_instance_pool::TaskInstanceMetadata;
 use crate::task_instance_pool::TaskInstancePoolConnector;
@@ -124,7 +124,7 @@ impl ExternalJobOrchestration for MockDbConnector {
     async fn register(
         &self,
         _resource_group_id: ResourceGroupId,
-        _job_submission: &ValidatedJobSubmission,
+        _compressed_job_submission: &ValidatedCompressedJobSubmission,
     ) -> Result<JobId, DbError> {
         let job_id = JobId::random();
         self.states.insert(job_id, JobState::Ready);

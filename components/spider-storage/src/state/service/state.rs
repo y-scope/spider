@@ -233,7 +233,7 @@ impl<
             let job_id = this
                 .inner
                 .db
-                .register(resource_group_id, &job_submission)
+                .register(resource_group_id, job_submission.compressed())
                 .await?;
 
             let partial_mutation_guard =
