@@ -2,6 +2,7 @@
 
 use huntsman_complex_types::Complex;
 use huntsman_complex_types::ComplexVec;
+use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -10,6 +11,7 @@ use spider_core::types::io::TaskInputsSerializer;
 use spider_core::types::io::TaskOutputsSerializer;
 use spider_task_executor::ExecutorError;
 use spider_task_executor::TdlPackageManager;
+use spider_tdl::ExecutionManagerMetadata;
 use spider_tdl::TaskContext;
 use spider_tdl::TdlError;
 use spider_tdl::Version;
@@ -37,6 +39,10 @@ fn encode_ctx() -> Vec<u8> {
         TaskId::Index(0),
         1,
         ResourceGroupId::random(),
+        ExecutionManagerMetadata {
+            id: ExecutionManagerId::random(),
+            pinned_resource_group_id: None,
+        },
         None,
     )
     .expect("failed to build `TaskContext`");
