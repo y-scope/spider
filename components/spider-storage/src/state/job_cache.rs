@@ -330,7 +330,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn insert_many_rejects_an_id_that_is_already_cached() -> anyhow::Result<()> {
+    async fn insert_many_inserts_jcbs_until_an_id_that_is_cached_or_repeated() -> anyhow::Result<()>
+    {
         let cache: JobCache<MockInboundQueueSender, MockTaskInstancePoolConnector> =
             JobCache::new();
         let existing_job_id = JobId::random();
@@ -353,6 +354,7 @@ mod tests {
                 ),
                 "an insert of {job_ids:?} gave {result:?}"
             );
+            assert!(cache.get(job_ids[0]).await.is_some());
         }
 
         let new_job_ids = [JobId::random(), JobId::random()];

@@ -269,11 +269,15 @@ mod tests {
     use spider_core::job::JobState;
     use strum::IntoEnumIterator;
 
+    use super::ChildJobUsage;
     use crate::cache::error::StaleStateError;
+    use crate::cache::task::PreparedChild;
     use crate::cache::tree::Lane;
     use crate::cache::tree::TreeEventKind;
     use crate::cache::tree::test_utils::failure;
     use crate::cache::tree::test_utils::start;
+    use crate::state::test_utils::create_test_child_submission_with_independent_tasks;
+    use crate::state::test_utils::create_test_prepared_child;
 
     #[test]
     fn start_is_accepted_only_by_a_ready_job() {
@@ -387,6 +391,39 @@ mod tests {
                 "a cancel in {state} gave {result:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn child_job_usage_of_children_counts_them_and_sums_their_submission_sizes()
+    -> anyhow::Result<()> {
+        let children = [
+            create_test_prepared_child(0).await,
+            PreparedChild::create(create_test_child_submission_with_independent_tasks(2)).await?,
+        ];
+        let usage = ChildJobUsage::of(&children);
+        assert_eq!(
+            usage,
+            ChildJobUsage {
+                count: 2,
+                size: children[0].submission().size() + children[1].submission().size(),
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn child_job_usage_addition_saturates_at_the_numeric_bounds() {
+        let usage = ChildJobUsage {
+            count: usize::MAX,
+            size: u64::MAX,
+        } + ChildJobUsage { count: 1, size: 1 };
+        assert_eq!(
+            usage,
+            ChildJobUsage {
+                count: usize::MAX,
+                size: u64::MAX,
+            }
+        );
     }
 
     #[test]

@@ -404,6 +404,10 @@ mod tests {
             compressed.compressed_serialized_job_inputs(),
             compressed_job_inputs.as_slice()
         );
+        assert_eq!(
+            compressed.size(),
+            u64::try_from(compressed_task_graph.len() + compressed_job_inputs.len())?
+        );
         Ok(())
     }
 }

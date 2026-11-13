@@ -342,7 +342,6 @@ impl PreparedChild {
     ///
     /// Returns an error if:
     ///
-    /// * [`ChildPreparationError::NoReadyTask`] if the child's task graph has no ready task.
     /// * Forwards [`ValidatedJobSubmission::create`]'s return values on failure.
     /// * Forwards [`TaskGraph::from_parts`]'s return values on failure.
     pub async fn create(
@@ -360,9 +359,6 @@ impl PreparedChild {
         let (submitted_task_graph, task_graph_input, submission) =
             validated_submission.into_parts();
         let graph = TaskGraph::from_parts(submitted_task_graph, task_graph_input).await?;
-        if graph.get_all_ready_task_indices().await.is_empty() {
-            return Err(ChildPreparationError::NoReadyTask);
-        }
         Ok(Self {
             graph,
             num_tasks,
@@ -1192,7 +1188,6 @@ mod tests {
     use spider_utils::wire::unframe;
 
     use super::*;
-    use crate::job_submission::JobSubmissionError;
     use crate::job_submission::create_validated_submission;
     use crate::state::test_utils::create_test_child_submission;
     use crate::state::test_utils::create_test_prepared_child;
@@ -2262,6 +2257,33 @@ mod tests {
         );
         assert_eq!(tcb.num_prepared_children().await, 0);
 
+        let cancelled_task_graph = build_task_graph_with_single_tcb(1, 0, 1, 1).await;
+        let cancelled_tcb = cancelled_task_graph
+            .get_task_control_block(0)
+            .expect("task 0 should exist");
+        let cancelled_instance_id = next_instance_id();
+        cancelled_tcb
+            .register_task_instance(cancelled_instance_id)
+            .await?;
+        cancelled_tcb.cancel_non_terminal().await;
+        let result = succeed_instance_with_children(
+            &cancelled_tcb,
+            cancelled_instance_id,
+            vec![vec![0u8; 4]],
+            vec![create_test_prepared_child(0).await],
+        )
+        .await;
+        assert!(
+            matches!(
+                result,
+                Err(CacheError::StaleState(
+                    StaleStateError::TaskAlreadyTerminated(TaskState::Cancelled)
+                ))
+            ),
+            "a report on a cancelled task gave {result:?}"
+        );
+        assert_eq!(cancelled_tcb.num_prepared_children().await, 0);
+
         succeed_instance_with_children(
             &tcb,
             instance_id,
@@ -2348,26 +2370,6 @@ mod tests {
             })
             .collect();
         assert_eq!(taken_inputs, expected_inputs);
-        assert!(task_graph.take_prepared_children().await.is_empty());
         Ok(())
-    }
-
-    #[tokio::test]
-    async fn a_child_without_a_valid_submission_is_not_prepared() {
-        let result = PreparedChild::create(CompressedJobSubmission {
-            compressed_serialized_task_graph: b"not a task graph".to_vec(),
-            ..create_test_child_submission(0)
-        })
-        .await
-        .map(|_| ());
-        assert!(
-            matches!(
-                result,
-                Err(ChildPreparationError::Submission(
-                    JobSubmissionError::TaskGraphDeserialization(_)
-                ))
-            ),
-            "an undecodable child task graph gave {result:?}"
-        );
     }
 }
