@@ -204,7 +204,7 @@ pub enum TreeEventOutcome {
 /// The reply to an event.
 pub type TreeEventReply = Result<TreeEventOutcome, CacheError>;
 
-/// The number of child jobs of a set of children and their total number of compressed bytes.
+/// The number of child jobs and the total size of their compressed submission.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ChildJobUsage {
     pub count: usize,
