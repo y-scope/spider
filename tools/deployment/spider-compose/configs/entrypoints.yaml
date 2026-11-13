@@ -1,6 +1,6 @@
 configs:
-  # Entrypoint of the scheduler container: resolves a dispatch queue capacity of `auto` in the
-  # scheduler's config to four task assignments per CPU core, then runs the container's command.
+  # Entrypoint of the scheduler container: replaces a dispatch queue capacity of `auto` in the
+  # scheduler's config with four times the number of CPU cores, then runs the container's command.
   spider-scheduler-entrypoint:
     content: |
       #!/usr/bin/env bash
@@ -21,13 +21,14 @@ configs:
 
       exec "$$@"
 
-  # Entrypoint of a worker container: runs a pool of workers (execution managers), each one a copy
-  # of the container's command.
+  # Entrypoint of a worker container: runs the container's command once per worker (execution
+  # manager).
   #
   # Environment variables:
-  # - SPIDER_WORKER_COUNT: The number of workers to run. If empty, the pool runs one worker for
-  #   every CPU core in its `SPIDER_WORKER_CPU_PERCENT` share, with a minimum of one worker.
-  # - SPIDER_WORKER_CPU_PERCENT: The pool's share of the CPU cores, as a percentage.
+  # - SPIDER_WORKER_COUNT: The number of workers to run. If empty, the number is computed from
+  #   `SPIDER_WORKER_CPU_PERCENT`.
+  # - SPIDER_WORKER_CPU_PERCENT: The number of workers to run, as a percentage of the number of CPU
+  #   cores, rounded down and at least 1 (e.g., 25 on 16 cores gives 4 workers).
   spider-worker-entrypoint:
     content: |
       #!/usr/bin/env bash
