@@ -1,11 +1,6 @@
 configs:
-  # Entrypoint of the scheduler container: writes the scheduler's config to `/tmp/scheduler.yaml`,
-  # then runs the container's command.
-  #
-  # The config is a copy of `/etc/spider/scheduler.template.yaml` in which a dispatch queue capacity
-  # of `auto` is replaced with four task assignments per CPU core, i.e., four per worker when the
-  # worker pools together run one worker per core. It is written under `/tmp` because any user the
-  # container runs as can write there.
+  # Entrypoint of the scheduler container: resolves a dispatch queue capacity of `auto` in the
+  # scheduler's config to four task assignments per CPU core, then runs the container's command.
   spider-scheduler-entrypoint:
     content: |
       #!/usr/bin/env bash
@@ -60,8 +55,7 @@ configs:
           exit 1
       fi
 
-      # The entrypoint runs as the container's PID 1, which ignores signals it has no handler for.
-      # Trapping the stop signals makes them interrupt `wait` instead.
+      # As the container's PID 1, bash ignores a stop signal unless it is trapped.
       stop_requested=false
       trap 'stop_requested=true' TERM INT
 
@@ -75,8 +69,7 @@ configs:
           pids+=("$$!")
       done
 
-      # Stop the whole pool once any worker exits or a stop signal arrives. When a worker exits,
-      # exit with its status so that the container's restart policy applies to the pool as a whole.
+      # Stop the whole pool once any worker exits or a stop signal arrives.
       exit_code=0
       if ! "$$stop_requested"; then
           wait -n || exit_code=$$?

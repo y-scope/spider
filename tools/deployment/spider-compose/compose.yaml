@@ -28,7 +28,6 @@ x-worker-defaults: &worker_defaults
   networks:
     - "default"
     - "spider-internal"
-  # Runs a pool of workers, each one a copy of the command.
   entrypoint: [
     "bash", "/etc/spider/worker-entrypoint.sh",
   ]
@@ -122,8 +121,6 @@ services:
       ${SPIDER_SCHEDULER_IMAGE_REF:-ghcr.io/y-scope/spider/scheduler:${SPIDER_IMAGE_TAG:-main}}
     networks:
       - "spider-internal"
-    # Writes the config that the command reads: the config template with an `auto` dispatch queue
-    # capacity resolved.
     entrypoint: [
       "bash", "/etc/spider/scheduler-entrypoint.sh",
     ]
