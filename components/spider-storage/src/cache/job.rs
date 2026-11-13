@@ -24,7 +24,7 @@ use crate::cache::error::InternalError;
 use crate::cache::error::StaleStateError;
 use crate::cache::task::PreparedChild;
 use crate::cache::task::TaskGraph;
-use crate::cache::tree::ChildSetSummary;
+use crate::cache::tree::ChildJobUsage;
 use crate::cache::tree::Lane;
 use crate::cache::tree::TreeControlBlock;
 use crate::cache::tree::TreeEvent;
@@ -100,7 +100,7 @@ impl<
                 owner_id,
                 parent_id: None,
                 depth: 0,
-                reserved_children: std::sync::Mutex::default(),
+                reserved_children_usage: std::sync::Mutex::default(),
                 hooks,
                 tree,
                 job_execution_state: JobExecutionStateHandle {
@@ -130,10 +130,11 @@ impl<
         let task_instance_pool_connector =
             parent_execution_state.task_instance_pool_connector.clone();
         drop(parent_execution_state);
+        let (task_graph, num_tasks) = prepared_child.into_parts();
         let job_execution_state = JobExecutionState {
             state: JobState::Running,
-            task_graph: prepared_child.graph,
-            num_incomplete_tasks: AtomicUsize::new(prepared_child.num_tasks),
+            task_graph,
+            num_incomplete_tasks: AtomicUsize::new(num_tasks),
             inbound_queue_sender,
             task_instance_pool_connector,
         };
@@ -143,7 +144,7 @@ impl<
                 owner_id: parent_jcb.owner_id,
                 parent_id: Some(parent_jcb.id),
                 depth: parent_jcb.depth + 1,
-                reserved_children: std::sync::Mutex::default(),
+                reserved_children_usage: std::sync::Mutex::default(),
                 hooks: parent_jcb.hooks.clone(),
                 tree: parent_jcb.tree.clone(),
                 job_execution_state: JobExecutionStateHandle {
@@ -252,7 +253,7 @@ impl<
                 owner_id: resource_group_id,
                 parent_id: None,
                 depth: 0,
-                reserved_children: std::sync::Mutex::default(),
+                reserved_children_usage: std::sync::Mutex::default(),
                 hooks,
                 tree,
                 job_execution_state: JobExecutionStateHandle {
@@ -299,40 +300,42 @@ impl<
         self.inner.depth
     }
 
-    /// Reserves `children` on top of the children that the job's earlier reports reserved, if
-    /// the job's children stay within the limits of one job.
+    /// Reserves `children_usage` on top of the children usage that the job's earlier reports
+    /// reserved, if the job's children stay within the limits of one job.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`ChildSetSummary`] with the totals that the job's children would reach, if they exceed
-    ///   the limits of one job (see [`ChildSetSummary::is_within_job_limits`]). Nothing is reserved
-    ///   then.
-    pub fn reserve_children(&self, children: ChildSetSummary) -> Result<(), ChildSetSummary> {
-        let mut reserved_children = self
+    /// * [`ChildJobUsage`] with the total children usage that the job's children would reach, if
+    ///   they exceed the limits of one job (see [`ChildJobUsage::is_within_job_limits`]). Nothing
+    ///   is reserved then.
+    pub fn reserve_children_usage(
+        &self,
+        children_usage: ChildJobUsage,
+    ) -> Result<(), ChildJobUsage> {
+        let mut reserved_children_usage = self
             .inner
-            .reserved_children
+            .reserved_children_usage
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let totals = reserved_children.plus(children);
-        if !totals.is_within_job_limits() {
-            return Err(totals);
+        let total_children_usage = *reserved_children_usage + children_usage;
+        if !total_children_usage.is_within_job_limits() {
+            return Err(total_children_usage);
         }
-        *reserved_children = totals;
-        drop(reserved_children);
+        *reserved_children_usage = total_children_usage;
+        drop(reserved_children_usage);
         Ok(())
     }
 
-    /// Releases a reservation of [`Self::reserve_children`], saturating at zero.
-    pub fn release_children(&self, children: ChildSetSummary) {
-        let mut reserved_children = self
+    /// Reverts a reservation of [`Self::reserve_children_usage`], saturating at zero.
+    pub fn revert_children_usage_reservation(&self, children_usage: ChildJobUsage) {
+        let mut reserved_children_usage = self
             .inner
-            .reserved_children
+            .reserved_children_usage
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        reserved_children.count = reserved_children.count.saturating_sub(children.count);
-        reserved_children.size = reserved_children.size.saturating_sub(children.size);
+        *reserved_children_usage = *reserved_children_usage - children_usage;
     }
 
     /// # Returns
@@ -473,32 +476,6 @@ impl<
         }
     }
 
-    /// Marks the task instance as succeeded, with no children.
-    ///
-    /// # Returns
-    ///
-    /// Forwards [`Self::succeed_task_instance_with_children`]'s return values on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`Self::succeed_task_instance_with_children`]'s return values on failure.
-    pub async fn succeed_task_instance(
-        &self,
-        task_instance_id: TaskInstanceId,
-        task_index: TaskIndex,
-        task_outputs: Vec<TaskOutput>,
-    ) -> Result<JobState, CacheError> {
-        self.succeed_task_instance_with_children(
-            task_instance_id,
-            task_index,
-            task_outputs,
-            Vec::new(),
-        )
-        .await
-    }
-
     /// Marks the task instance as succeeded and stores the children that its report prepared in
     /// the task.
     ///
@@ -528,7 +505,7 @@ impl<
     /// * Forwards [`InboundQueueSender::send_task_ready`]'s return values on failure.
     /// * Forwards [`TaskGraph::read_output_payloads`]'s return values on failure.
     /// * Forwards [`Self::submit_event_and_wait_for_reply`]'s return values on failure.
-    pub async fn succeed_task_instance_with_children(
+    pub async fn succeed_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
         task_index: TaskIndex,
@@ -833,7 +810,7 @@ impl<
             job.task_graph.cancel_non_terminal().await;
         }
         if from == JobState::Running || is_deactivated {
-            job.task_graph.drop_prepared_children().await;
+            job.task_graph.clear_prepared_children().await;
             job.task_graph.finalize();
         }
         drop(job);
@@ -1092,7 +1069,7 @@ struct JobControlBlock<
     owner_id: ResourceGroupId,
     parent_id: Option<JobId>,
     depth: u32,
-    reserved_children: std::sync::Mutex<ChildSetSummary>,
+    reserved_children_usage: std::sync::Mutex<ChildJobUsage>,
     hooks: TestHooks,
     tree: TreeControlBlock,
     job_execution_state:
@@ -1487,47 +1464,47 @@ mod tests {
 
     #[tokio::test]
     async fn a_reservation_over_a_job_limit_reserves_nothing() {
-        const AT_LIMITS: ChildSetSummary = ChildSetSummary {
+        const AT_LIMITS: ChildJobUsage = ChildJobUsage {
             count: MAX_CHILDREN_PER_JOB,
             size: MAX_JOB_CHILDREN_SIZE,
         };
-        const ONE: ChildSetSummary = ChildSetSummary { count: 1, size: 1 };
+        const ONE: ChildJobUsage = ChildJobUsage { count: 1, size: 1 };
 
         let (jcb, _receivers) = create_test_jcb(JOB_ID).await;
-        let reserved_children = || {
+        let reserved_children_usage = || {
             *jcb.inner
-                .reserved_children
+                .reserved_children_usage
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
         };
 
         assert_eq!(
-            jcb.reserve_children(ChildSetSummary {
+            jcb.reserve_children_usage(ChildJobUsage {
                 count: MAX_CHILDREN_PER_JOB - 1,
                 size: MAX_JOB_CHILDREN_SIZE - 1,
             }),
             Ok(())
         );
-        assert_eq!(jcb.reserve_children(ONE), Ok(()));
-        assert_eq!(reserved_children(), AT_LIMITS);
+        assert_eq!(jcb.reserve_children_usage(ONE), Ok(()));
+        assert_eq!(reserved_children_usage(), AT_LIMITS);
 
         for over_limit in [
-            ChildSetSummary { count: 1, size: 0 },
-            ChildSetSummary { count: 0, size: 1 },
+            ChildJobUsage { count: 1, size: 0 },
+            ChildJobUsage { count: 0, size: 1 },
         ] {
             assert_eq!(
-                jcb.reserve_children(over_limit),
-                Err(AT_LIMITS.plus(over_limit))
+                jcb.reserve_children_usage(over_limit),
+                Err(AT_LIMITS + over_limit)
             );
-            assert_eq!(reserved_children(), AT_LIMITS);
+            assert_eq!(reserved_children_usage(), AT_LIMITS);
         }
 
-        jcb.release_children(ONE);
-        assert_eq!(jcb.reserve_children(ONE), Ok(()));
-        assert_eq!(reserved_children(), AT_LIMITS);
+        jcb.revert_children_usage_reservation(ONE);
+        assert_eq!(jcb.reserve_children_usage(ONE), Ok(()));
+        assert_eq!(reserved_children_usage(), AT_LIMITS);
 
-        jcb.release_children(AT_LIMITS.plus(ONE));
-        assert_eq!(reserved_children(), ChildSetSummary::default());
+        jcb.revert_children_usage_reservation(AT_LIMITS + ONE);
+        assert_eq!(reserved_children_usage(), ChildJobUsage::default());
     }
 
     #[tokio::test]

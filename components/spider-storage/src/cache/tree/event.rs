@@ -1,6 +1,8 @@
 //! The job-level events of a job tree and their outcomes.
 
 use std::fmt;
+use std::ops::Add;
+use std::ops::Sub;
 
 use spider_core::job::JobState;
 use spider_core::task::TaskIndex;
@@ -204,34 +206,22 @@ pub type TreeEventReply = Result<TreeEventOutcome, CacheError>;
 
 /// The number of child jobs of a set of children and their total number of compressed bytes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ChildSetSummary {
+pub struct ChildJobUsage {
     pub count: usize,
     pub size: u64,
 }
 
-impl ChildSetSummary {
+impl ChildJobUsage {
     /// # Returns
     ///
-    /// The summary of `children`.
+    /// The usage of `children`.
     #[must_use]
     pub fn of(children: &[PreparedChild]) -> Self {
         Self {
             count: children.len(),
-            size: children
-                .iter()
-                .fold(0, |size, child| size.saturating_add(child.size())),
-        }
-    }
-
-    /// # Returns
-    ///
-    /// The summary of the union of the children of `self` and `other`, saturating at the numeric
-    /// bounds.
-    #[must_use]
-    pub const fn plus(self, other: Self) -> Self {
-        Self {
-            count: self.count.saturating_add(other.count),
-            size: self.size.saturating_add(other.size),
+            size: children.iter().fold(0, |size, child| {
+                size.saturating_add(child.submission().size())
+            }),
         }
     }
 
@@ -242,6 +232,35 @@ impl ChildSetSummary {
     #[must_use]
     pub const fn is_within_job_limits(self) -> bool {
         self.count <= MAX_CHILDREN_PER_JOB && self.size <= MAX_JOB_CHILDREN_SIZE
+    }
+}
+
+impl Add for ChildJobUsage {
+    type Output = Self;
+
+    /// # Returns
+    ///
+    /// The usage of the union of the children of `self` and `other`, saturating at the numeric
+    /// bounds.
+    fn add(self, other: Self) -> Self {
+        Self {
+            count: self.count.saturating_add(other.count),
+            size: self.size.saturating_add(other.size),
+        }
+    }
+}
+
+impl Sub for ChildJobUsage {
+    type Output = Self;
+
+    /// # Returns
+    ///
+    /// The usage of the children of `self` without those of `other`, saturating at zero.
+    fn sub(self, other: Self) -> Self {
+        Self {
+            count: self.count.saturating_sub(other.count),
+            size: self.size.saturating_sub(other.size),
+        }
     }
 }
 

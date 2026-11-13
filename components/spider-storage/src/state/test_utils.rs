@@ -45,7 +45,7 @@ use crate::db::SchedulerRegistrationManagement;
 use crate::db::SessionManagement;
 use crate::db::TreeTransition;
 use crate::inbound_queue::InboundQueueSender;
-use crate::job_submission::ChildJobSubmission;
+use crate::job_submission::CompressedJobSubmission;
 use crate::job_submission::ValidatedCompressedJobSubmission;
 use crate::job_submission::compress_job_inputs;
 use crate::job_submission::compress_task_graph;
@@ -485,12 +485,12 @@ pub fn create_test_task_graph_input() -> TaskGraphInput {
 /// # Panics
 ///
 /// Panics if the input serialization or the compression fails.
-pub fn create_test_child_submission(input_byte: u8) -> ChildJobSubmission {
+pub fn create_test_child_submission(input_byte: u8) -> CompressedJobSubmission {
     let mut builder = TaskGraphInputBuilder::new();
     builder
         .append_task_input(&[input_byte; 4])
         .expect("task input appending should succeed");
-    ChildJobSubmission {
+    CompressedJobSubmission {
         compressed_serialized_task_graph: compress_task_graph(&create_test_task_graph()),
         compressed_serialized_job_inputs: compress_job_inputs(&builder.build()),
     }

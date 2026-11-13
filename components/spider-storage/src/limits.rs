@@ -12,7 +12,7 @@ pub const MAX_ROUND_PAYLOAD: u64 = 16 * 1024 * 1024;
 pub const MAX_ERROR_MESSAGE_CHARS: usize = 64 * 1024;
 
 /// The maximum number of child jobs of one job, over all of its tasks' reports, and of one report.
-pub const MAX_CHILDREN_PER_JOB: usize = 10_000;
+pub const MAX_CHILDREN_PER_JOB: usize = 1024;
 
 /// The maximum number of compressed bytes of the child jobs of one job.
 pub const MAX_JOB_CHILDREN_SIZE: u64 = 16 * 1024 * 1024;
