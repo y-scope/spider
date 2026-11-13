@@ -87,6 +87,17 @@ tasks:
         SPIDER_ENDPOINT="$(cat '{{.SPIDER_ENDPOINT_FILE}}')" \
         SPIDER_CONCURRENCY="8" \
           cargo nextest run --release --package e2e --test nn -- --nocapture
+      # The worker container must run one execution manager per CPU core that it sees.
+      - |-
+        compose="docker compose --project-name {{.SPIDER_COMPOSE_PROJECT_NAME}}"
+        processes="$($compose top spider-worker)"
+        echo "$processes"
+        num_cpus="$($compose exec --no-TTY spider-worker nproc)"
+        num_workers="$(echo "$processes" \
+          | grep --invert-match "worker-entrypoint.sh" \
+          | grep --count "spider-execution-manager --config")"
+        echo "spider-worker runs ${num_workers} execution manager(s) on ${num_cpus} core(s)."
+        test "$num_workers" -eq "$num_cpus"
 
   # A generic wrapper that runs the given task with a MariaDB storage backend.
   #
