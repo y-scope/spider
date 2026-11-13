@@ -56,12 +56,14 @@ configs:
           exit 1
       fi
 
-      # As the container's PID 1, bash ignores a stop signal unless it is trapped.
+      # As the container's PID 1, bash ignores a stop signal unless it is trapped. The trap also
+      # stops the workers, because a signal that arrives just before `wait` starts does not
+      # interrupt it.
+      pids=()
       stop_requested=false
-      trap 'stop_requested=true' TERM INT
+      trap 'stop_requested=true; kill -TERM "$${pids[@]}" 2>/dev/null || true' TERM INT
 
       echo "Starting $${num_workers} execution manager(s)." >&2
-      pids=()
       for (( i = 0; i < num_workers; i++ )); do
           if "$$stop_requested"; then
               break
