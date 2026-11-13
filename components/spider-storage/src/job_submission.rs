@@ -161,7 +161,7 @@ impl ValidatedJobSubmission {
 ///
 /// Only a [`ValidatedJobSubmission`] creates this type, so the serializations are guaranteed to
 /// deserialize into a valid task graph and matching job inputs.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedCompressedJobSubmission {
     compressed_serialized_task_graph: Vec<u8>,
     compressed_serialized_job_inputs: Vec<u8>,

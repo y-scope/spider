@@ -48,6 +48,7 @@ async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyh
                 error_message: Some("expired".to_owned()),
                 ..JobStateUpdate::new(expired_job_id, JobState::Running, JobState::Failed)
             }],
+            child_insertions: Vec::new(),
         })
         .await?;
     sqlx::query("UPDATE `jobs` SET `ended_at` = NOW() - INTERVAL 1 HOUR WHERE `id` = ?;")
@@ -63,6 +64,7 @@ async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyh
                 ..JobStateUpdate::new(running_job_id, JobState::Running, JobState::Succeeded)
             },
         ],
+        child_insertions: Vec::new(),
     };
 
     let results = [
@@ -75,7 +77,10 @@ async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyh
         ),
         (
             "apply_tree_transition",
-            older.apply_tree_transition(transition.clone()).await,
+            older
+                .apply_tree_transition(transition.clone())
+                .await
+                .map(|_| ()),
         ),
         (
             "delete_expired_terminated_jobs",
@@ -587,11 +592,12 @@ async fn a_tree_transition_issued_while_the_fence_bump_is_queued_is_fenced() -> 
     let mut transitions = Vec::new();
     for job_ids in [&job_ids[..1], &job_ids[1..]] {
         let storage = older.clone();
-        let updates = job_ids.iter().copied().map(success_update).collect();
+        let transition = TreeTransition {
+            updates: job_ids.iter().copied().map(success_update).collect(),
+            child_insertions: Vec::new(),
+        };
         transitions.push(tokio::spawn(async move {
-            storage
-                .apply_tree_transition(TreeTransition { updates })
-                .await
+            storage.apply_tree_transition(transition).await
         }));
     }
     tokio::time::timeout_at(
@@ -917,6 +923,8 @@ async fn start(storage: &MariaDbStorageConnector, job_ids: &[JobId]) -> Result<(
                 .iter()
                 .map(|job_id| JobStateUpdate::new(*job_id, JobState::Ready, JobState::Running))
                 .collect(),
+            child_insertions: Vec::new(),
         })
-        .await
+        .await?;
+    Ok(())
 }

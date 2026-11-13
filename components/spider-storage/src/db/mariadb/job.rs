@@ -194,8 +194,15 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
 
 #[async_trait]
 impl InternalJobOrchestration for MariaDbStorageConnector {
-    async fn apply_tree_transition(&self, transition: TreeTransition) -> Result<(), DbError> {
+    async fn apply_tree_transition(
+        &self,
+        transition: TreeTransition<'_>,
+    ) -> Result<Vec<JobId>, DbError> {
         self.write_tree_transition(transition).await
+    }
+
+    fn max_statement_payload(&self) -> u64 {
+        self.max_statement_payload
     }
 
     async fn delete_expired_terminated_jobs(
