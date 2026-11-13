@@ -2,7 +2,7 @@ use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::io::TaskOutput;
-use spider_storage::db::ChildJobInsert;
+use spider_storage::db::ChildJobInsertion;
 use spider_storage::db::DbError;
 use spider_storage::db::ExternalJobOrchestration;
 use spider_storage::db::InternalJobOrchestration;
@@ -16,6 +16,8 @@ use super::mariadb_infra::create_raw_pool;
 use super::mariadb_infra::create_test_resource_group;
 use super::task_graph_builder::build_flat_task_graph;
 use super::task_graph_builder::create_validated_submission;
+use super::task_graph_builder::incompressible;
+use super::task_graph_builder::submission_with_input;
 
 /// # Returns
 ///
@@ -46,7 +48,7 @@ async fn guard_miss_is_corruption_and_rolls_back_every_earlier_statement() -> an
                 JobState::Ready,
                 JobState::Running,
             ),
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
     let mut tree_updates = job_ids[..NUM_OUTPUT_JOBS]
@@ -64,7 +66,7 @@ async fn guard_miss_is_corruption_and_rolls_back_every_earlier_statement() -> an
     let result = storage
         .apply_tree_transition(TreeTransition {
             updates: tree_updates,
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await;
 
@@ -118,7 +120,7 @@ async fn outputs_larger_than_one_statement_payload_are_all_written() -> anyhow::
     storage
         .apply_tree_transition(TreeTransition {
             updates: updates(&job_ids, JobState::Ready, JobState::Running),
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
 
@@ -156,7 +158,7 @@ async fn outputs_larger_than_one_statement_payload_are_all_written() -> anyhow::
     storage
         .apply_tree_transition(TreeTransition {
             updates: tree_updates,
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
 
@@ -183,7 +185,7 @@ async fn only_terminal_states_set_the_end_timestamp() -> anyhow::Result<()> {
     storage
         .apply_tree_transition(TreeTransition {
             updates: updates(&job_ids, JobState::Ready, JobState::Running),
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
     storage
@@ -198,7 +200,7 @@ async fn only_terminal_states_set_the_end_timestamp() -> anyhow::Result<()> {
                     ..JobStateUpdate::new(failing, JobState::Running, JobState::Failed)
                 },
             ],
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
     let ended: Vec<bool> = sqlx::query_scalar(
@@ -213,7 +215,7 @@ async fn only_terminal_states_set_the_end_timestamp() -> anyhow::Result<()> {
     storage
         .apply_tree_transition(TreeTransition {
             updates: updates(&[committing], JobState::CommitReady, JobState::Succeeded),
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
     let has_ended_at: bool =
@@ -231,7 +233,7 @@ async fn only_terminal_states_set_the_end_timestamp() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn child_inserts_return_their_ids_in_order_across_chunks() -> anyhow::Result<()> {
+async fn child_insertions_return_their_ids_in_order_across_chunks() -> anyhow::Result<()> {
     const NUM_CHILDREN: usize = 1_200;
 
     let isolated_test_db = IsolatedTestDb::create().await;
@@ -243,11 +245,11 @@ async fn child_inserts_return_their_ids_in_order_across_chunks() -> anyhow::Resu
     storage
         .apply_tree_transition(TreeTransition {
             updates: updates(&[parent_id], JobState::Ready, JobState::Running),
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
-    let task_graphs: Vec<Vec<u8>> = (0..NUM_CHILDREN)
-        .map(|index| index.to_le_bytes().to_vec())
+    let job_submissions: Vec<_> = (0..NUM_CHILDREN)
+        .map(|index| submission_with_input(&index.to_le_bytes()))
         .collect();
 
     let child_ids = storage
@@ -257,22 +259,21 @@ async fn child_inserts_return_their_ids_in_order_across_chunks() -> anyhow::Resu
                 JobState::Running,
                 JobState::BlockingOnChildren,
             ),
-            child_inserts: task_graphs
+            child_insertions: job_submissions
                 .iter()
-                .map(|task_graph| ChildJobInsert {
+                .map(|job_submission| ChildJobInsertion {
                     parent_id,
                     root_id: parent_id,
                     resource_group_id,
-                    compressed_serialized_task_graph: task_graph,
-                    compressed_serialized_job_inputs: &[],
+                    compressed_job_submission: job_submission.compressed(),
                 })
                 .collect(),
         })
         .await?;
 
     let rows = sqlx::query(
-        "SELECT `id`, `compressed_serialized_task_graph`, `parent_id`, `root_id`, `state` FROM \
-         `jobs` WHERE `id` <> ? ORDER BY `id`;",
+        "SELECT `id`, `compressed_serialized_task_graph`, `compressed_serialized_job_inputs`, \
+         `parent_id`, `root_id`, `state` FROM `jobs` WHERE `id` <> ? ORDER BY `id`;",
     )
     .bind(parent_id)
     .fetch_all(&pool)
@@ -285,9 +286,24 @@ async fn child_inserts_return_their_ids_in_order_across_chunks() -> anyhow::Resu
     );
     assert_eq!(
         rows.iter()
-            .map(|row| row.get::<Vec<u8>, _>("compressed_serialized_task_graph"))
+            .map(|row| (
+                row.get::<Vec<u8>, _>("compressed_serialized_task_graph"),
+                row.get::<Vec<u8>, _>("compressed_serialized_job_inputs"),
+            ))
             .collect::<Vec<_>>(),
-        task_graphs
+        job_submissions
+            .iter()
+            .map(|job_submission| (
+                job_submission
+                    .compressed()
+                    .compressed_serialized_task_graph()
+                    .to_vec(),
+                job_submission
+                    .compressed()
+                    .compressed_serialized_job_inputs()
+                    .to_vec(),
+            ))
+            .collect::<Vec<_>>()
     );
     for row in rows {
         assert_eq!(
@@ -311,7 +327,7 @@ async fn child_inserts_return_their_ids_in_order_across_chunks() -> anyhow::Resu
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn a_child_insert_over_the_packet_size_is_a_payload_rejection_and_writes_nothing()
+async fn a_child_insertion_over_the_packet_size_is_a_payload_rejection_and_writes_nothing()
 -> anyhow::Result<()> {
     let isolated_test_db = IsolatedTestDb::create().await;
     let config = isolated_test_db.config();
@@ -323,13 +339,21 @@ async fn a_child_insert_over_the_packet_size_is_a_payload_rejection_and_writes_n
     storage
         .apply_tree_transition(TreeTransition {
             updates: updates(&job_ids, JobState::Ready, JobState::Running),
-            child_inserts: Vec::new(),
+            child_insertions: Vec::new(),
         })
         .await?;
     let max_allowed_packet: u64 = sqlx::query_scalar("SELECT @@max_allowed_packet;")
         .fetch_one(&pool)
         .await?;
-    let oversized_task_graph = vec![7u8; usize::try_from(max_allowed_packet)? + 1];
+    let oversized = submission_with_input(&incompressible(max_allowed_packet + 1));
+    assert!(
+        oversized
+            .compressed()
+            .compressed_serialized_job_inputs()
+            .len() as u64
+            > max_allowed_packet,
+        "the oversized job inputs should not compress below the packet size"
+    );
 
     let result = storage
         .apply_tree_transition(TreeTransition {
@@ -338,19 +362,18 @@ async fn a_child_insert_over_the_packet_size_is_a_payload_rejection_and_writes_n
                 JobState::Running,
                 JobState::BlockingOnChildren,
             ),
-            child_inserts: vec![ChildJobInsert {
+            child_insertions: vec![ChildJobInsertion {
                 parent_id,
                 root_id: parent_id,
                 resource_group_id,
-                compressed_serialized_task_graph: &oversized_task_graph,
-                compressed_serialized_job_inputs: &[],
+                compressed_job_submission: oversized.compressed(),
             }],
         })
         .await;
 
     assert!(
         matches!(result, Err(DbError::PayloadRejected(_))),
-        "an oversized child insert should be a payload rejection, got {result:?}"
+        "an oversized child insertion should be a payload rejection, got {result:?}"
     );
     assert_eq!(storage.get_state(parent_id).await?, JobState::Running);
     let num_jobs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `jobs`;")
@@ -383,7 +406,7 @@ async fn register_jobs(
     for _ in 0..num_jobs {
         job_ids.push(
             storage
-                .register(resource_group_id, &submission)
+                .register(resource_group_id, submission.compressed())
                 .await
                 .expect("register should succeed"),
         );

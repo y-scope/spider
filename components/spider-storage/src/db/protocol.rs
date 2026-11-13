@@ -12,6 +12,7 @@ use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_core::types::scheduler::RegisteredScheduler;
 
 use crate::db::error::DbError;
+use crate::job_submission::ValidatedCompressedJobSubmission;
 use crate::job_submission::ValidatedJobSubmission;
 
 /// A job persisted in the database that should be rebuilt in the storage cache on startup. Jobs in
@@ -65,40 +66,48 @@ impl JobStateUpdate {
 }
 
 /// One child job row to insert in [`JobState::Running`] in a tree transition, under `parent_id` in
-/// the tree of `root_id`. The compressed serializations are stored verbatim.
+/// the tree of `root_id`. Its compressed job submission is stored verbatim.
+///
+/// # Type Parameters
+///
+/// * `'buffer_lifetime` - The lifetime of the compressed job submission that the insertion borrows.
 #[derive(Clone, PartialEq, Eq)]
-pub struct ChildJobInsert<'buffer_lifetime> {
+pub struct ChildJobInsertion<'buffer_lifetime> {
     pub parent_id: JobId,
     pub root_id: JobId,
     pub resource_group_id: ResourceGroupId,
-    pub compressed_serialized_task_graph: &'buffer_lifetime [u8],
-    pub compressed_serialized_job_inputs: &'buffer_lifetime [u8],
+    pub compressed_job_submission: &'buffer_lifetime ValidatedCompressedJobSubmission,
 }
 
-impl ChildJobInsert<'_> {
+impl ChildJobInsertion<'_> {
     /// # Returns
     ///
     /// The total size of the child's compressed serialized task graph and job inputs.
     #[must_use]
     pub const fn payload_size(&self) -> u64 {
-        (self.compressed_serialized_task_graph.len() + self.compressed_serialized_job_inputs.len())
-            as u64
+        self.compressed_job_submission.size()
     }
 }
 
-impl std::fmt::Debug for ChildJobInsert<'_> {
+impl std::fmt::Debug for ChildJobInsertion<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ChildJobInsert")
+        f.debug_struct("ChildJobInsertion")
             .field("parent_id", &self.parent_id)
             .field("root_id", &self.root_id)
             .field("resource_group_id", &self.resource_group_id)
             .field(
                 "compressed_serialized_task_graph_size",
-                &self.compressed_serialized_task_graph.len(),
+                &self
+                    .compressed_job_submission
+                    .compressed_serialized_task_graph()
+                    .len(),
             )
             .field(
                 "compressed_serialized_job_inputs_size",
-                &self.compressed_serialized_job_inputs.len(),
+                &self
+                    .compressed_job_submission
+                    .compressed_serialized_job_inputs()
+                    .len(),
             )
             .finish()
     }
@@ -106,12 +115,17 @@ impl std::fmt::Debug for ChildJobInsert<'_> {
 
 /// The database part of one tree state transaction: every job row it updates and every child row
 /// it inserts.
+///
+/// # Type Parameters
+///
+/// * `'buffer_lifetime` - The lifetime of the compressed job submissions that its child insertions
+///   borrow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TreeTransition<'buffer_lifetime> {
     /// At most one update per job.
     pub updates: Vec<JobStateUpdate>,
 
-    pub child_inserts: Vec<ChildJobInsert<'buffer_lifetime>>,
+    pub child_insertions: Vec<ChildJobInsertion<'buffer_lifetime>>,
 }
 
 /// The database storage interface. A database storage must implement the following traits:
@@ -140,8 +154,8 @@ pub trait ExternalJobOrchestration {
     /// # Parameters
     ///
     /// * `resource_group_id` - The owner of the created job.
-    /// * `job_submission` - The validated job submission containing the task graph, job inputs, and
-    ///   the compressed serializations to persist verbatim.
+    /// * `compressed_job_submission` - The compressed serializations of a validated job submission
+    ///   to persist verbatim.
     ///
     /// # Returns
     ///
@@ -158,7 +172,7 @@ pub trait ExternalJobOrchestration {
     async fn register(
         &self,
         resource_group_id: ResourceGroupId,
-        job_submission: &ValidatedJobSubmission,
+        compressed_job_submission: &ValidatedCompressedJobSubmission,
     ) -> Result<JobId, DbError>;
 
     /// Gets the state of a job.
@@ -233,11 +247,12 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///
     /// # Parameters
     ///
-    /// * `transition` - The updates and the child inserts to write.
+    /// * `transition` - The updates and the child insertions to write.
     ///
     /// # Returns
     ///
-    /// The IDs of the inserted child jobs, in the order of `transition.child_inserts`, on success.
+    /// The IDs of the inserted child jobs, in the order of `transition.child_insertions`, on
+    /// success.
     ///
     /// # Errors
     ///
@@ -248,7 +263,7 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///   are too large for one statement. Nothing is sent to the database then.
     /// * [`DbError::ErrorMessageTooLarge`] if an update's error message alone is too large for one
     ///   statement. Nothing is sent to the database then.
-    /// * [`DbError::PayloadRejected`] if the database rejects a child insert's payload as too
+    /// * [`DbError::PayloadRejected`] if the database rejects a child insertion's payload as too
     ///   large.
     /// * [`DbError::ValueSerializationFailure`] if an update's outputs fail to serialize.
     /// * [`DbError::CorruptedDbState`] if:

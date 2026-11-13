@@ -1,6 +1,8 @@
 //! The job-level events of a job tree and their outcomes.
 
 use std::fmt;
+use std::ops::Add;
+use std::ops::Sub;
 
 use spider_core::job::JobState;
 use spider_core::task::TaskIndex;
@@ -216,36 +218,24 @@ pub enum TreeEventOutcome {
 /// The reply to an event.
 pub type TreeEventReply = Result<TreeEventOutcome, CacheError>;
 
-/// The number of child jobs of a set of children and their total number of compressed bytes.
+/// The number of child jobs and the total size of their compressed submission.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ChildSetSummary {
+pub struct ChildJobUsage {
     pub count: usize,
     pub size: u64,
 }
 
-impl ChildSetSummary {
+impl ChildJobUsage {
     /// # Returns
     ///
-    /// The summary of `children`.
+    /// The usage of `children`.
     #[must_use]
     pub fn of(children: &[PreparedChild]) -> Self {
         Self {
             count: children.len(),
-            size: children
-                .iter()
-                .fold(0, |size, child| size.saturating_add(child.size())),
-        }
-    }
-
-    /// # Returns
-    ///
-    /// The summary of the union of the children of `self` and `other`, saturating at the numeric
-    /// bounds.
-    #[must_use]
-    pub const fn plus(self, other: Self) -> Self {
-        Self {
-            count: self.count.saturating_add(other.count),
-            size: self.size.saturating_add(other.size),
+            size: children.iter().fold(0, |size, child| {
+                size.saturating_add(child.submission().size())
+            }),
         }
     }
 
@@ -259,16 +249,48 @@ impl ChildSetSummary {
     }
 }
 
+impl Add for ChildJobUsage {
+    type Output = Self;
+
+    /// # Returns
+    ///
+    /// The usage of the union of the children of `self` and `other`, saturating at the numeric
+    /// bounds.
+    fn add(self, other: Self) -> Self {
+        Self {
+            count: self.count.saturating_add(other.count),
+            size: self.size.saturating_add(other.size),
+        }
+    }
+}
+
+impl Sub for ChildJobUsage {
+    type Output = Self;
+
+    /// # Returns
+    ///
+    /// The usage of the children of `self` without those of `other`, saturating at zero.
+    fn sub(self, other: Self) -> Self {
+        Self {
+            count: self.count.saturating_sub(other.count),
+            size: self.size.saturating_sub(other.size),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use spider_core::job::JobState;
     use strum::IntoEnumIterator;
 
+    use super::ChildJobUsage;
     use crate::cache::error::StaleStateError;
+    use crate::cache::task::PreparedChild;
     use crate::cache::tree::Lane;
     use crate::cache::tree::TreeEventKind;
     use crate::cache::tree::test_utils::failure;
     use crate::cache::tree::test_utils::start;
+    use crate::state::test_utils::create_test_child_submission_with_independent_tasks;
     use crate::state::test_utils::create_test_prepared_child;
 
     #[test]
@@ -384,6 +406,39 @@ mod tests {
                 "a cancel in {state} gave {result:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn child_job_usage_of_children_counts_them_and_sums_their_submission_sizes()
+    -> anyhow::Result<()> {
+        let children = [
+            create_test_prepared_child(0).await,
+            PreparedChild::create(create_test_child_submission_with_independent_tasks(2)).await?,
+        ];
+        let usage = ChildJobUsage::of(&children);
+        assert_eq!(
+            usage,
+            ChildJobUsage {
+                count: 2,
+                size: children[0].submission().size() + children[1].submission().size(),
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn child_job_usage_addition_saturates_at_the_numeric_bounds() {
+        let usage = ChildJobUsage {
+            count: usize::MAX,
+            size: u64::MAX,
+        } + ChildJobUsage { count: 1, size: 1 };
+        assert_eq!(
+            usage,
+            ChildJobUsage {
+                count: usize::MAX,
+                size: u64::MAX,
+            }
+        );
     }
 
     #[tokio::test]

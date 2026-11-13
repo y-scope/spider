@@ -20,7 +20,7 @@ use crate::cache::tree::RoundOutcome;
 use crate::cache::tree::TreeEvent;
 use crate::cache::tree::TreeEventKind;
 use crate::cache::tree::TreeStructure;
-use crate::db::ChildJobInsert;
+use crate::db::ChildJobInsertion;
 use crate::db::DbError;
 use crate::db::InternalJobOrchestration;
 use crate::db::JobStateUpdate;
@@ -98,7 +98,7 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`TreeStructure::plan_events`]'s return values on failure.
-    /// * Forwards [`Self::child_inserts`]'s return values on failure.
+    /// * Forwards [`Self::child_insertions`]'s return values on failure.
     /// * Forwards [`fail_culprit`]'s return values on failure.
     /// * Forwards [`Self::apply_to_cache`]'s return values on failure.
     /// * Forwards [`Self::bind_children`]'s return values on failure.
@@ -109,7 +109,7 @@ impl<
     /// Panics if:
     ///
     /// * The plan of the round does not have exactly one outcome per event of `in_flight`.
-    /// * [`Self::child_inserts`], [`Self::apply_to_cache`], [`Self::bind_children`],
+    /// * [`Self::child_insertions`], [`Self::apply_to_cache`], [`Self::bind_children`],
     ///   [`Self::publish`] or, in debug and test builds, [`Self::assert_invariants`] panics.
     pub(super) async fn run_round(
         &mut self,
@@ -127,8 +127,8 @@ impl<
 
         if !updates.is_empty() {
             let transitions: Vec<Transition> = updates.iter().map(Transition::from).collect();
-            let child_inserts = match &registration {
-                Some(registration) => self.child_inserts(in_flight, registration)?,
+            let child_insertions = match &registration {
+                Some(registration) => self.child_insertions(in_flight, registration)?,
                 None => Vec::new(),
             };
             let child_ids = match self
@@ -136,7 +136,7 @@ impl<
                 .db
                 .apply_tree_transition(TreeTransition {
                     updates,
-                    child_inserts,
+                    child_insertions,
                 })
                 .await
             {
@@ -234,7 +234,7 @@ impl<
     ///
     /// # Returns
     ///
-    /// The database part of `registration`: one insert, under the registering job in the tree of
+    /// The database part of `registration`: one insertion, under the registering job in the tree of
     /// the committer's root and in the registering job's resource group, per child of the event of
     /// `in_flight` that `registration` registers, in order, on success.
     ///
@@ -247,25 +247,20 @@ impl<
     /// # Panics
     ///
     /// Panics if [`Self::jcb`] panics.
-    fn child_inserts<'event_lifetime>(
+    fn child_insertions<'event_lifetime>(
         &self,
         in_flight: &'event_lifetime mut [Pending],
         registration: &PlannedRegistration,
-    ) -> Result<Vec<ChildJobInsert<'event_lifetime>>, InternalError> {
+    ) -> Result<Vec<ChildJobInsertion<'event_lifetime>>, InternalError> {
         let root_id = self.structure.root_id();
         let resource_group_id = self.jcb(registration.parent_id).owner_id();
         Ok(registered_children(in_flight, registration)?
             .iter()
-            .map(|child| ChildJobInsert {
+            .map(|child| ChildJobInsertion {
                 parent_id: registration.parent_id,
                 root_id,
                 resource_group_id,
-                compressed_serialized_task_graph: &child
-                    .submission
-                    .compressed_serialized_task_graph,
-                compressed_serialized_job_inputs: &child
-                    .submission
-                    .compressed_serialized_job_inputs,
+                compressed_job_submission: child.submission(),
             })
             .collect())
     }
@@ -312,8 +307,8 @@ impl<
         let mut nodes = Vec::with_capacity(child_ids.len());
         let mut jcbs = Vec::with_capacity(child_ids.len());
         let mut publications = Vec::with_capacity(child_ids.len());
-        for (child_id, mut prepared_child) in child_ids.into_iter().zip(prepared_children) {
-            let task_indices = std::mem::take(&mut prepared_child.ready_task_indices);
+        for (child_id, prepared_child) in child_ids.into_iter().zip(prepared_children) {
+            let task_indices = prepared_child.ready_task_indices().to_vec();
             let jcb =
                 SharedJobControlBlock::from_prepared_child(child_id, &parent, prepared_child).await;
             nodes.push((child_id, jcb.tree_node().await));
@@ -546,7 +541,7 @@ mod tests {
     use super::*;
     use crate::cache::error::InternalError;
     use crate::cache::error::StaleStateError;
-    use crate::cache::tree::ChildSetSummary;
+    use crate::cache::tree::ChildJobUsage;
     use crate::cache::tree::TreeEventOutcome;
     use crate::inbound_queue::CleanupTaskMarker;
     use crate::inbound_queue::CommitTaskMarker;
@@ -668,7 +663,7 @@ mod tests {
         let planned_registration = PlannedRegistration {
             event_index: 1,
             parent_id: ROOT_ID,
-            children: ChildSetSummary::of(&children),
+            children: ChildJobUsage::of(&children),
         };
         let mut in_flight = vec![
             pending(ROOT_ID.get() + 1, regular_tasks_done()),

@@ -172,7 +172,7 @@ async fn the_last_reporter_registers_the_children_that_its_jobs_tasks_prepared()
 
     let state = tree
         .jcb
-        .succeed_task_instance_with_children(
+        .succeed_task_instance(
             execution_context.task_instance_id,
             0,
             vec![vec![1]],

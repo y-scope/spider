@@ -28,7 +28,8 @@ use crate::cache::io::ValuePayload;
 use crate::cache::sync::Reader;
 use crate::cache::sync::SharedRw;
 use crate::cache::sync::Writer;
-use crate::job_submission::ChildJobSubmission;
+use crate::job_submission::CompressedJobSubmission;
+use crate::job_submission::ValidatedCompressedJobSubmission;
 use crate::job_submission::ValidatedJobSubmission;
 use crate::partial_mutation::PartialMutationGuard;
 use crate::test_hooks::HookContext;
@@ -62,7 +63,7 @@ impl TaskGraph {
     ///
     /// Panics if [`Self::from_parts`] panics.
     pub async fn create(job_submission: ValidatedJobSubmission) -> Result<Self, InternalError> {
-        let (submitted_task_graph, task_graph_input) = job_submission.into_parts();
+        let (submitted_task_graph, task_graph_input, _) = job_submission.into_parts();
         Self::from_parts(submitted_task_graph, task_graph_input).await
     }
 
@@ -211,11 +212,9 @@ impl TaskGraph {
         prepared_children
     }
 
-    /// Drops the children that the graph's tasks prepared when they succeeded.
-    pub async fn drop_prepared_children(&self) {
-        for tcb in &self.tasks {
-            tcb.inner.lock().await.prepared_children.clear();
-        }
+    /// Clears the children that the graph's tasks prepared when they succeeded.
+    pub async fn clear_prepared_children(&self) {
+        drop(self.take_prepared_children().await);
     }
 
     #[must_use]
@@ -325,10 +324,10 @@ impl TaskGraph {
 /// A child job that a task's success report asks to create, validated and built into a task graph
 /// before the report reaches its job.
 pub struct PreparedChild {
-    pub(crate) graph: TaskGraph,
-    pub(crate) num_tasks: usize,
-    pub(crate) ready_task_indices: Vec<TaskIndex>,
-    pub(crate) submission: ChildJobSubmission,
+    graph: TaskGraph,
+    num_tasks: usize,
+    ready_task_indices: Vec<TaskIndex>,
+    submission: ValidatedCompressedJobSubmission,
 }
 
 impl PreparedChild {
@@ -344,15 +343,12 @@ impl PreparedChild {
     ///
     /// Returns an error if:
     ///
-    /// * [`ChildPreparationError::NoReadyTask`] if the child's task graph has no ready task.
     /// * Forwards [`ValidatedJobSubmission::create`]'s return values on failure.
     /// * Forwards [`TaskGraph::from_parts`]'s return values on failure.
-    ///
-    /// # Panics
-    ///
-    /// Panics if [`TaskGraph::from_parts`] panics.
-    pub async fn create(submission: ChildJobSubmission) -> Result<Self, ChildPreparationError> {
-        let ChildJobSubmission {
+    pub async fn create(
+        submission: CompressedJobSubmission,
+    ) -> Result<Self, ChildPreparationError> {
+        let CompressedJobSubmission {
             compressed_serialized_task_graph,
             compressed_serialized_job_inputs,
         } = submission;
@@ -362,12 +358,9 @@ impl PreparedChild {
         )?;
         let num_tasks = validated_submission.task_graph().get_num_tasks();
         let (submitted_task_graph, task_graph_input, submission) =
-            validated_submission.into_child_parts();
+            validated_submission.into_parts();
         let graph = TaskGraph::from_parts(submitted_task_graph, task_graph_input).await?;
         let ready_task_indices = graph.get_all_ready_task_indices().await;
-        if ready_task_indices.is_empty() {
-            return Err(ChildPreparationError::NoReadyTask);
-        }
         Ok(Self {
             graph,
             num_tasks,
@@ -378,10 +371,31 @@ impl PreparedChild {
 
     /// # Returns
     ///
-    /// The total size of the child's compressed serialized task graph and job inputs.
+    /// A reference to the child's validated compressed submission.
     #[must_use]
-    pub const fn size(&self) -> u64 {
-        self.submission.size()
+    pub const fn submission(&self) -> &ValidatedCompressedJobSubmission {
+        &self.submission
+    }
+
+    /// # Returns
+    ///
+    /// The indices of the tasks of the child's task graph that are ready.
+    #[must_use]
+    pub fn ready_task_indices(&self) -> &[TaskIndex] {
+        &self.ready_task_indices
+    }
+
+    /// Consumes the prepared child and returns its task graph and the number of tasks in it.
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing:
+    ///
+    /// * The child's task graph.
+    /// * The number of tasks in the task graph.
+    #[must_use]
+    pub fn into_parts(self) -> (TaskGraph, usize) {
+        (self.graph, self.num_tasks)
     }
 }
 
@@ -1185,7 +1199,6 @@ mod tests {
     use spider_utils::wire::unframe;
 
     use super::*;
-    use crate::job_submission::JobSubmissionError;
     use crate::job_submission::create_validated_submission;
     use crate::state::test_utils::create_test_child_submission;
     use crate::state::test_utils::create_test_prepared_child;
@@ -2228,30 +2241,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dropped_prepared_children_leave_a_task_that_is_still_referenced() -> anyhow::Result<()>
-    {
-        let task_graph = build_task_graph_with_single_tcb(1, 0, 1, 1).await;
-        let held_tcb = task_graph
-            .get_task_control_block(0)
-            .expect("task 0 should exist");
-        let instance_id = next_instance_id();
-        held_tcb.register_task_instance(instance_id).await?;
-        succeed_instance_with_children(
-            &held_tcb,
-            instance_id,
-            vec![vec![0u8; 4]],
-            vec![create_test_prepared_child(0).await],
-        )
-        .await?;
-        assert_eq!(held_tcb.num_prepared_children().await, 1);
-
-        task_graph.drop_prepared_children().await;
-        assert_eq!(held_tcb.num_prepared_children().await, 0);
-        assert!(task_graph.take_prepared_children().await.is_empty());
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn a_rejected_success_report_stores_no_prepared_children() -> anyhow::Result<()> {
         let task_graph = build_task_graph_with_single_tcb(1, 0, 1, 1).await;
         let tcb = task_graph
@@ -2278,6 +2267,33 @@ mod tests {
             "a report with too few outputs gave {result:?}"
         );
         assert_eq!(tcb.num_prepared_children().await, 0);
+
+        let cancelled_task_graph = build_task_graph_with_single_tcb(1, 0, 1, 1).await;
+        let cancelled_tcb = cancelled_task_graph
+            .get_task_control_block(0)
+            .expect("task 0 should exist");
+        let cancelled_instance_id = next_instance_id();
+        cancelled_tcb
+            .register_task_instance(cancelled_instance_id)
+            .await?;
+        cancelled_tcb.cancel_non_terminal().await;
+        let result = succeed_instance_with_children(
+            &cancelled_tcb,
+            cancelled_instance_id,
+            vec![vec![0u8; 4]],
+            vec![create_test_prepared_child(0).await],
+        )
+        .await;
+        assert!(
+            matches!(
+                result,
+                Err(CacheError::StaleState(
+                    StaleStateError::TaskAlreadyTerminated(TaskState::Cancelled)
+                ))
+            ),
+            "a report on a cancelled task gave {result:?}"
+        );
+        assert_eq!(cancelled_tcb.num_prepared_children().await, 0);
 
         succeed_instance_with_children(
             &tcb,
@@ -2309,7 +2325,12 @@ mod tests {
             .take_prepared_children()
             .await
             .into_iter()
-            .map(|child| child.submission.compressed_serialized_job_inputs)
+            .map(|child| {
+                child
+                    .submission()
+                    .compressed_serialized_job_inputs()
+                    .to_vec()
+            })
             .collect();
         assert_eq!(
             taken_inputs,
@@ -2346,7 +2367,12 @@ mod tests {
             .take_prepared_children()
             .await
             .into_iter()
-            .map(|child| child.submission.compressed_serialized_job_inputs)
+            .map(|child| {
+                child
+                    .submission()
+                    .compressed_serialized_job_inputs()
+                    .to_vec()
+            })
             .collect();
         let expected_inputs: Vec<_> = [0, 10, 20, 21]
             .into_iter()
@@ -2355,26 +2381,6 @@ mod tests {
             })
             .collect();
         assert_eq!(taken_inputs, expected_inputs);
-        assert!(task_graph.take_prepared_children().await.is_empty());
         Ok(())
-    }
-
-    #[tokio::test]
-    async fn a_child_without_a_valid_submission_is_not_prepared() {
-        let result = PreparedChild::create(ChildJobSubmission {
-            compressed_serialized_task_graph: b"not a task graph".to_vec(),
-            ..create_test_child_submission(0)
-        })
-        .await
-        .map(|_| ());
-        assert!(
-            matches!(
-                result,
-                Err(ChildPreparationError::Submission(
-                    JobSubmissionError::TaskGraphDeserialization(_)
-                ))
-            ),
-            "an undecodable child task graph gave {result:?}"
-        );
     }
 }

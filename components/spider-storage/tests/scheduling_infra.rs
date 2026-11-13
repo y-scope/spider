@@ -168,7 +168,7 @@ impl InternalJobOrchestration for NoopDbConnector {
         static NEXT_CHILD_ID: AtomicU64 = AtomicU64::new(1);
 
         Ok(transition
-            .child_inserts
+            .child_insertions
             .iter()
             .map(|_| JobId::from(NEXT_CHILD_ID.fetch_add(1, Ordering::Relaxed)))
             .collect())
@@ -497,9 +497,10 @@ pub fn mariadb_db_connector_factory(
     rg_id: ResourceGroupId,
 ) -> impl DbConnectorFactory<MariaDbStorageConnector> {
     async move |job_submission: &ValidatedJobSubmission| {
-        let job_id = ExternalJobOrchestration::register(&storage, rg_id, job_submission)
-            .await
-            .expect("register should succeed");
+        let job_id =
+            ExternalJobOrchestration::register(&storage, rg_id, job_submission.compressed())
+                .await
+                .expect("register should succeed");
         (storage, job_id, rg_id)
     }
 }
@@ -667,7 +668,7 @@ impl InstrumentedJcb {
             let start = Instant::now();
             let result = self
                 .jcb
-                .succeed_task_instance(task_instance_id, task_index, task_outputs)
+                .succeed_task_instance(task_instance_id, task_index, task_outputs, Vec::new())
                 .await;
             let _ = sender.send(InstrumentSample::Success {
                 elapsed: start.elapsed(),
@@ -676,7 +677,7 @@ impl InstrumentedJcb {
             result
         } else {
             self.jcb
-                .succeed_task_instance(task_instance_id, task_index, task_outputs)
+                .succeed_task_instance(task_instance_id, task_index, task_outputs, Vec::new())
                 .await
         }
     }

@@ -8,7 +8,7 @@ use spider_core::types::id::JobId;
 use spider_core::types::io::TaskOutput;
 
 use crate::cache::error::StaleStateError;
-use crate::cache::tree::ChildSetSummary;
+use crate::cache::tree::ChildJobUsage;
 use crate::cache::tree::TreeEvent;
 use crate::cache::tree::TreeEventKind;
 use crate::cache::tree::TreeEventOutcome;
@@ -106,8 +106,8 @@ pub struct PlannedRegistration {
     /// The job whose children the event registers.
     pub parent_id: JobId,
 
-    /// The summary of the children that the event registers.
-    pub children: ChildSetSummary,
+    /// The usage of the children that the event registers.
+    pub children: ChildJobUsage,
 }
 
 /// The outcome of an event in a round.
@@ -254,7 +254,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     ///     moves from [`JobState::Running`] to [`JobState::CommitReady`], with its commit task
     ///     published, if it has a commit task, otherwise to [`JobState::Succeeded`].
     ///   * [`TreeEventKind::RegularTasksDone`] with children over the limits of one job (see
-    ///     [`ChildSetSummary::is_within_job_limits`]): the job moves from [`JobState::Running`] to
+    ///     [`ChildJobUsage::is_within_job_limits`]): the job moves from [`JobState::Running`] to
     ///     [`JobState::Failed`].
     ///   * [`TreeEventKind::RegularTasksDone`] with other children: the job stores its outputs,
     ///     moves from [`JobState::Running`] to [`JobState::BlockingOnChildren`] and registers its
@@ -285,7 +285,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
                 EventPlan::complete_regular_tasks(job_id, &node, outputs.clone())
             }
             TreeEventKind::RegularTasksDone { outputs, children } => {
-                let children = ChildSetSummary::of(children);
+                let children = ChildJobUsage::of(children);
                 if children.is_within_job_limits() {
                     EventPlan::register_children(job_id, outputs.clone(), children)
                 } else {
@@ -339,7 +339,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
 #[derive(Debug, Clone, Copy)]
 struct EventRegistration {
     parent_id: JobId,
-    children: ChildSetSummary,
+    children: ChildJobUsage,
 }
 
 /// The plan of one event of a round.
@@ -401,11 +401,7 @@ impl EventPlan {
     ///
     /// The plan of the regular tasks of `job_id` being done with `children` to register: the job
     /// stores `outputs` and moves from [`JobState::Running`] to [`JobState::BlockingOnChildren`].
-    fn register_children(
-        job_id: JobId,
-        outputs: Vec<TaskOutput>,
-        children: ChildSetSummary,
-    ) -> Self {
+    fn register_children(job_id: JobId, outputs: Vec<TaskOutput>, children: ChildJobUsage) -> Self {
         Self {
             registration: Some(EventRegistration {
                 parent_id: job_id,
@@ -575,7 +571,7 @@ mod tests {
     use spider_core::job::JobState;
     use spider_core::types::id::JobId;
 
-    use crate::cache::tree::ChildSetSummary;
+    use crate::cache::tree::ChildJobUsage;
     use crate::cache::tree::Plan;
     use crate::cache::tree::PlannedRegistration;
     use crate::cache::tree::TreeNode;
@@ -613,7 +609,7 @@ mod tests {
     /// # Returns
     ///
     /// The plan of the regular tasks of the job `job_id` being done with no output and `children`.
-    fn registration(job_id: u64, children: ChildSetSummary) -> EventPlan {
+    fn registration(job_id: u64, children: ChildJobUsage) -> EventPlan {
         EventPlan::register_children(JobId::from(job_id), Vec::new(), children)
     }
 
@@ -648,7 +644,7 @@ mod tests {
 
     #[test]
     fn a_child_set_counts_toward_the_round_payload() {
-        let children = ChildSetSummary {
+        let children = ChildJobUsage {
             count: 1,
             size: MAX_ROUND_PAYLOAD,
         };
@@ -665,7 +661,7 @@ mod tests {
 
     #[test]
     fn a_second_child_set_is_deferred_but_an_event_without_one_is_admitted() {
-        let children = ChildSetSummary { count: 1, size: 1 };
+        let children = ChildJobUsage { count: 1, size: 1 };
         let mut plan = Plan::default();
         plan.merge(completion(2, 1));
         plan.merge(registration(3, children));

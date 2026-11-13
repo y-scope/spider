@@ -4,7 +4,7 @@ mod protocol;
 
 pub use error::DbError;
 pub use mariadb::MariaDbStorageConnector;
-pub use protocol::ChildJobInsert;
+pub use protocol::ChildJobInsertion;
 pub use protocol::DbStorage;
 pub use protocol::ExecutionManagerLivenessManagement;
 pub use protocol::ExternalJobOrchestration;

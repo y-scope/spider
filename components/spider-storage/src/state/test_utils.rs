@@ -47,8 +47,8 @@ use crate::db::SchedulerRegistrationManagement;
 use crate::db::SessionManagement;
 use crate::db::TreeTransition;
 use crate::inbound_queue::InboundQueueSender;
-use crate::job_submission::ChildJobSubmission;
-use crate::job_submission::ValidatedJobSubmission;
+use crate::job_submission::CompressedJobSubmission;
+use crate::job_submission::ValidatedCompressedJobSubmission;
 use crate::job_submission::compress_job_inputs;
 use crate::job_submission::compress_task_graph;
 use crate::job_submission::create_validated_submission;
@@ -58,7 +58,7 @@ use crate::test_hooks::TestHooks;
 
 /// The maximum total size of one job's outputs that [`MockDbConnector`] accepts in a tree
 /// transition.
-pub const MOCK_MAX_OUTPUTS_SIZE: u64 = 4 * 1024 * 1024;
+pub const MOCK_MAX_OUTPUTS_SIZE: u64 = 1024 * 1024;
 
 /// The maximum statement payload that [`MockDbConnector`] reports.
 pub const MOCK_MAX_STATEMENT_PAYLOAD: u64 = 4 * 1024 * 1024;
@@ -159,7 +159,7 @@ impl ExternalJobOrchestration for MockDbConnector {
     async fn register(
         &self,
         _resource_group_id: ResourceGroupId,
-        _job_submission: &ValidatedJobSubmission,
+        _compressed_job_submission: &ValidatedCompressedJobSubmission,
     ) -> Result<JobId, DbError> {
         let job_id = self.allocate_job_id();
         self.states.insert(job_id, JobState::Ready);
@@ -236,12 +236,12 @@ impl InternalJobOrchestration for MockDbConnector {
             }
         }
         Ok(transition
-            .child_inserts
+            .child_insertions
             .iter()
-            .map(|insert| {
+            .map(|insertion| {
                 let child_id = self.allocate_job_id();
                 self.states.insert(child_id, JobState::Running);
-                self.parents.insert(child_id, insert.parent_id);
+                self.parents.insert(child_id, insertion.parent_id);
                 child_id
             })
             .collect())
@@ -458,21 +458,29 @@ pub fn create_test_task_graph_with_termination_tasks(
     commit_task: Option<TerminationTaskDescriptor>,
     cleanup_task: Option<TerminationTaskDescriptor>,
 ) -> SubmittedTaskGraph {
-    let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
     let mut task_graph = SubmittedTaskGraph::new(commit_task, cleanup_task)
         .expect("task graph creation should succeed");
     task_graph
-        .insert_task(TaskDescriptor {
-            tdl_context: TdlContext {
-                package: "test_pkg".to_owned(),
-                task_func: "test_fn".to_owned(),
-            },
-            execution_policy: Some(ExecutionPolicy::default()),
-            inputs: vec![bytes_type.clone()],
-            outputs: vec![bytes_type],
-            input_sources: None,
-        })
+        .insert_task(create_test_task_descriptor())
         .expect("task insertion should succeed");
+    task_graph
+}
+
+/// # Returns
+///
+/// A task graph of `num_tasks` independent tasks, each like [`create_test_task_graph`]'s only task.
+///
+/// # Panics
+///
+/// Panics if the task graph creation or a task insertion fails.
+pub fn create_test_task_graph_with_independent_tasks(num_tasks: usize) -> SubmittedTaskGraph {
+    let mut task_graph =
+        SubmittedTaskGraph::new(None, None).expect("task graph creation should succeed");
+    for _ in 0..num_tasks {
+        task_graph
+            .insert_task(create_test_task_descriptor())
+            .expect("task insertion should succeed");
+    }
     task_graph
 }
 
@@ -480,15 +488,25 @@ pub fn create_test_task_graph_with_termination_tasks(
 ///
 /// A task graph input whose only positional input is the msgpack serialization of a 4-byte zero
 /// array.
+pub fn create_test_task_graph_input() -> TaskGraphInput {
+    create_test_task_graph_input_with_num_inputs(1)
+}
+
+/// # Returns
+///
+/// A task graph input of `num_inputs` positional inputs, each the msgpack serialization of a
+/// 4-byte zero array.
 ///
 /// # Panics
 ///
 /// Panics if the input serialization fails.
-pub fn create_test_task_graph_input() -> TaskGraphInput {
+pub fn create_test_task_graph_input_with_num_inputs(num_inputs: usize) -> TaskGraphInput {
     let mut builder = TaskGraphInputBuilder::new();
-    builder
-        .append_task_input(&[0u8; 4])
-        .expect("task input appending should succeed");
+    for _ in 0..num_inputs {
+        builder
+            .append_task_input(&[0u8; 4])
+            .expect("task input appending should succeed");
+    }
     builder.build()
 }
 
@@ -500,14 +518,35 @@ pub fn create_test_task_graph_input() -> TaskGraphInput {
 /// # Panics
 ///
 /// Panics if the input serialization or the compression fails.
-pub fn create_test_child_submission(input_byte: u8) -> ChildJobSubmission {
+pub fn create_test_child_submission(input_byte: u8) -> CompressedJobSubmission {
     let mut builder = TaskGraphInputBuilder::new();
     builder
         .append_task_input(&[input_byte; 4])
         .expect("task input appending should succeed");
-    ChildJobSubmission {
+    CompressedJobSubmission {
         compressed_serialized_task_graph: compress_task_graph(&create_test_task_graph()),
         compressed_serialized_job_inputs: compress_job_inputs(&builder.build()),
+    }
+}
+
+/// # Returns
+///
+/// The submission of a child job with [`create_test_task_graph_with_independent_tasks`]'s task
+/// graph of `num_tasks` tasks and [`create_test_task_graph_input_with_num_inputs`]'s inputs.
+///
+/// # Panics
+///
+/// Panics if the compression fails.
+pub fn create_test_child_submission_with_independent_tasks(
+    num_tasks: usize,
+) -> CompressedJobSubmission {
+    CompressedJobSubmission {
+        compressed_serialized_task_graph: compress_task_graph(
+            &create_test_task_graph_with_independent_tasks(num_tasks),
+        ),
+        compressed_serialized_job_inputs: compress_job_inputs(
+            &create_test_task_graph_input_with_num_inputs(num_tasks),
+        ),
     }
 }
 
@@ -541,8 +580,25 @@ pub async fn create_test_prepared_children(num_children: u8) -> Vec<PreparedChil
 }
 
 pub async fn create_test_jcb(job_id: JobId) -> (TestJcb, EventReceivers) {
-    let task_graph = create_test_task_graph();
-    let job_submission = create_validated_submission(task_graph, create_test_task_graph_input());
+    create_test_jcb_with_independent_tasks(job_id, 1).await
+}
+
+/// # Returns
+///
+/// A JCB of `job_id` whose task graph is [`create_test_task_graph_with_independent_tasks`]'s graph
+/// of `num_tasks` tasks, with the receivers of its tree's events.
+///
+/// # Panics
+///
+/// Panics if the JCB creation fails.
+pub async fn create_test_jcb_with_independent_tasks(
+    job_id: JobId,
+    num_tasks: usize,
+) -> (TestJcb, EventReceivers) {
+    let job_submission = create_validated_submission(
+        create_test_task_graph_with_independent_tasks(num_tasks),
+        create_test_task_graph_input_with_num_inputs(num_tasks),
+    );
     let (tree, receivers) = TreeControlBlock::new(ShutdownHandle::new());
 
     let jcb = SharedJobControlBlock::create(
@@ -557,4 +613,21 @@ pub async fn create_test_jcb(job_id: JobId) -> (TestJcb, EventReceivers) {
     .await
     .expect("JCB creation should succeed");
     (jcb, receivers)
+}
+
+/// # Returns
+///
+/// The descriptor of a test task with one bytes input and one bytes output, and no input sources.
+fn create_test_task_descriptor() -> TaskDescriptor {
+    let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
+    TaskDescriptor {
+        tdl_context: TdlContext {
+            package: "test_pkg".to_owned(),
+            task_func: "test_fn".to_owned(),
+        },
+        execution_policy: Some(ExecutionPolicy::default()),
+        inputs: vec![bytes_type.clone()],
+        outputs: vec![bytes_type],
+        input_sources: None,
+    }
 }
