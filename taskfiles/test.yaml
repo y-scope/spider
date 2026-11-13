@@ -101,17 +101,18 @@ tasks:
       # The worker container must stop well within its grace period, i.e., without being killed.
       - |-
         compose="docker compose --project-name {{.SPIDER_COMPOSE_PROJECT_NAME}}"
-        $compose stop spider-worker &
-        for i in 1 2 3 4 5 6 7 8; do
-          sleep 2
-          echo "--- spider-worker processes $((i * 2)) s after the stop request:"
-          $compose top spider-worker || true
-        done
-        wait
-        echo "--- spider-scheduler logs:"
-        $compose logs --timestamps --since 2m spider-scheduler | tail -n 400
+        container="$($compose ps --quiet spider-worker)"
+        date --utc +"stop requested at %Y-%m-%dT%H:%M:%S.%NZ"
+        $compose stop spider-worker
+        date --utc +"stop returned at %Y-%m-%dT%H:%M:%S.%NZ"
+        echo "spider-worker exit code and finish time:"
+        docker inspect --format "{{`{{.State.ExitCode}} {{.State.FinishedAt}}`}}" "$container"
+        echo "--- spider-scheduler shutdown logs:"
+        $compose logs --timestamps --since 3m spider-scheduler | grep -i "shutdown" | tail -n 120
         echo "--- spider-worker logs:"
-        $compose logs --timestamps --since 2m spider-worker | tail -n 600
+        $compose logs --timestamps --since 3m spider-worker \
+          | grep --invert-match -E "new task assignment|Task executor acquired|Task completed" \
+          | tail -n 300
 
   # A generic wrapper that runs the given task with a MariaDB storage backend.
   #
