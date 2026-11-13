@@ -22,6 +22,7 @@ use crate::db::mariadb::mysql_error::MYSQL_ER_FK_CONSTRAINT;
 use crate::db::mariadb::mysql_error::has_mysql_error_number;
 use crate::db::mariadb::schema::JOBS_TABLE_NAME;
 use crate::db::mariadb::schema::STORAGE_FENCE_TABLE_NAME;
+use crate::job_submission::ValidatedCompressedJobSubmission;
 use crate::job_submission::ValidatedJobSubmission;
 
 impl MariaDbStorageConnector {
@@ -30,17 +31,17 @@ impl MariaDbStorageConnector {
     ///
     /// # Type Parameters
     ///
-    /// * `'submission_lifetime` - The lifetime of `job_submission`, which the returned insert
-    ///   borrows.
+    /// * `'submission_lifetime` - The lifetime of `compressed_job_submission`, which the returned
+    ///   insert borrows.
     ///
     /// # Returns
     ///
-    /// The insert, bound to register `job_submission` in `resource_group_id` while the fence row
-    /// holds this connector's session.
+    /// The insert, bound to register `compressed_job_submission` in `resource_group_id` while the
+    /// fence row holds this connector's session.
     pub(super) fn fenced_register_query<'submission_lifetime>(
         &self,
         resource_group_id: ResourceGroupId,
-        job_submission: &'submission_lifetime ValidatedJobSubmission,
+        compressed_job_submission: &'submission_lifetime ValidatedCompressedJobSubmission,
     ) -> Query<'submission_lifetime, MySql, MySqlArguments> {
         const QUERY: &str = formatcp!(
             "INSERT INTO `{jobs_table}` (`resource_group_id`, `compressed_serialized_task_graph`, \
@@ -54,11 +55,12 @@ impl MariaDbStorageConnector {
             .bind(resource_group_id)
             .bind(self.fence_id)
             .bind(self.session_id)
-            .bind(job_submission.compressed_serialized_task_graph())
-            .bind(job_submission.compressed_serialized_job_inputs())
+            .bind(compressed_job_submission.compressed_serialized_task_graph())
+            .bind(compressed_job_submission.compressed_serialized_job_inputs())
     }
 
-    /// Registers `job_submission` in `resource_group_id` with the fence in the `jobs` insert.
+    /// Registers `compressed_job_submission` in `resource_group_id` with the fence in the `jobs`
+    /// insert.
     ///
     /// # Returns
     ///
@@ -77,10 +79,10 @@ impl MariaDbStorageConnector {
         &self,
         connection: &mut MySqlConnection,
         resource_group_id: ResourceGroupId,
-        job_submission: &ValidatedJobSubmission,
+        compressed_job_submission: &ValidatedCompressedJobSubmission,
     ) -> Result<JobId, DbError> {
         match self
-            .fenced_register_query(resource_group_id, job_submission)
+            .fenced_register_query(resource_group_id, compressed_job_submission)
             .execute(&mut *connection)
             .await
         {
@@ -104,11 +106,15 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
     async fn register(
         &self,
         resource_group_id: ResourceGroupId,
-        job_submission: &ValidatedJobSubmission,
+        compressed_job_submission: &ValidatedCompressedJobSubmission,
     ) -> Result<JobId, DbError> {
         let mut connection = self.pool.acquire().await?;
-        self.insert_job_with_fence(&mut connection, resource_group_id, job_submission)
-            .await
+        self.insert_job_with_fence(
+            &mut connection,
+            resource_group_id,
+            compressed_job_submission,
+        )
+        .await
     }
 
     async fn get_state(&self, job_id: JobId) -> Result<JobState, DbError> {
@@ -188,8 +194,15 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
 
 #[async_trait]
 impl InternalJobOrchestration for MariaDbStorageConnector {
-    async fn apply_tree_transition(&self, transition: TreeTransition) -> Result<(), DbError> {
+    async fn apply_tree_transition(
+        &self,
+        transition: TreeTransition<'_>,
+    ) -> Result<Vec<JobId>, DbError> {
         self.write_tree_transition(transition).await
+    }
+
+    fn max_statement_payload(&self) -> u64 {
+        self.max_statement_payload
     }
 
     async fn delete_expired_terminated_jobs(

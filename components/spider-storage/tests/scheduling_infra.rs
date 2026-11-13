@@ -161,8 +161,21 @@ pub struct NoopDbConnector {}
 
 #[async_trait]
 impl InternalJobOrchestration for NoopDbConnector {
-    async fn apply_tree_transition(&self, _transition: TreeTransition) -> Result<(), DbError> {
-        Ok(())
+    async fn apply_tree_transition(
+        &self,
+        transition: TreeTransition<'_>,
+    ) -> Result<Vec<JobId>, DbError> {
+        static NEXT_CHILD_ID: AtomicU64 = AtomicU64::new(1);
+
+        Ok(transition
+            .child_insertions
+            .iter()
+            .map(|_| JobId::from(NEXT_CHILD_ID.fetch_add(1, Ordering::Relaxed)))
+            .collect())
+    }
+
+    fn max_statement_payload(&self) -> u64 {
+        4 * 1024 * 1024
     }
 
     async fn delete_expired_terminated_jobs(
@@ -482,9 +495,10 @@ pub fn mariadb_db_connector_factory(
     rg_id: ResourceGroupId,
 ) -> impl DbConnectorFactory<MariaDbStorageConnector> {
     async move |job_submission: &ValidatedJobSubmission| {
-        let job_id = ExternalJobOrchestration::register(&storage, rg_id, job_submission)
-            .await
-            .expect("register should succeed");
+        let job_id =
+            ExternalJobOrchestration::register(&storage, rg_id, job_submission.compressed())
+                .await
+                .expect("register should succeed");
         (storage, job_id, rg_id)
     }
 }

@@ -38,9 +38,9 @@ async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyh
     let raw_pool = create_raw_pool(&config).await;
     let older = connect(&config).await;
     let rg_id = create_test_resource_group(&older).await;
-    let ready_job_id = older.register(rg_id, &job_submission).await?;
-    let running_job_id = older.register(rg_id, &job_submission).await?;
-    let expired_job_id = older.register(rg_id, &job_submission).await?;
+    let ready_job_id = older.register(rg_id, job_submission.compressed()).await?;
+    let running_job_id = older.register(rg_id, job_submission.compressed()).await?;
+    let expired_job_id = older.register(rg_id, job_submission.compressed()).await?;
     start(&older, &[running_job_id, expired_job_id]).await?;
     older
         .apply_tree_transition(TreeTransition {
@@ -48,6 +48,7 @@ async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyh
                 error_message: Some("expired".to_owned()),
                 ..JobStateUpdate::new(expired_job_id, JobState::Running, JobState::Failed)
             }],
+            child_insertions: Vec::new(),
         })
         .await?;
     sqlx::query("UPDATE `jobs` SET `ended_at` = NOW() - INTERVAL 1 HOUR WHERE `id` = ?;")
@@ -63,16 +64,23 @@ async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyh
                 ..JobStateUpdate::new(running_job_id, JobState::Running, JobState::Succeeded)
             },
         ],
+        child_insertions: Vec::new(),
     };
 
     let results = [
         (
             "register",
-            older.register(rg_id, &job_submission).await.map(|_| ()),
+            older
+                .register(rg_id, job_submission.compressed())
+                .await
+                .map(|_| ()),
         ),
         (
             "apply_tree_transition",
-            older.apply_tree_transition(transition.clone()).await,
+            older
+                .apply_tree_transition(transition.clone())
+                .await
+                .map(|_| ()),
         ),
         (
             "delete_expired_terminated_jobs",
@@ -103,7 +111,7 @@ async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyh
         vec![expired_job_id],
         "{config:?}"
     );
-    newer.register(rg_id, &job_submission).await?;
+    newer.register(rg_id, job_submission.compressed()).await?;
 
     raw_pool.close().await;
     isolated_test_db.drop_database().await;
@@ -127,8 +135,8 @@ async fn connectors_with_different_fence_ids_are_independent() -> anyhow::Result
     let rg_id = create_test_resource_group(&first).await;
     let job_submission = flat_submission();
 
-    let first_job_id = first.register(rg_id, &job_submission).await?;
-    let second_job_id = second.register(rg_id, &job_submission).await?;
+    let first_job_id = first.register(rg_id, job_submission.compressed()).await?;
+    let second_job_id = second.register(rg_id, job_submission.compressed()).await?;
     start(&first, &[first_job_id]).await?;
     start(&second, &[second_job_id]).await?;
     isolated_test_db.drop_database().await;
@@ -148,7 +156,9 @@ async fn connect_waits_for_transactions_that_passed_the_fence() -> anyhow::Resul
     };
     let older = connect(&config).await;
     let rg_id = create_test_resource_group(&older).await;
-    let job_id = older.register(rg_id, &flat_submission()).await?;
+    let job_id = older
+        .register(rg_id, flat_submission().compressed())
+        .await?;
     let raw_pool = create_raw_pool(&config).await;
     let root_pool = create_root_pool(&config).await;
     let mut raw_connection = raw_pool.acquire().await?;
@@ -174,8 +184,11 @@ async fn connect_waits_for_transactions_that_passed_the_fence() -> anyhow::Resul
         "connect should wait for the open transaction with {config:?}"
     );
     let registering_older = older.clone();
-    let older_register_join_handle =
-        tokio::spawn(async move { registering_older.register(rg_id, &flat_submission()).await });
+    let older_register_join_handle = tokio::spawn(async move {
+        registering_older
+            .register(rg_id, flat_submission().compressed())
+            .await
+    });
     tokio::time::timeout_at(
         first_bump_attempt_deadline,
         wait_for_blocked_statements(&root_pool, "%`storage_fence`%LOCK IN SHARE MODE%", 1),
@@ -232,7 +245,11 @@ async fn a_register_that_passed_the_fence_holds_it_until_it_commits() -> anyhow:
         "resource_groups",
         rg_id.get(),
         "INSERT INTO `jobs`%`storage_fence`%",
-        async move { storage.register(rg_id, &flat_submission()).await },
+        async move {
+            storage
+                .register(rg_id, flat_submission().compressed())
+                .await
+        },
     )
     .await?;
 
@@ -270,7 +287,7 @@ async fn connect_never_lowers_the_fence() -> anyhow::Result<()> {
         .fetch_one(&raw_pool)
         .await?;
     assert_eq!(fence_session_id, newest_session_id);
-    let result = newer.register(rg_id, &flat_submission()).await;
+    let result = newer.register(rg_id, flat_submission().compressed()).await;
     assert!(
         matches!(
             result,
@@ -419,8 +436,8 @@ async fn a_missing_fence_row_is_corruption_not_fenced() -> anyhow::Result<()> {
     let storage = connect(&config).await;
     let rg_id = create_test_resource_group(&storage).await;
     let job_ids = [
-        storage.register(rg_id, &job_submission).await?,
-        storage.register(rg_id, &job_submission).await?,
+        storage.register(rg_id, job_submission.compressed()).await?,
+        storage.register(rg_id, job_submission.compressed()).await?,
     ];
 
     sqlx::query("DELETE FROM `storage_fence` WHERE `id` = ?;")
@@ -430,7 +447,10 @@ async fn a_missing_fence_row_is_corruption_not_fenced() -> anyhow::Result<()> {
     let results = [
         (
             "register",
-            storage.register(rg_id, &job_submission).await.map(|_| ()),
+            storage
+                .register(rg_id, job_submission.compressed())
+                .await
+                .map(|_| ()),
         ),
         (
             "single-row transition",
@@ -471,7 +491,9 @@ async fn register_maps_a_missing_resource_group() {
     let config = isolated_test_db.config();
     let storage = connect(&config).await;
 
-    let result = storage.register(missing_rg_id, &flat_submission()).await;
+    let result = storage
+        .register(missing_rg_id, flat_submission().compressed())
+        .await;
 
     assert!(
         matches!(result, Err(DbError::ResourceGroupNotFound(id)) if id == missing_rg_id),
@@ -495,8 +517,8 @@ async fn a_tree_transition_that_passed_the_fence_holds_it_until_it_commits() -> 
     let storage = connect(&config).await;
     let rg_id = create_test_resource_group(&storage).await;
     let job_submission = flat_submission();
-    let first_job_id = storage.register(rg_id, &job_submission).await?;
-    let second_job_id = storage.register(rg_id, &job_submission).await?;
+    let first_job_id = storage.register(rg_id, job_submission.compressed()).await?;
+    let second_job_id = storage.register(rg_id, job_submission.compressed()).await?;
 
     let starting_storage = storage.clone();
     let ((), newer) = commit_behind_a_queued_fence_bump(
@@ -540,7 +562,7 @@ async fn a_tree_transition_issued_while_the_fence_bump_is_queued_is_fenced() -> 
     let job_submission = flat_submission();
     let mut job_ids = Vec::new();
     for _ in 0..3 {
-        job_ids.push(older.register(rg_id, &job_submission).await?);
+        job_ids.push(older.register(rg_id, job_submission.compressed()).await?);
     }
     start(&older, &job_ids).await?;
     let raw_pool = create_raw_pool(&config).await;
@@ -570,11 +592,12 @@ async fn a_tree_transition_issued_while_the_fence_bump_is_queued_is_fenced() -> 
     let mut transitions = Vec::new();
     for job_ids in [&job_ids[..1], &job_ids[1..]] {
         let storage = older.clone();
-        let updates = job_ids.iter().copied().map(success_update).collect();
+        let transition = TreeTransition {
+            updates: job_ids.iter().copied().map(success_update).collect(),
+            child_insertions: Vec::new(),
+        };
         transitions.push(tokio::spawn(async move {
-            storage
-                .apply_tree_transition(TreeTransition { updates })
-                .await
+            storage.apply_tree_transition(transition).await
         }));
     }
     tokio::time::timeout_at(
@@ -637,8 +660,8 @@ async fn in_statement_guard_miss_is_corruption_not_fenced() -> anyhow::Result<()
     let storage = connect(&config).await;
     let rg_id = create_test_resource_group(&storage).await;
     let job_submission = flat_submission();
-    let running_job_id = storage.register(rg_id, &job_submission).await?;
-    let ready_job_id = storage.register(rg_id, &job_submission).await?;
+    let running_job_id = storage.register(rg_id, job_submission.compressed()).await?;
+    let ready_job_id = storage.register(rg_id, job_submission.compressed()).await?;
     start(&storage, &[running_job_id]).await?;
 
     let guard_miss_result = start(&storage, &[running_job_id]).await;
@@ -900,6 +923,8 @@ async fn start(storage: &MariaDbStorageConnector, job_ids: &[JobId]) -> Result<(
                 .iter()
                 .map(|job_id| JobStateUpdate::new(*job_id, JobState::Ready, JobState::Running))
                 .collect(),
+            child_insertions: Vec::new(),
         })
-        .await
+        .await?;
+    Ok(())
 }
