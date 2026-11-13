@@ -153,6 +153,10 @@ services:
       RUST_LOG: "${SPIDER_WORKER_LOG_LEVEL:-INFO}"
       SPIDER_WORKER_COUNT: "${SPIDER_WORKER_COUNT:-}"
       SPIDER_WORKER_CPU_PERCENT: "${SPIDER_WORKER_CPU_PERCENT:-100}"
+    deploy:
+      # A replica is a container, and one container runs all of the pool's workers: 1 runs the pool,
+      # and 0 turns it off.
+      replicas: "${SPIDER_WORKER_REPLICAS:-1}"
 
   spider-worker-dedicated:
     <<: *worker_defaults
@@ -163,6 +167,8 @@ services:
       SPIDER_WORKER_COUNT: "${SPIDER_DEDICATED_WORKER_COUNT:-}"
       SPIDER_WORKER_CPU_PERCENT: "${SPIDER_DEDICATED_WORKER_CPU_PERCENT:-25}"
     deploy:
+      # A replica is a container, and one container runs all of the pool's workers: 1 runs the pool,
+      # and 0 turns it off.
       replicas: "${SPIDER_DEDICATED_WORKER_REPLICAS:-0}"
 
 networks:
