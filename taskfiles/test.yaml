@@ -98,6 +98,15 @@ tasks:
           | grep --count "spider-execution-manager --config")"
         echo "spider-worker runs ${num_workers} execution manager(s) on ${num_cpus} core(s)."
         test "$num_workers" -eq "$num_cpus"
+      # The worker container must stop well within its grace period, i.e., without being killed.
+      - |-
+        compose="docker compose --project-name {{.SPIDER_COMPOSE_PROJECT_NAME}}"
+        start_time="$(date +%s)"
+        $compose stop spider-worker
+        stop_duration="$(( $(date +%s) - start_time ))"
+        $compose logs --timestamps --tail 200 spider-worker
+        echo "spider-worker stopped in ${stop_duration} s."
+        test "$stop_duration" -lt 30
 
   # A generic wrapper that runs the given task with a MariaDB storage backend.
   #
