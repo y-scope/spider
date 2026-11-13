@@ -66,6 +66,34 @@ impl<
         }
     }
 
+    /// Inserts job control blocks into the cache under one write lock.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::JobAlreadyExists`] if a job control block with the ID of one of `jcbs`
+    ///   already exists, or two of `jcbs` share an ID. The job control blocks before it stay
+    ///   inserted.
+    pub async fn insert_many(
+        &self,
+        jcbs: Vec<SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>>,
+    ) -> Result<(), InternalError> {
+        let mut job_map = self.jobs.write().await;
+        for jcb in jcbs {
+            match job_map.entry(jcb.id()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(jcb);
+                }
+                Entry::Occupied(entry) => {
+                    return Err(InternalError::JobAlreadyExists(*entry.key()));
+                }
+            }
+        }
+        drop(job_map);
+        Ok(())
+    }
+
     /// Gets a job control block from the cache.
     ///
     /// # Returns
@@ -297,6 +325,46 @@ mod tests {
         ))) = result
         {
             assert_eq!(id, job_id, "error should contain the duplicate job ID");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn insert_many_inserts_jcbs_until_an_id_that_is_cached_or_repeated() -> anyhow::Result<()>
+    {
+        let cache: JobCache<MockInboundQueueSender, MockTaskInstancePoolConnector> =
+            JobCache::new();
+        let existing_job_id = JobId::random();
+        cache.insert(create_test_jcb(existing_job_id).await).await?;
+
+        let duplicated_job_id = JobId::random();
+        for job_ids in [
+            [JobId::random(), existing_job_id],
+            [duplicated_job_id, duplicated_job_id],
+        ] {
+            let mut jcbs = Vec::new();
+            for job_id in job_ids {
+                jcbs.push(create_test_jcb(job_id).await);
+            }
+            let result = cache.insert_many(jcbs).await;
+            assert!(
+                matches!(
+                    result,
+                    Err(InternalError::JobAlreadyExists(job_id)) if job_id == job_ids[1]
+                ),
+                "an insert of {job_ids:?} gave {result:?}"
+            );
+            assert!(cache.get(job_ids[0]).await.is_some());
+        }
+
+        let new_job_ids = [JobId::random(), JobId::random()];
+        let mut jcbs = Vec::new();
+        for job_id in new_job_ids {
+            jcbs.push(create_test_jcb(job_id).await);
+        }
+        cache.insert_many(jcbs).await?;
+        for job_id in new_job_ids {
+            assert!(cache.get(job_id).await.is_some());
         }
         Ok(())
     }

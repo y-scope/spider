@@ -1,6 +1,8 @@
 //! The job-level events of a job tree and their outcomes.
 
 use std::fmt;
+use std::ops::Add;
+use std::ops::Sub;
 
 use spider_core::job::JobState;
 use spider_core::task::TaskIndex;
@@ -9,6 +11,9 @@ use spider_core::types::io::TaskOutput;
 
 use crate::cache::error::CacheError;
 use crate::cache::error::StaleStateError;
+use crate::cache::task::PreparedChild;
+use crate::limits::MAX_CHILDREN_PER_JOB;
+use crate::limits::MAX_JOB_CHILDREN_SIZE;
 
 /// A job-level event of one job of a tree.
 #[derive(Debug)]
@@ -199,16 +204,80 @@ pub enum TreeEventOutcome {
 /// The reply to an event.
 pub type TreeEventReply = Result<TreeEventOutcome, CacheError>;
 
+/// The number of child jobs and the total size of their compressed submission.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ChildJobUsage {
+    pub count: usize,
+    pub size: u64,
+}
+
+impl ChildJobUsage {
+    /// # Returns
+    ///
+    /// The usage of `children`.
+    #[must_use]
+    pub fn of(children: &[PreparedChild]) -> Self {
+        Self {
+            count: children.len(),
+            size: children.iter().fold(0, |size, child| {
+                size.saturating_add(child.submission().size())
+            }),
+        }
+    }
+
+    /// # Returns
+    ///
+    /// Whether the children fit within the limits of one job: at most [`MAX_CHILDREN_PER_JOB`]
+    /// children of at most [`MAX_JOB_CHILDREN_SIZE`] bytes.
+    #[must_use]
+    pub const fn is_within_job_limits(self) -> bool {
+        self.count <= MAX_CHILDREN_PER_JOB && self.size <= MAX_JOB_CHILDREN_SIZE
+    }
+}
+
+impl Add for ChildJobUsage {
+    type Output = Self;
+
+    /// # Returns
+    ///
+    /// The usage of the union of the children of `self` and `other`, saturating at the numeric
+    /// bounds.
+    fn add(self, other: Self) -> Self {
+        Self {
+            count: self.count.saturating_add(other.count),
+            size: self.size.saturating_add(other.size),
+        }
+    }
+}
+
+impl Sub for ChildJobUsage {
+    type Output = Self;
+
+    /// # Returns
+    ///
+    /// The usage of the children of `self` without those of `other`, saturating at zero.
+    fn sub(self, other: Self) -> Self {
+        Self {
+            count: self.count.saturating_sub(other.count),
+            size: self.size.saturating_sub(other.size),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use spider_core::job::JobState;
     use strum::IntoEnumIterator;
 
+    use super::ChildJobUsage;
     use crate::cache::error::StaleStateError;
+    use crate::cache::task::PreparedChild;
     use crate::cache::tree::Lane;
     use crate::cache::tree::TreeEventKind;
     use crate::cache::tree::test_utils::failure;
     use crate::cache::tree::test_utils::start;
+    use crate::state::test_utils::create_test_child_submission_with_independent_tasks;
+    use crate::state::test_utils::create_test_prepared_child;
 
     #[test]
     fn start_is_accepted_only_by_a_ready_job() {
@@ -322,6 +391,39 @@ mod tests {
                 "a cancel in {state} gave {result:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn child_job_usage_of_children_counts_them_and_sums_their_submission_sizes()
+    -> anyhow::Result<()> {
+        let children = [
+            create_test_prepared_child(0).await,
+            PreparedChild::create(create_test_child_submission_with_independent_tasks(2)).await?,
+        ];
+        let usage = ChildJobUsage::of(&children);
+        assert_eq!(
+            usage,
+            ChildJobUsage {
+                count: 2,
+                size: children[0].submission().size() + children[1].submission().size(),
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn child_job_usage_addition_saturates_at_the_numeric_bounds() {
+        let usage = ChildJobUsage {
+            count: usize::MAX,
+            size: u64::MAX,
+        } + ChildJobUsage { count: 1, size: 1 };
+        assert_eq!(
+            usage,
+            ChildJobUsage {
+                count: usize::MAX,
+                size: u64::MAX,
+            }
+        );
     }
 
     #[test]

@@ -513,7 +513,7 @@ impl<
                     .await;
             }
             let state = match jcb
-                .succeed_task_instance(task_instance_id, task_index, task_outputs)
+                .succeed_task_instance(task_instance_id, task_index, task_outputs, Vec::new())
                 .await
             {
                 Err(rejection @ CacheError::TaskOutputsLengthMismatch { .. }) => {
