@@ -666,7 +666,7 @@ impl InstrumentedJcb {
             let start = Instant::now();
             let result = self
                 .jcb
-                .succeed_task_instance(task_instance_id, task_index, task_outputs)
+                .succeed_task_instance(task_instance_id, task_index, task_outputs, Vec::new())
                 .await;
             let _ = sender.send(InstrumentSample::Success {
                 elapsed: start.elapsed(),
@@ -675,7 +675,7 @@ impl InstrumentedJcb {
             result
         } else {
             self.jcb
-                .succeed_task_instance(task_instance_id, task_index, task_outputs)
+                .succeed_task_instance(task_instance_id, task_index, task_outputs, Vec::new())
                 .await
         }
     }
