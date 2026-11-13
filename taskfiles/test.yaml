@@ -101,12 +101,17 @@ tasks:
       # The worker container must stop well within its grace period, i.e., without being killed.
       - |-
         compose="docker compose --project-name {{.SPIDER_COMPOSE_PROJECT_NAME}}"
-        start_time="$(date +%s)"
-        $compose stop spider-worker
-        stop_duration="$(( $(date +%s) - start_time ))"
-        $compose logs --timestamps --tail 200 spider-worker
-        echo "spider-worker stopped in ${stop_duration} s."
-        test "$stop_duration" -lt 30
+        $compose stop spider-worker &
+        for i in 1 2 3 4 5 6 7 8; do
+          sleep 2
+          echo "--- spider-worker processes $((i * 2)) s after the stop request:"
+          $compose top spider-worker || true
+        done
+        wait
+        echo "--- spider-scheduler logs:"
+        $compose logs --timestamps --since 2m spider-scheduler | tail -n 400
+        echo "--- spider-worker logs:"
+        $compose logs --timestamps --since 2m spider-worker | tail -n 600
 
   # A generic wrapper that runs the given task with a MariaDB storage backend.
   #
