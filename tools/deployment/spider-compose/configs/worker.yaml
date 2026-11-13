@@ -19,3 +19,65 @@ configs:
         inherited_env: ${SPIDER_WORKER_INHERITED_ENV:-[]}
         max_log_line_bytes: ${SPIDER_WORKER_MAX_LOG_LINE_BYTES:-65536}
         package_dir: "${SPIDER_WORKER_PACKAGE_DIR:-/opt/spider/packages}"
+
+  # Runs a pool of workers (execution managers) in one container.
+  #
+  # Environment variables:
+  # - SPIDER_WORKER_COUNT: The number of workers to run. If empty, the pool runs one worker for
+  #   every CPU core in its `SPIDER_WORKER_CPU_PERCENT` share, with a minimum of one worker.
+  # - SPIDER_WORKER_CPU_PERCENT: The pool's share of the CPU cores, as a percentage.
+  spider-worker-launcher:
+    content: |
+      #!/usr/bin/env bash
+
+      set -o errexit
+      set -o nounset
+      set -o pipefail
+
+      readonly POSITIVE_INTEGER_REGEX='^[1-9][0-9]*$$'
+
+      num_workers="$${SPIDER_WORKER_COUNT:-}"
+      if [[ -z "$$num_workers" ]]; then
+          cpu_percent="$${SPIDER_WORKER_CPU_PERCENT:-}"
+          if [[ ! "$$cpu_percent" =~ $$POSITIVE_INTEGER_REGEX ]]; then
+              echo "Invalid worker CPU percent '$${cpu_percent}': expected a positive integer." >&2
+              exit 1
+          fi
+          num_cpus=$$(nproc)
+          num_workers=$$(( num_cpus * cpu_percent / 100 ))
+          if (( num_workers < 1 )); then
+              num_workers=1
+          fi
+      elif [[ ! "$$num_workers" =~ $$POSITIVE_INTEGER_REGEX ]]; then
+          echo "Invalid worker count '$${num_workers}': expected a positive integer." >&2
+          exit 1
+      fi
+
+      # The launcher runs as the container's PID 1, which ignores signals it has no handler for.
+      # Trapping the stop signals makes them interrupt `wait` instead.
+      stop_requested=false
+      trap 'stop_requested=true' TERM INT
+
+      echo "Starting $${num_workers} execution manager(s)." >&2
+      pids=()
+      for (( i = 0; i < num_workers; i++ )); do
+          if "$$stop_requested"; then
+              break
+          fi
+          spider-execution-manager --config /etc/spider/worker.yaml &
+          pids+=("$$!")
+      done
+
+      # Stop the whole pool once any worker exits or a stop signal arrives. When a worker exits,
+      # exit with its status so that the container's restart policy applies to the pool as a whole.
+      exit_code=0
+      if ! "$$stop_requested"; then
+          wait -n || exit_code=$$?
+      fi
+      kill -TERM "$${pids[@]}" 2>/dev/null || true
+
+      # `wait` returns early whenever a trapped signal arrives, so retry until every worker exits.
+      until wait; do
+          :
+      done
+      exit "$$exit_code"
