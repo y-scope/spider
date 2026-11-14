@@ -123,16 +123,15 @@ impl<
 
         if !updates.is_empty() {
             let transitions: Vec<Transition> = updates.iter().map(Transition::from).collect();
-            let child_insertions = match &registration {
-                Some(registration) => self.child_insertions(in_flight, registration)?,
-                None => Vec::new(),
-            };
             let child_ids = match self
                 .env
                 .db
                 .apply_tree_transition(TreeTransition {
                     updates,
-                    child_insertions,
+                    child_insertions: match &registration {
+                        Some(registration) => self.child_insertions(in_flight, registration)?,
+                        None => Vec::new(),
+                    },
                 })
                 .await
             {
@@ -152,10 +151,10 @@ impl<
                 self.apply_to_cache(transition).await?;
             }
             if let Some(registration) = &registration {
-                publications.extend(
-                    self.insert_registered_children_into_tree(in_flight, registration, child_ids)
-                        .await?,
-                );
+                let publications_of_registered_child_jobs = self
+                    .insert_registered_children_into_tree(in_flight, registration, child_ids)
+                    .await?;
+                publications.extend(publications_of_registered_child_jobs);
             }
         }
 
