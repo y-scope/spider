@@ -2,6 +2,7 @@ name: "spider"
 
 include:
   - "./configs/database.yaml"
+  - "./configs/entrypoints.yaml"
   - "./configs/scheduler/${SPIDER_SCHEDULER_POLICY:-resource_group_round_robin}.yaml"
   - "./configs/storage.yaml"
   - "./configs/worker.yaml"
@@ -27,6 +28,9 @@ x-worker-defaults: &worker_defaults
   networks:
     - "default"
     - "spider-internal"
+  entrypoint: [
+    "bash", "/etc/spider/worker-entrypoint.sh",
+  ]
   command: [
     "spider-execution-manager",
     "--config", "/etc/spider/worker.yaml",
@@ -34,6 +38,8 @@ x-worker-defaults: &worker_defaults
   configs:
     - source: "spider-worker-config"
       target: "/etc/spider/worker.yaml"
+    - source: "spider-worker-entrypoint"
+      target: "/etc/spider/worker-entrypoint.sh"
   depends_on:
     spider-scheduler:
       condition: "service_healthy"
@@ -115,15 +121,20 @@ services:
       ${SPIDER_SCHEDULER_IMAGE_REF:-ghcr.io/y-scope/spider/scheduler:${SPIDER_IMAGE_TAG:-main}}
     networks:
       - "spider-internal"
+    entrypoint: [
+      "bash", "/etc/spider/scheduler-entrypoint.sh",
+    ]
     command: [
       "spider-scheduler",
-      "--config", "/etc/spider/scheduler.yaml",
+      "--config", "/tmp/scheduler.yaml",
     ]
     environment:
       RUST_LOG: "${SPIDER_SCHEDULER_LOG_LEVEL:-INFO}"
     configs:
       - source: "spider-scheduler-config"
-        target: "/etc/spider/scheduler.yaml"
+        target: "/etc/spider/scheduler.template.yaml"
+      - source: "spider-scheduler-entrypoint"
+        target: "/etc/spider/scheduler-entrypoint.sh"
     depends_on:
       spider-storage:
         condition: "service_healthy"
@@ -140,8 +151,12 @@ services:
     <<: *worker_defaults
     environment:
       RUST_LOG: "${SPIDER_WORKER_LOG_LEVEL:-INFO}"
+      SPIDER_WORKER_COUNT: "${SPIDER_WORKER_COUNT:-}"
+      SPIDER_WORKER_CPU_PERCENT: "${SPIDER_WORKER_CPU_PERCENT:-100}"
     deploy:
-      replicas: "${SPIDER_WORKER_REPLICAS:-4}"
+      # A replica is a container, and one container runs all of the pool's workers: 1 runs the pool,
+      # and 0 turns it off.
+      replicas: "${SPIDER_WORKER_REPLICAS:-1}"
 
   spider-worker-dedicated:
     <<: *worker_defaults
@@ -149,7 +164,11 @@ services:
       RUST_LOG: "${SPIDER_WORKER_LOG_LEVEL:-INFO}"
       SPIDER_EXTERNAL_RESOURCE_GROUP_ID: "${SPIDER_DEDICATED_RESOURCE_GROUP_ID:-}"
       SPIDER_RESOURCE_GROUP_PASSWORD: "${SPIDER_DEDICATED_RESOURCE_GROUP_PASSWORD:-}"
+      SPIDER_WORKER_COUNT: "${SPIDER_DEDICATED_WORKER_COUNT:-}"
+      SPIDER_WORKER_CPU_PERCENT: "${SPIDER_DEDICATED_WORKER_CPU_PERCENT:-0}"
     deploy:
+      # A replica is a container, and one container runs all of the pool's workers: 1 runs the pool,
+      # and 0 turns it off.
       replicas: "${SPIDER_DEDICATED_WORKER_REPLICAS:-0}"
 
 networks:
