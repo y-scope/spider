@@ -503,7 +503,7 @@ fn fail_job_with_oversized_payload(
     registration: Option<&PlannedRegistration>,
     error: DbError,
 ) -> Result<(), CacheError> {
-    let culprit_and_message = match (&error, registration) {
+    let pending_and_message = match (&error, registration) {
         (DbError::OutputsTooLarge { job_id, .. }, _) => in_flight
             .iter_mut()
             .zip(outcomes)
@@ -528,15 +528,15 @@ fn fail_job_with_oversized_payload(
         }
         _ => None,
     };
-    let Some((culprit, message)) = culprit_and_message else {
+    let Some((pending, message)) = pending_and_message else {
         return Err(error.into());
     };
     tracing::warn!(
-        job_id = ? culprit.event.job_id,
+        job_id = ? pending.event.job_id,
         error = % error,
         "The database rejected the payload of a job's event. Failing the job."
     );
-    culprit.event.kind = TreeEventKind::TerminalFailure {
+    pending.event.kind = TreeEventKind::TerminalFailure {
         lane: Lane::Regular,
         message,
     };

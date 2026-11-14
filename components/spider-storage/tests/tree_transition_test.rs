@@ -375,8 +375,10 @@ async fn a_child_insertion_over_the_row_payload_is_too_large_and_writes_nothing(
     assert!(
         matches!(
             result,
-            Err(DbError::ChildTooLarge { parent_id: culprit, size, limit })
-                if culprit == parent_id && size == oversized_size && limit < max_allowed_packet
+            Err(DbError::ChildTooLarge { parent_id: reported_parent_id, size, limit })
+                if reported_parent_id == parent_id
+                    && size == oversized_size
+                    && limit < max_allowed_packet
         ),
         "an oversized child insertion should be too large, got {result:?}"
     );
