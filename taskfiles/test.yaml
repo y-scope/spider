@@ -98,21 +98,16 @@ tasks:
           | grep --count "spider-execution-manager --config")"
         echo "spider-worker runs ${num_workers} execution manager(s) on ${num_cpus} core(s)."
         test "$num_workers" -eq "$num_cpus"
-      # The worker container must stop well within its grace period, i.e., without being killed.
+      # The worker container must exit on the stop signal itself, without Docker having to kill it.
       - |-
         compose="docker compose --project-name {{.SPIDER_COMPOSE_PROJECT_NAME}}"
         container="$($compose ps --quiet spider-worker)"
-        date --utc +"stop requested at %Y-%m-%dT%H:%M:%S.%NZ"
+        date --utc +"spider-worker stop requested at %Y-%m-%dT%H:%M:%S.%NZ."
         $compose stop spider-worker
-        date --utc +"stop returned at %Y-%m-%dT%H:%M:%S.%NZ"
-        echo "spider-worker exit code and finish time:"
-        docker inspect --format "{{`{{.State.ExitCode}} {{.State.FinishedAt}}`}}" "$container"
-        echo "--- spider-scheduler shutdown logs:"
-        $compose logs --timestamps --since 3m spider-scheduler | grep -i "shutdown" | tail -n 120
-        echo "--- spider-worker logs:"
-        $compose logs --timestamps --since 3m spider-worker \
-          | grep --invert-match -E "new task assignment|Task executor acquired|Task completed" \
-          | tail -n 300
+        format="{{`{{.State.ExitCode}} {{.State.FinishedAt}}`}}"
+        state="$(docker inspect --format "$format" "$container")"
+        echo "spider-worker exited with status ${state% *} at ${state#* }."
+        test "${state% *}" -eq 143
 
   # A generic wrapper that runs the given task with a MariaDB storage backend.
   #
