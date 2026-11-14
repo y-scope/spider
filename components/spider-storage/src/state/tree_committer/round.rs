@@ -90,8 +90,8 @@ impl<
     /// the round plans. `in_flight`, which [`super::CommitterContextGuard`] owns, keeps the events
     /// to put back at the front of the pending queue, in their order: the events that the round
     /// defers or, if the database rejects the outputs of a job or the children that the round
-    /// registers (see [`fail_culprit`]), every event of the round, with the culprit event turned
-    /// into its job's failure.
+    /// registers (see [`fail_job_with_oversized_payload`]), every event of the round, with that
+    /// job's event turned into the job's failure.
     ///
     /// # Errors
     ///
@@ -99,18 +99,14 @@ impl<
     ///
     /// * Forwards [`TreeStructure::plan_events`]'s return values on failure.
     /// * Forwards [`Self::child_insertions`]'s return values on failure.
-    /// * Forwards [`fail_culprit`]'s return values on failure.
+    /// * Forwards [`fail_job_with_oversized_payload`]'s return values on failure.
     /// * Forwards [`Self::apply_to_cache`]'s return values on failure.
-    /// * Forwards [`Self::bind_children`]'s return values on failure.
+    /// * Forwards [`Self::insert_registered_children_into_tree`]'s return values on failure.
     /// * Forwards [`Self::publish`]'s return values on failure.
     ///
     /// # Panics
     ///
-    /// Panics if:
-    ///
-    /// * The plan of the round does not have exactly one outcome per event of `in_flight`.
-    /// * [`Self::child_insertions`], [`Self::apply_to_cache`], [`Self::bind_children`],
-    ///   [`Self::publish`] or, in debug and test builds, [`Self::assert_invariants`] panics.
+    /// Panics if the plan of the round does not have exactly one outcome per event of `in_flight`.
     pub(super) async fn run_round(
         &mut self,
         in_flight: &mut Vec<Pending>,
@@ -142,7 +138,12 @@ impl<
             {
                 Ok(child_ids) => child_ids,
                 Err(error) => {
-                    return fail_culprit(in_flight, &outcomes, registration.as_ref(), error);
+                    return fail_job_with_oversized_payload(
+                        in_flight,
+                        &outcomes,
+                        registration.as_ref(),
+                        error,
+                    );
                 }
             };
             self.hit_hook(HookPoint::CommitterRoundAfterDbWrite, &transitions)
@@ -152,7 +153,7 @@ impl<
             }
             if let Some(registration) = &registration {
                 publications.extend(
-                    self.bind_children(in_flight, registration, child_ids)
+                    self.insert_registered_children_into_tree(in_flight, registration, child_ids)
                         .await?,
                 );
             }
@@ -230,23 +231,19 @@ impl<
 
     /// # Type Parameters
     ///
-    /// * `'event_lifetime` - The lifetime of the borrowed events of the round.
+    /// * `'event_lifetime` - The lifetime of the round's events, which the insertions borrow.
     ///
     /// # Returns
     ///
-    /// The database part of `registration`: one insertion, under the registering job in the tree of
-    /// the committer's root and in the registering job's resource group, per child of the event of
-    /// `in_flight` that `registration` registers, in order, on success.
+    /// The database insertions of the children that `registration` registers, in order, on success.
+    /// Each child is inserted under the registering job, in the committer's tree and in the
+    /// registering job's resource group.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * Forwards [`registered_children`]'s return values on failure.
-    ///
-    /// # Panics
-    ///
-    /// Panics if [`Self::jcb`] panics.
     fn child_insertions<'event_lifetime>(
         &self,
         in_flight: &'event_lifetime mut [Pending],
@@ -265,9 +262,10 @@ impl<
             .collect())
     }
 
-    /// Adds the children that `registration` registers, which the round has inserted under the IDs
-    /// `child_ids`, in order, to the structure, the committer and the job cache. Takes the children
-    /// out of the registering event of `in_flight`.
+    /// Inserts the children that `registration` registers, which the round has inserted into the
+    /// database under the IDs `child_ids`, in order, into the in-memory tree: builds each child's
+    /// control block and adds the children to the structure, the committer and the job cache. Takes
+    /// the children out of the registering event of `in_flight`.
     ///
     /// # Returns
     ///
@@ -286,11 +284,7 @@ impl<
     /// * Forwards [`TreeStructure::insert_children`]'s return values on failure.
     /// * Forwards [`JobCache::insert_many`](crate::state::JobCache::insert_many)'s return values on
     ///   failure.
-    ///
-    /// # Panics
-    ///
-    /// Panics if [`Self::jcb`] panics.
-    async fn bind_children(
+    async fn insert_registered_children_into_tree(
         &mut self,
         in_flight: &mut [Pending],
         registration: &PlannedRegistration,
@@ -504,7 +498,7 @@ fn registered_children<'event_lifetime>(
 /// Returns an error if:
 ///
 /// * [`CacheError`] converted from `error` if it is none of the errors above.
-fn fail_culprit(
+fn fail_job_with_oversized_payload(
     in_flight: &mut [Pending],
     outcomes: &[RoundOutcome],
     registration: Option<&PlannedRegistration>,
@@ -648,7 +642,7 @@ mod tests {
         };
         let expected_message = error.to_string();
 
-        fail_culprit(&mut in_flight, &outcomes, None, error)?;
+        fail_job_with_oversized_payload(&mut in_flight, &outcomes, None, error)?;
         let [other_job_completion, stale_commit_done, completion] = in_flight.as_slice() else {
             panic!("the round should keep its three events");
         };
@@ -702,7 +696,12 @@ mod tests {
                 Some(&planned_registration),
             ),
         ] {
-            let result = fail_culprit(&mut in_flight, &outcomes, round_registration, error);
+            let result = fail_job_with_oversized_payload(
+                &mut in_flight,
+                &outcomes,
+                round_registration,
+                error,
+            );
             assert!(
                 matches!(result, Err(CacheError::Internal(InternalError::Db(_)))),
                 "a write error that no registering event causes gave {result:?}"
@@ -716,7 +715,7 @@ mod tests {
             "an error that no event causes should fail no event"
         );
 
-        fail_culprit(
+        fail_job_with_oversized_payload(
             &mut in_flight,
             &outcomes,
             Some(&planned_registration),
@@ -780,7 +779,12 @@ mod tests {
                 Some(&planned_registration),
             ),
         ] {
-            let result = fail_culprit(&mut in_flight, &outcomes, round_registration, error);
+            let result = fail_job_with_oversized_payload(
+                &mut in_flight,
+                &outcomes,
+                round_registration,
+                error,
+            );
             assert!(
                 matches!(result, Err(CacheError::Internal(InternalError::Db(_)))),
                 "a child too large that no registering event causes gave {result:?}"
@@ -796,7 +800,7 @@ mod tests {
 
         let error = child_too_large(ROOT_ID);
         let expected_message = error.to_string();
-        fail_culprit(
+        fail_job_with_oversized_payload(
             &mut in_flight,
             &outcomes,
             Some(&planned_registration),

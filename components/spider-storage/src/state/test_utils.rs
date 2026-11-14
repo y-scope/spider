@@ -616,10 +616,6 @@ pub async fn create_test_incompressible_prepared_child(input_size: u64) -> Prepa
 ///
 /// The prepared children of [`create_test_prepared_child`] for the input bytes `0` to
 /// `num_children - 1`, in order.
-///
-/// # Panics
-///
-/// Panics if [`create_test_prepared_child`] panics.
 pub async fn create_test_prepared_children(num_children: u8) -> Vec<PreparedChild> {
     let mut children = Vec::with_capacity(usize::from(num_children));
     for input_byte in 0..num_children {
