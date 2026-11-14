@@ -460,7 +460,9 @@ mod hooked {
     use spider_core::types::id::ResourceGroupId;
 
     use super::*;
+    use crate::state::test_utils::MOCK_MAX_CHILD_SIZE;
     use crate::state::test_utils::MOCK_MAX_OUTPUTS_SIZE;
+    use crate::state::test_utils::create_test_incompressible_prepared_child;
     use crate::state::tree_committer::test_utils::join_reply;
     use crate::test_hooks::HookAction;
     use crate::test_hooks::HookCount;
@@ -783,6 +785,55 @@ mod hooked {
         assert!(
             tree.db.parents.is_empty(),
             "a rejected registration should insert no child"
+        );
+        assert_eq!(tree.jcb.state().await, JobState::Failed);
+        assert_eq!(tree.gc_receiver.try_recv(), Ok(ROOT_ID));
+        tree.wait_for_exit().await;
+        assert!(!tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_registration_of_a_child_too_large_fails_the_parent_in_the_next_round()
+    -> anyhow::Result<()> {
+        let mut tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+
+        let oversized_child = create_test_incompressible_prepared_child(MOCK_MAX_CHILD_SIZE).await;
+        let expected_message = DbError::ChildTooLarge {
+            parent_id: ROOT_ID,
+            size: oversized_child.submission().size(),
+            limit: MOCK_MAX_CHILD_SIZE,
+        }
+        .to_string();
+        let reply_join_handles = tree
+            .submit_in_one_round(vec![registration(vec![oversized_child]), start()])
+            .await;
+        let [registration_join_handle, start_join_handle] =
+            <[_; 2]>::try_from(reply_join_handles).expect("two events were submitted");
+        let registration = join_reply(registration_join_handle).await;
+        assert!(
+            matches!(
+                registration,
+                Ok(TreeEventOutcome::Applied(JobState::Failed))
+            ),
+            "a registration of a child too large gave {registration:?}"
+        );
+        let start = join_reply(start_join_handle).await;
+        assert!(
+            matches!(
+                start,
+                Ok(TreeEventOutcome::Stale(StaleStateError::JobAlreadyStarted))
+            ),
+            "a stale start of the round with a child too large gave {start:?}"
+        );
+        assert_eq!(
+            tree.db.errors.get(&ROOT_ID).as_deref(),
+            Some(&expected_message)
+        );
+        assert!(
+            tree.db.parents.is_empty(),
+            "a registration of a child too large should insert no child"
         );
         assert_eq!(tree.jcb.state().await, JobState::Failed);
         assert_eq!(tree.gc_receiver.try_recv(), Ok(ROOT_ID));

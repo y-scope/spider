@@ -8,6 +8,8 @@ use std::sync::atomic::Ordering;
 
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
+use rand::Rng;
+use rand::SeedableRng;
 use spider_core::job::JobState;
 use spider_core::task::DataTypeDescriptor;
 use spider_core::task::ExecutionPolicy;
@@ -59,6 +61,10 @@ use crate::test_hooks::TestHooks;
 /// The maximum total size of one job's outputs that [`MockDbConnector`] accepts in a tree
 /// transition.
 pub const MOCK_MAX_OUTPUTS_SIZE: u64 = 1024 * 1024;
+
+/// The maximum payload size of one child insertion that [`MockDbConnector`] accepts in a tree
+/// transition.
+pub const MOCK_MAX_CHILD_SIZE: u64 = 64 * 1024;
 
 /// The maximum statement payload that [`MockDbConnector`] reports.
 pub const MOCK_MAX_STATEMENT_PAYLOAD: u64 = 4 * 1024 * 1024;
@@ -216,6 +222,17 @@ impl InternalJobOrchestration for MockDbConnector {
                     limit: MOCK_MAX_OUTPUTS_SIZE,
                 });
             }
+        }
+        if let Some(insertion) = transition
+            .child_insertions
+            .iter()
+            .find(|insertion| insertion.payload_size() > MOCK_MAX_CHILD_SIZE)
+        {
+            return Err(DbError::ChildTooLarge {
+                parent_id: insertion.parent_id,
+                size: insertion.payload_size(),
+                limit: MOCK_MAX_CHILD_SIZE,
+            });
         }
         for update in &transition.updates {
             let current = self.states.get(&update.job_id).map(|state| *state);
@@ -561,6 +578,38 @@ pub async fn create_test_prepared_child(input_byte: u8) -> PreparedChild {
     PreparedChild::create(create_test_child_submission(input_byte))
         .await
         .expect("child preparation should succeed")
+}
+
+/// # Returns
+///
+/// A prepared child with [`create_test_task_graph`]'s task graph whose only positional input is
+/// `input_size` pseudo-random bytes, so that its payload exceeds `input_size`.
+///
+/// # Panics
+///
+/// Panics if:
+///
+/// * `input_size` does not fit in `usize`.
+/// * The input serialization, the compression or the child preparation fails.
+/// * The child's payload does not exceed `input_size`.
+pub async fn create_test_incompressible_prepared_child(input_size: u64) -> PreparedChild {
+    let mut input = vec![0u8; usize::try_from(input_size).expect("the size should fit in `usize`")];
+    rand::rngs::StdRng::seed_from_u64(0).fill(input.as_mut_slice());
+    let mut builder = TaskGraphInputBuilder::new();
+    builder
+        .append_task_input(&input)
+        .expect("task input appending should succeed");
+    let child = PreparedChild::create(CompressedJobSubmission {
+        compressed_serialized_task_graph: compress_task_graph(&create_test_task_graph()),
+        compressed_serialized_job_inputs: compress_job_inputs(&builder.build()),
+    })
+    .await
+    .expect("child preparation should succeed");
+    assert!(
+        child.submission().size() > input_size,
+        "the child's payload should not compress below its input size"
+    );
+    child
 }
 
 /// # Returns

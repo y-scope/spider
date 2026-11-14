@@ -486,14 +486,15 @@ fn registered_children<'event_lifetime>(
 ///
 /// * A [`DbError::OutputsTooLarge`] fails the job whose outputs the database rejects: the round's
 ///   planned [`TreeEventKind::RegularTasksDone`] event of that job becomes that failure.
-/// * A [`DbError::PayloadRejected`] of a round with a `registration` fails the registering job: the
+/// * A [`DbError::ChildTooLarge`] of the registering job of a round's `registration`, or a
+///   [`DbError::PayloadRejected`] of a round with a `registration`, fails the registering job: the
 ///   registering event becomes that failure.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
-/// * [`CacheError`] converted from `error` if it is neither of the two errors above.
+/// * [`CacheError`] converted from `error` if it is none of the errors above.
 fn fail_culprit(
     in_flight: &mut [Pending],
     outcomes: &[RoundOutcome],
@@ -515,6 +516,14 @@ fn fail_culprit(
             .get_mut(registration.event_index)
             .filter(|pending| pending.event.job_id == registration.parent_id)
             .map(|pending| (pending, "child payload rejected by the database".to_owned())),
+        (DbError::ChildTooLarge { parent_id, .. }, Some(registration))
+            if *parent_id == registration.parent_id =>
+        {
+            in_flight
+                .get_mut(registration.event_index)
+                .filter(|pending| pending.event.job_id == registration.parent_id)
+                .map(|pending| (pending, error.to_string()))
+        }
         _ => None,
     };
     let Some((culprit, message)) = culprit_and_message else {
@@ -549,6 +558,7 @@ mod tests {
     use crate::inbound_queue::create_inbound_queue;
     use crate::state::JobCache;
     use crate::state::JobCacheGcHandle;
+    use crate::state::test_utils::MOCK_MAX_CHILD_SIZE;
     use crate::state::test_utils::MOCK_MAX_OUTPUTS_SIZE;
     use crate::state::test_utils::MockDbConnector;
     use crate::state::test_utils::MockInboundQueueSender;
@@ -720,6 +730,86 @@ mod tests {
                     lane: Lane::Regular,
                     message,
                 } if message == "child payload rejected by the database"
+            ),
+            "the registering event should become its job's failure"
+        );
+        assert!(
+            matches!(stale_start.event.kind, TreeEventKind::Start { .. }),
+            "a stale event of the job should be kept"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_child_too_large_fails_only_the_registering_event() -> anyhow::Result<()> {
+        let children = create_test_prepared_children(1).await;
+        let planned_registration = PlannedRegistration {
+            event_index: 1,
+            parent_id: ROOT_ID,
+            children: ChildJobUsage::of(&children),
+        };
+        let mut in_flight = vec![
+            pending(ROOT_ID.get() + 1, regular_tasks_done()),
+            pending(ROOT_ID.get(), registration(children)),
+            pending(ROOT_ID.get(), start()),
+        ];
+        let outcomes = [
+            RoundOutcome::Planned(TreeEventOutcome::Untracked),
+            RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::BlockingOnChildren)),
+            RoundOutcome::Planned(TreeEventOutcome::Stale(StaleStateError::JobAlreadyStarted)),
+        ];
+        let child_too_large = |parent_id| DbError::ChildTooLarge {
+            parent_id,
+            size: MOCK_MAX_CHILD_SIZE + 1,
+            limit: MOCK_MAX_CHILD_SIZE,
+        };
+
+        for (error, round_registration) in [
+            (child_too_large(ROOT_ID), None),
+            (
+                child_too_large(JobId::from(ROOT_ID.get() + 1)),
+                Some(&planned_registration),
+            ),
+        ] {
+            let result = fail_culprit(&mut in_flight, &outcomes, round_registration, error);
+            assert!(
+                matches!(result, Err(CacheError::Internal(InternalError::Db(_)))),
+                "a child too large that no registering event causes gave {result:?}"
+            );
+        }
+        assert!(
+            in_flight.iter().all(|pending| !matches!(
+                pending.event.kind,
+                TreeEventKind::TerminalFailure { .. }
+            )),
+            "an error that no event causes should fail no event"
+        );
+
+        let error = child_too_large(ROOT_ID);
+        let expected_message = error.to_string();
+        fail_culprit(
+            &mut in_flight,
+            &outcomes,
+            Some(&planned_registration),
+            error,
+        )?;
+        let [other_job_completion, failed_registration, stale_start] = in_flight.as_slice() else {
+            panic!("the round should keep its three events");
+        };
+        assert!(
+            matches!(
+                other_job_completion.event.kind,
+                TreeEventKind::RegularTasksDone { .. }
+            ),
+            "the completion of another job should be kept"
+        );
+        assert!(
+            matches!(
+                &failed_registration.event.kind,
+                TreeEventKind::TerminalFailure {
+                    lane: Lane::Regular,
+                    message,
+                } if *message == expected_message
             ),
             "the registering event should become its job's failure"
         );
