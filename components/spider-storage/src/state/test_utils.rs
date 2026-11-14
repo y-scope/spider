@@ -116,11 +116,21 @@ pub struct MockDbConnector {
     /// The parent of every inserted child job.
     pub parents: Arc<DashMap<JobId, JobId>>,
 
+    /// The root of every inserted child job's tree.
+    pub roots: Arc<DashMap<JobId, JobId>>,
+
+    /// The resource group of every inserted child job.
+    pub child_owner_ids: Arc<DashMap<JobId, ResourceGroupId>>,
+
     pub next_job_id: Arc<AtomicU64>,
 
     /// The errors that the next tree transitions return, in order, before they check or write
     /// anything.
     pub injected_transition_errors: Arc<Mutex<VecDeque<DbError>>>,
+
+    /// The numbers of child IDs that the next successful tree transitions return, in order, in
+    /// place of one per insertion.
+    pub injected_child_id_counts: Arc<Mutex<VecDeque<usize>>>,
 
     pub resource_groups: Arc<DashMap<ResourceGroupId, ExternalResourceGroupCredentials>>,
     pub resource_group_ids: Arc<DashMap<String, ResourceGroupId>>,
@@ -147,8 +157,11 @@ impl Default for MockDbConnector {
             errors: Arc::new(DashMap::new()),
             outputs: Arc::new(DashMap::new()),
             parents: Arc::new(DashMap::new()),
+            roots: Arc::new(DashMap::new()),
+            child_owner_ids: Arc::new(DashMap::new()),
             next_job_id: Arc::new(AtomicU64::new(MOCK_FIRST_JOB_ID)),
             injected_transition_errors: Arc::new(Mutex::new(VecDeque::new())),
+            injected_child_id_counts: Arc::new(Mutex::new(VecDeque::new())),
             resource_groups: Arc::new(DashMap::new()),
             resource_group_ids: Arc::new(DashMap::new()),
             next_resource_group_id: Arc::new(AtomicUsize::new(1)),
@@ -252,16 +265,28 @@ impl InternalJobOrchestration for MockDbConnector {
                 self.errors.insert(update.job_id, error_message);
             }
         }
-        Ok(transition
+        let mut child_ids: Vec<JobId> = transition
             .child_insertions
             .iter()
             .map(|insertion| {
                 let child_id = self.allocate_job_id();
                 self.states.insert(child_id, JobState::Running);
                 self.parents.insert(child_id, insertion.parent_id);
+                self.roots.insert(child_id, insertion.root_id);
+                self.child_owner_ids
+                    .insert(child_id, insertion.resource_group_id);
                 child_id
             })
-            .collect())
+            .collect();
+        let injected_child_id_count = self
+            .injected_child_id_counts
+            .lock()
+            .expect("the injected child ID counts' mutex should not be poisoned")
+            .pop_front();
+        if let Some(child_id_count) = injected_child_id_count {
+            child_ids.resize_with(child_id_count, || self.allocate_job_id());
+        }
+        Ok(child_ids)
     }
 
     fn max_statement_payload(&self) -> u64 {
