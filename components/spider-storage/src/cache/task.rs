@@ -326,6 +326,7 @@ impl TaskGraph {
 pub struct PreparedChild {
     graph: TaskGraph,
     num_tasks: usize,
+    ready_task_indices: Vec<TaskIndex>,
     submission: ValidatedCompressedJobSubmission,
 }
 
@@ -359,9 +360,11 @@ impl PreparedChild {
         let (submitted_task_graph, task_graph_input, submission) =
             validated_submission.into_parts();
         let graph = TaskGraph::from_parts(submitted_task_graph, task_graph_input).await?;
+        let ready_task_indices = graph.get_all_ready_task_indices().await;
         Ok(Self {
             graph,
             num_tasks,
+            ready_task_indices,
             submission,
         })
     }
@@ -372,6 +375,14 @@ impl PreparedChild {
     #[must_use]
     pub const fn submission(&self) -> &ValidatedCompressedJobSubmission {
         &self.submission
+    }
+
+    /// # Returns
+    ///
+    /// The indices of the tasks of the child's task graph that are ready.
+    #[must_use]
+    pub fn ready_task_indices(&self) -> &[TaskIndex] {
+        &self.ready_task_indices
     }
 
     /// Consumes the prepared child and returns its task graph and the number of tasks in it.

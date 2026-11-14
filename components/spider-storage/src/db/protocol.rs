@@ -263,6 +263,8 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///   are too large for one statement. Nothing is sent to the database then.
     /// * [`DbError::ErrorMessageTooLarge`] if an update's error message alone is too large for one
     ///   statement. Nothing is sent to the database then.
+    /// * [`DbError::ChildTooLarge`] if a child insertion's payload is too large for one statement.
+    ///   Nothing is sent to the database then.
     /// * [`DbError::PayloadRejected`] if the database rejects a child insertion's payload as too
     ///   large.
     /// * [`DbError::ValueSerializationFailure`] if an update's outputs fail to serialize.

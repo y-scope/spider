@@ -32,6 +32,7 @@ impl MariaDbStorageConnector {
     /// * [`DbError::PayloadRejected`] if the database rejects a child insertion's payload as too
     ///   large.
     /// * Forwards [`UpdateStatement::group`]'s return values on failure.
+    /// * Forwards [`chunk_child_insertions`]'s return values on failure.
     /// * Forwards [`Self::apply_single_row_update_in_statement`]'s return values on failure.
     /// * Forwards [`sqlx::Pool::begin`]'s return values on failure.
     /// * Forwards [`Self::check_fence`]'s return values on failure.
@@ -48,8 +49,11 @@ impl MariaDbStorageConnector {
             self.max_statement_payload,
             self.max_row_payload,
         )?;
-        let insert_chunks =
-            chunk_child_insertions(&transition.child_insertions, self.max_statement_payload);
+        let insert_chunks = chunk_child_insertions(
+            &transition.child_insertions,
+            self.max_statement_payload,
+            self.max_row_payload,
+        )?;
         if insert_chunks.is_empty()
             && let [statement] = statements.as_slice()
             && statement.rows.len() == 1
@@ -484,12 +488,33 @@ impl<RowType> UpdateGroup<RowType> {
 ///
 /// # Returns
 ///
-/// The chunks, in the order of `insertions`.
+/// The chunks, in the order of `insertions`, on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`DbError::ChildTooLarge`] if any insertion's payload exceeds `max_row_payload`.
 fn chunk_child_insertions<'insertion_lifetime, 'buffer_lifetime>(
     insertions: &'insertion_lifetime [ChildJobInsertion<'buffer_lifetime>],
     max_payload: u64,
-) -> Vec<&'insertion_lifetime [ChildJobInsertion<'buffer_lifetime>]> {
-    chunk_by_rows_and_payload(insertions, max_payload, ChildJobInsertion::payload_size)
+    max_row_payload: u64,
+) -> Result<Vec<&'insertion_lifetime [ChildJobInsertion<'buffer_lifetime>]>, DbError> {
+    if let Some(insertion) = insertions
+        .iter()
+        .find(|insertion| insertion.payload_size() > max_row_payload)
+    {
+        return Err(DbError::ChildTooLarge {
+            parent_id: insertion.parent_id,
+            size: insertion.payload_size(),
+            limit: max_row_payload,
+        });
+    }
+    Ok(chunk_by_rows_and_payload(
+        insertions,
+        max_payload,
+        ChildJobInsertion::payload_size,
+    ))
 }
 
 /// Cuts `rows` into chunks of at most [`IN_LIST_MAX_IDS`] rows. A chunk takes no further row once
@@ -588,14 +613,26 @@ async fn insert_child_job_rows(
 mod tests {
     use spider_core::job::JobState;
     use spider_core::types::id::JobId;
+    use spider_core::types::id::ResourceGroupId;
     use spider_core::types::io::SerializedTaskOutputs;
 
     use super::IN_LIST_MAX_IDS;
     use super::UpdateStatement;
     use super::chunk_by_rows_and_payload;
+    use super::chunk_child_insertions;
+    use crate::db::ChildJobInsertion;
     use crate::db::DbError;
+    use crate::db::ExternalJobOrchestration;
+    use crate::db::InternalJobOrchestration;
     use crate::db::JobStateUpdate;
+    use crate::db::MariaDbStorageConnector;
+    use crate::db::TreeTransition;
     use crate::db::mariadb::fence::FencePredicate;
+    use crate::mariadb_test_infra::IsolatedTestDb;
+    use crate::mariadb_test_infra::create_raw_pool;
+    use crate::mariadb_test_infra::create_test_resource_group;
+    use crate::state::test_utils::create_test_incompressible_prepared_child;
+    use crate::state::test_utils::create_test_prepared_child;
 
     #[test]
     fn updates_are_grouped_by_edge_with_outputs_groups_first() -> anyhow::Result<()> {
@@ -780,6 +817,100 @@ mod tests {
             "every chunk should carry at least one row"
         );
         assert_eq!(chunk_sizes(0, 50), Vec::<usize>::new());
+    }
+
+    #[tokio::test]
+    async fn the_first_child_insertion_over_the_row_payload_is_too_large() -> anyhow::Result<()> {
+        let child = create_test_prepared_child(0).await;
+        let size = child.submission().size();
+        let insertions: Vec<_> = (1..=2)
+            .map(|parent_id| ChildJobInsertion {
+                parent_id: JobId::from(parent_id),
+                root_id: JobId::from(1),
+                resource_group_id: ResourceGroupId::random(),
+                compressed_job_submission: child.submission(),
+            })
+            .collect();
+
+        let result = chunk_child_insertions(&insertions, u64::MAX, size - 1);
+        assert!(
+            matches!(
+                result,
+                Err(DbError::ChildTooLarge { parent_id, size: culprit_size, limit })
+                    if parent_id == JobId::from(1) && culprit_size == size && limit == size - 1
+            ),
+            "unexpected result {result:?}"
+        );
+        assert_eq!(
+            chunk_child_insertions(&insertions, 0, size)?
+                .iter()
+                .map(|chunk| chunk.len())
+                .collect::<Vec<_>>(),
+            vec![1, 1],
+            "a child that fits the row payload may exceed the batching target"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "requires MariaDB"]
+    async fn a_child_insertion_that_the_database_rejects_is_a_payload_rejection_and_writes_nothing()
+    -> anyhow::Result<()> {
+        let isolated_test_db = IsolatedTestDb::create().await;
+        let config = isolated_test_db.config();
+        let mut storage = MariaDbStorageConnector::connect(&config).await?;
+        let raw_pool = create_raw_pool(&config).await;
+        let resource_group_id = create_test_resource_group(&storage).await;
+        let parent = create_test_prepared_child(0).await;
+        let parent_id = storage
+            .register(resource_group_id, parent.submission())
+            .await?;
+        storage
+            .apply_tree_transition(TreeTransition {
+                updates: vec![JobStateUpdate::new(
+                    parent_id,
+                    JobState::Ready,
+                    JobState::Running,
+                )],
+                child_insertions: Vec::new(),
+            })
+            .await?;
+        let max_allowed_packet: u64 = sqlx::query_scalar("SELECT @@max_allowed_packet;")
+            .fetch_one(&raw_pool)
+            .await?;
+        let oversized = create_test_incompressible_prepared_child(max_allowed_packet).await;
+        // Emulates a server whose `max_allowed_packet` was lowered after the connector read it.
+        storage.max_row_payload = u64::MAX;
+
+        let result = storage
+            .apply_tree_transition(TreeTransition {
+                updates: vec![JobStateUpdate::new(
+                    parent_id,
+                    JobState::Running,
+                    JobState::BlockingOnChildren,
+                )],
+                child_insertions: vec![ChildJobInsertion {
+                    parent_id,
+                    root_id: parent_id,
+                    resource_group_id,
+                    compressed_job_submission: oversized.submission(),
+                }],
+            })
+            .await;
+
+        assert!(
+            matches!(result, Err(DbError::PayloadRejected(_))),
+            "a child insertion over the packet size should be a payload rejection, got {result:?}"
+        );
+        assert_eq!(storage.get_state(parent_id).await?, JobState::Running);
+        let num_jobs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `jobs`;")
+            .fetch_one(&raw_pool)
+            .await?;
+        assert_eq!(num_jobs, 1);
+        raw_pool.close().await;
+        drop(storage);
+        isolated_test_db.drop_database().await;
+        Ok(())
     }
 }
 

@@ -327,7 +327,7 @@ async fn child_insertions_return_their_ids_in_order_across_chunks() -> anyhow::R
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn a_child_insertion_over_the_packet_size_is_a_payload_rejection_and_writes_nothing()
+async fn a_child_insertion_over_the_row_payload_is_too_large_and_writes_nothing()
 -> anyhow::Result<()> {
     let isolated_test_db = IsolatedTestDb::create().await;
     let config = isolated_test_db.config();
@@ -345,14 +345,12 @@ async fn a_child_insertion_over_the_packet_size_is_a_payload_rejection_and_write
     let max_allowed_packet: u64 = sqlx::query_scalar("SELECT @@max_allowed_packet;")
         .fetch_one(&pool)
         .await?;
+    let fitting = submission_with_input(b"fits");
     let oversized = submission_with_input(&incompressible(max_allowed_packet + 1));
+    let oversized_size = oversized.compressed().size();
     assert!(
-        oversized
-            .compressed()
-            .compressed_serialized_job_inputs()
-            .len() as u64
-            > max_allowed_packet,
-        "the oversized job inputs should not compress below the packet size"
+        oversized_size > max_allowed_packet,
+        "the oversized child should not compress below the packet size"
     );
 
     let result = storage
@@ -362,18 +360,25 @@ async fn a_child_insertion_over_the_packet_size_is_a_payload_rejection_and_write
                 JobState::Running,
                 JobState::BlockingOnChildren,
             ),
-            child_insertions: vec![ChildJobInsertion {
-                parent_id,
-                root_id: parent_id,
-                resource_group_id,
-                compressed_job_submission: oversized.compressed(),
-            }],
+            child_insertions: [&fitting, &oversized]
+                .into_iter()
+                .map(|job_submission| ChildJobInsertion {
+                    parent_id,
+                    root_id: parent_id,
+                    resource_group_id,
+                    compressed_job_submission: job_submission.compressed(),
+                })
+                .collect(),
         })
         .await;
 
     assert!(
-        matches!(result, Err(DbError::PayloadRejected(_))),
-        "an oversized child insertion should be a payload rejection, got {result:?}"
+        matches!(
+            result,
+            Err(DbError::ChildTooLarge { parent_id: culprit, size, limit })
+                if culprit == parent_id && size == oversized_size && limit < max_allowed_packet
+        ),
+        "an oversized child insertion should be too large, got {result:?}"
     );
     assert_eq!(storage.get_state(parent_id).await?, JobState::Running);
     let num_jobs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `jobs`;")

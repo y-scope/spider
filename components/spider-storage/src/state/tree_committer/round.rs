@@ -8,14 +8,19 @@ use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 
 use crate::cache::error::CacheError;
+use crate::cache::error::InternalError;
 use crate::cache::job::SharedJobControlBlock;
+use crate::cache::task::PreparedChild;
 use crate::cache::tree::Lane;
 use crate::cache::tree::Pending;
 use crate::cache::tree::Plan;
+use crate::cache::tree::PlannedRegistration;
 use crate::cache::tree::Publication;
 use crate::cache::tree::RoundOutcome;
+use crate::cache::tree::TreeEvent;
 use crate::cache::tree::TreeEventKind;
 use crate::cache::tree::TreeStructure;
+use crate::db::ChildJobInsertion;
 use crate::db::DbError;
 use crate::db::InternalJobOrchestration;
 use crate::db::JobStateUpdate;
@@ -39,7 +44,7 @@ pub(super) struct Committer<
     DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
-    env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
+    env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>,
     structure: TreeStructure,
     jcbs: HashMap<
         JobId,
@@ -63,7 +68,9 @@ impl<
     ///
     /// Panics if `root` is terminal.
     pub(super) async fn new_root(
-        env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
+        env: Arc<
+            CommitterEnv<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+        >,
         root: SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
     ) -> Self {
         let node = root.tree_node().await;
@@ -82,16 +89,19 @@ impl<
     /// Runs one round for the events of `in_flight`, in their order, and answers each event that
     /// the round plans. `in_flight`, which [`super::CommitterContextGuard`] owns, keeps the events
     /// to put back at the front of the pending queue, in their order: the events that the round
-    /// defers or, if the database rejects the outputs of a job as too large, every event of the
-    /// round, with that job's event turned into the job's failure.
+    /// defers or, if the database rejects the outputs of a job or a child that the round registers
+    /// (see [`fail_culprit`]), every event of the round, with the culprit event turned into its
+    /// job's failure.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * Forwards [`TreeStructure::plan_events`]'s return values on failure.
-    /// * Forwards [`fail_job_with_oversized_outputs`]'s return values on failure.
+    /// * Forwards [`Self::child_insertions`]'s return values on failure.
+    /// * Forwards [`fail_culprit`]'s return values on failure.
     /// * Forwards [`Self::apply_to_cache`]'s return values on failure.
+    /// * Forwards [`Self::bind_children`]'s return values on failure.
     /// * Forwards [`Self::publish`]'s return values on failure.
     ///
     /// # Panics
@@ -99,16 +109,17 @@ impl<
     /// Panics if:
     ///
     /// * The plan of the round does not have exactly one outcome per event of `in_flight`.
-    /// * [`Self::apply_to_cache`], [`Self::publish`] or, in debug and test builds,
-    ///   [`Self::assert_invariants`] panics.
+    /// * [`Self::child_insertions`], [`Self::apply_to_cache`], [`Self::bind_children`],
+    ///   [`Self::publish`] or, in debug and test builds, [`Self::assert_invariants`] panics.
     pub(super) async fn run_round(
         &mut self,
         in_flight: &mut Vec<Pending>,
     ) -> Result<(), CacheError> {
         let Plan {
             updates,
-            publications,
+            mut publications,
             outcomes,
+            registrations,
             ..
         } = self
             .structure
@@ -116,22 +127,30 @@ impl<
 
         if !updates.is_empty() {
             let transitions: Vec<Transition> = updates.iter().map(Transition::from).collect();
-            if let Err(error) = self
+            let child_insertions = self.child_insertions(in_flight, &registrations)?;
+            let child_ids = match self
                 .env
                 .db
                 .apply_tree_transition(TreeTransition {
                     updates,
-                    child_insertions: Vec::new(),
+                    child_insertions,
                 })
                 .await
             {
-                return fail_job_with_oversized_outputs(in_flight, &outcomes, error);
-            }
+                Ok(child_ids) => child_ids,
+                Err(error) => {
+                    return fail_culprit(in_flight, &outcomes, &registrations, error);
+                }
+            };
             self.hit_hook(HookPoint::CommitterRoundAfterDbWrite, &transitions)
                 .await;
             for transition in transitions {
                 self.apply_to_cache(transition).await?;
             }
+            publications.extend(
+                self.bind_children(in_flight, &registrations, child_ids)
+                    .await?,
+            );
         }
 
         assert_eq!(
@@ -202,6 +221,142 @@ impl<
             self.env.job_cache_gc_handle.enqueue_terminated_job(job_id);
         }
         Ok(())
+    }
+
+    /// # Type Parameters
+    ///
+    /// * `'event_lifetime` - The lifetime of the borrowed events of the round.
+    ///
+    /// # Returns
+    ///
+    /// The database part of `registrations`, in their order: for each registration, one insertion,
+    /// under the registering job in the tree of the committer's root and in the registering job's
+    /// resource group, per child of the event of `in_flight` that the registration registers, in
+    /// order, on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`registered_children`]'s return values on failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`Self::jcb`] panics.
+    fn child_insertions<'event_lifetime>(
+        &self,
+        in_flight: &'event_lifetime [Pending],
+        registrations: &[PlannedRegistration],
+    ) -> Result<Vec<ChildJobInsertion<'event_lifetime>>, InternalError> {
+        let root_id = self.structure.root_id();
+        let mut child_insertions = Vec::with_capacity(num_registered_children(registrations));
+        for registration in registrations {
+            let resource_group_id = self.jcb(registration.parent_id).owner_id();
+            child_insertions.extend(registered_children(in_flight, registration)?.iter().map(
+                |child| ChildJobInsertion {
+                    parent_id: registration.parent_id,
+                    root_id,
+                    resource_group_id,
+                    compressed_job_submission: child.submission(),
+                },
+            ));
+        }
+        Ok(child_insertions)
+    }
+
+    /// Adds the children that `registrations` register, which the round has inserted under the IDs
+    /// `child_ids`, in the order of [`Self::child_insertions`], to the structure, the committer and
+    /// the job cache, one registration at a time (see [`Self::bind_child_set`]).
+    ///
+    /// # Returns
+    ///
+    /// The publication of each child's ready tasks, in the order of `child_ids`, on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`CacheError`] converted from [`DbError::CorruptedDbState`] if the number of `child_ids`
+    ///   differs from the number of registered children.
+    /// * Forwards [`Self::bind_child_set`]'s return values on failure.
+    async fn bind_children(
+        &mut self,
+        in_flight: &mut [Pending],
+        registrations: &[PlannedRegistration],
+        child_ids: Vec<JobId>,
+    ) -> Result<Vec<Publication>, CacheError> {
+        let num_children = num_registered_children(registrations);
+        if child_ids.len() != num_children {
+            return Err(DbError::CorruptedDbState(format!(
+                "the database inserted {} children, but the round registers {}",
+                child_ids.len(),
+                num_children
+            ))
+            .into());
+        }
+        let mut child_ids = child_ids.into_iter();
+        let mut publications = Vec::with_capacity(num_children);
+        for registration in registrations {
+            let child_set_ids = child_ids
+                .by_ref()
+                .take(registration.children.count)
+                .collect();
+            publications.extend(
+                self.bind_child_set(in_flight, registration, child_set_ids)
+                    .await?,
+            );
+        }
+        Ok(publications)
+    }
+
+    /// Adds the children that `registration` registers, which the round has inserted under the IDs
+    /// `child_ids`, in order, to the structure, the committer and the job cache. Takes the children
+    /// out of the registering event of `in_flight`.
+    ///
+    /// # Returns
+    ///
+    /// The publication of each child's ready tasks, in the order of `child_ids`, on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`take_registered_children`]'s return values on failure.
+    /// * Forwards [`TreeStructure::insert_children`]'s return values on failure.
+    /// * Forwards [`JobCache::insert_many`](crate::state::JobCache::insert_many)'s return values on
+    ///   failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`Self::jcb`] panics.
+    async fn bind_child_set(
+        &mut self,
+        in_flight: &mut [Pending],
+        registration: &PlannedRegistration,
+        child_ids: Vec<JobId>,
+    ) -> Result<Vec<Publication>, CacheError> {
+        let prepared_children = take_registered_children(in_flight, registration)?;
+        let parent = self.jcb(registration.parent_id).clone();
+        let mut nodes = Vec::with_capacity(child_ids.len());
+        let mut jcbs = Vec::with_capacity(child_ids.len());
+        let mut publications = Vec::with_capacity(child_ids.len());
+        for (child_id, prepared_child) in child_ids.into_iter().zip(prepared_children) {
+            let task_indices = prepared_child.ready_task_indices().to_vec();
+            let jcb =
+                SharedJobControlBlock::from_prepared_child(child_id, &parent, prepared_child).await;
+            nodes.push((child_id, jcb.tree_node().await));
+            jcbs.push(jcb);
+            publications.push(Publication::Ready {
+                job_id: child_id,
+                task_indices,
+            });
+        }
+        self.structure
+            .insert_children(registration.parent_id, nodes)?;
+        self.env.job_cache.insert_many(jcbs.clone()).await?;
+        self.jcbs
+            .extend(jcbs.into_iter().map(|jcb| (jcb.id(), jcb)));
+        Ok(publications)
     }
 
     /// Sends `publication` to its lane of the inbound queue, for the resource group that owns its
@@ -323,44 +478,134 @@ impl From<&JobStateUpdate> for Transition {
     }
 }
 
-/// Turns a [`DbError::OutputsTooLarge`] of a round's write into a failure, on the regular lane, of
-/// the job whose outputs the database rejects: the round's planned
-/// [`TreeEventKind::RegularTasksDone`] event of that job in `in_flight`, whose outcomes are
-/// `outcomes`, becomes that failure.
+/// # Returns
+///
+/// The number of children that `registrations` register.
+fn num_registered_children(registrations: &[PlannedRegistration]) -> usize {
+    registrations
+        .iter()
+        .map(|registration| registration.children.count)
+        .sum()
+}
+
+/// # Type Parameters
+///
+/// * `'event_lifetime` - The lifetime of the borrowed events of the round.
+///
+/// # Returns
+///
+/// The children of the event of `in_flight` that `registration` registers on success.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
-/// * [`CacheError`] converted from `error` if it is not a [`DbError::OutputsTooLarge`] of the job
-///   of a planned [`TreeEventKind::RegularTasksDone`] event of the round.
-fn fail_job_with_oversized_outputs(
+/// * [`InternalError::RegistrationMismatch`] if that event is not a
+///   [`TreeEventKind::RegularTasksDone`] of the registering job with the registered number of
+///   children.
+fn registered_children<'event_lifetime>(
+    in_flight: &'event_lifetime [Pending],
+    registration: &PlannedRegistration,
+) -> Result<&'event_lifetime [PreparedChild], InternalError> {
+    match in_flight.get(registration.event_index) {
+        Some(Pending {
+            event:
+                TreeEvent {
+                    job_id,
+                    kind: TreeEventKind::RegularTasksDone { children, .. },
+                },
+            ..
+        }) if *job_id == registration.parent_id
+            && children.len() == registration.children.count =>
+        {
+            Ok(children)
+        }
+        _ => Err(InternalError::RegistrationMismatch(registration.parent_id)),
+    }
+}
+
+/// Takes the children out of the event of `in_flight` that `registration` registers.
+///
+/// # Returns
+///
+/// The taken children on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`InternalError::RegistrationMismatch`] if that event is not a
+///   [`TreeEventKind::RegularTasksDone`] of the registering job with the registered number of
+///   children.
+fn take_registered_children(
+    in_flight: &mut [Pending],
+    registration: &PlannedRegistration,
+) -> Result<Vec<PreparedChild>, InternalError> {
+    match in_flight.get_mut(registration.event_index) {
+        Some(Pending {
+            event:
+                TreeEvent {
+                    job_id,
+                    kind: TreeEventKind::RegularTasksDone { children, .. },
+                },
+            ..
+        }) if *job_id == registration.parent_id
+            && children.len() == registration.children.count =>
+        {
+            Ok(std::mem::take(children))
+        }
+        _ => Err(InternalError::RegistrationMismatch(registration.parent_id)),
+    }
+}
+
+/// Turns an error of a round's write that one event of the round causes into a failure, on the
+/// regular lane, of that event's job, in `in_flight`, whose outcomes are `outcomes`:
+///
+/// * A [`DbError::OutputsTooLarge`] fails the job whose outputs the database rejects: the round's
+///   planned [`TreeEventKind::RegularTasksDone`] event of that job becomes that failure.
+/// * A [`DbError::ChildTooLarge`] fails the child's parent if it registers one of `registrations`:
+///   its registering event becomes that failure.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`CacheError`] converted from `error` if it is none of the errors above.
+fn fail_culprit(
     in_flight: &mut [Pending],
     outcomes: &[RoundOutcome],
+    registrations: &[PlannedRegistration],
     error: DbError,
 ) -> Result<(), CacheError> {
-    let DbError::OutputsTooLarge {
-        job_id: culprit_id, ..
-    } = &error
-    else {
-        return Err(error.into());
+    let culprit = match &error {
+        DbError::OutputsTooLarge { job_id, .. } => {
+            in_flight
+                .iter_mut()
+                .zip(outcomes)
+                .find_map(|(pending, outcome)| {
+                    (matches!(outcome, RoundOutcome::Planned(_))
+                        && pending.event.job_id == *job_id
+                        && matches!(pending.event.kind, TreeEventKind::RegularTasksDone { .. }))
+                    .then_some(pending)
+                })
+        }
+        DbError::ChildTooLarge { parent_id, .. } => registrations
+            .iter()
+            .find(|registration| registration.parent_id == *parent_id)
+            .and_then(|registration| {
+                in_flight
+                    .get_mut(registration.event_index)
+                    .filter(|pending| pending.event.job_id == registration.parent_id)
+            }),
+        _ => None,
     };
-    let Some(culprit) = in_flight
-        .iter_mut()
-        .zip(outcomes)
-        .find_map(|(pending, outcome)| {
-            (matches!(outcome, RoundOutcome::Planned(_))
-                && pending.event.job_id == *culprit_id
-                && matches!(pending.event.kind, TreeEventKind::RegularTasksDone { .. }))
-            .then_some(pending)
-        })
-    else {
+    let Some(culprit) = culprit else {
         return Err(error.into());
     };
     tracing::warn!(
-        job_id = ? culprit_id,
+        job_id = ? culprit.event.job_id,
         error = % error,
-        "The database rejected a job's outputs. Failing the job."
+        "The database rejected the payload of a job's event. Failing the job."
     );
     culprit.event.kind = TreeEventKind::TerminalFailure {
         lane: Lane::Regular,
@@ -378,21 +623,27 @@ mod tests {
     use super::*;
     use crate::cache::error::InternalError;
     use crate::cache::error::StaleStateError;
+    use crate::cache::tree::ChildJobUsage;
     use crate::cache::tree::TreeEventOutcome;
     use crate::inbound_queue::CleanupTaskMarker;
     use crate::inbound_queue::CommitTaskMarker;
     use crate::inbound_queue::InboundQueueEntry;
     use crate::inbound_queue::create_inbound_queue;
+    use crate::state::JobCache;
     use crate::state::JobCacheGcHandle;
+    use crate::state::test_utils::MOCK_MAX_CHILD_SIZE;
     use crate::state::test_utils::MOCK_MAX_OUTPUTS_SIZE;
     use crate::state::test_utils::MockDbConnector;
     use crate::state::test_utils::MockInboundQueueSender;
     use crate::state::test_utils::create_test_jcb;
+    use crate::state::test_utils::create_test_prepared_children;
     use crate::state::tree_committer::spawn_committer;
     use crate::state::tree_committer::test_utils::ROOT_ID;
     use crate::state::tree_committer::test_utils::TIMEOUT;
     use crate::state::tree_committer::test_utils::TestTree;
+    use crate::state::tree_committer::test_utils::payload_rejected;
     use crate::state::tree_committer::test_utils::pending;
+    use crate::state::tree_committer::test_utils::registration;
     use crate::state::tree_committer::test_utils::regular_tasks_done;
     use crate::state::tree_committer::test_utils::reply;
     use crate::state::tree_committer::test_utils::start;
@@ -408,8 +659,11 @@ mod tests {
         );
 
         let outputs = vec![vec![0; usize::try_from(MOCK_MAX_OUTPUTS_SIZE)? + 1]];
-        let regular_tasks_done =
-            reply(tree.submit(TreeEventKind::RegularTasksDone { outputs })).await;
+        let regular_tasks_done = reply(tree.submit(TreeEventKind::RegularTasksDone {
+            outputs,
+            children: Vec::new(),
+        }))
+        .await;
         assert!(
             matches!(
                 regular_tasks_done,
@@ -458,7 +712,7 @@ mod tests {
         };
         let expected_message = error.to_string();
 
-        fail_job_with_oversized_outputs(&mut in_flight, &outcomes, error)?;
+        fail_culprit(&mut in_flight, &outcomes, &[], error)?;
         let [other_job_completion, stale_commit_done, completion] = in_flight.as_slice() else {
             panic!("the round should keep its three events");
         };
@@ -482,6 +736,95 @@ mod tests {
                 } if *message == expected_message
             ),
             "the job's planned completion should become its failure"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_child_too_large_fails_only_its_parents_registering_event() -> anyhow::Result<()> {
+        const OTHER_PARENT_ID: JobId = JobId::from(ROOT_ID.get() + 1);
+        let children = create_test_prepared_children(1).await;
+        let other_children = create_test_prepared_children(2).await;
+        let planned_registrations = [
+            PlannedRegistration {
+                event_index: 0,
+                parent_id: OTHER_PARENT_ID,
+                children: ChildJobUsage::of(&other_children),
+            },
+            PlannedRegistration {
+                event_index: 1,
+                parent_id: ROOT_ID,
+                children: ChildJobUsage::of(&children),
+            },
+        ];
+        let mut in_flight = vec![
+            pending(OTHER_PARENT_ID.get(), registration(other_children)),
+            pending(ROOT_ID.get(), registration(children)),
+            pending(ROOT_ID.get(), start()),
+        ];
+        let outcomes = [
+            RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::BlockingOnChildren)),
+            RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::BlockingOnChildren)),
+            RoundOutcome::Planned(TreeEventOutcome::Stale(StaleStateError::JobAlreadyStarted)),
+        ];
+        let child_too_large = |parent_id| DbError::ChildTooLarge {
+            parent_id,
+            size: MOCK_MAX_CHILD_SIZE + 1,
+            limit: MOCK_MAX_CHILD_SIZE,
+        };
+
+        for (error, round_registrations) in [
+            (child_too_large(ROOT_ID), &[][..]),
+            (
+                child_too_large(JobId::from(ROOT_ID.get() + 2)),
+                &planned_registrations[..],
+            ),
+            (payload_rejected(), &planned_registrations[..]),
+            (
+                DbError::Sql(sqlx::Error::PoolTimedOut),
+                &planned_registrations[..],
+            ),
+        ] {
+            let result = fail_culprit(&mut in_flight, &outcomes, round_registrations, error);
+            assert!(
+                matches!(result, Err(CacheError::Internal(InternalError::Db(_)))),
+                "a write error that no registering event causes gave {result:?}"
+            );
+        }
+        assert!(
+            in_flight.iter().all(|pending| !matches!(
+                pending.event.kind,
+                TreeEventKind::TerminalFailure { .. }
+            )),
+            "an error that no event causes should fail no event"
+        );
+
+        let error = child_too_large(ROOT_ID);
+        let expected_message = error.to_string();
+        fail_culprit(&mut in_flight, &outcomes, &planned_registrations, error)?;
+        let [other_registration, failed_registration, stale_start] = in_flight.as_slice() else {
+            panic!("the round should keep its three events");
+        };
+        assert!(
+            matches!(
+                other_registration.event.kind,
+                TreeEventKind::RegularTasksDone { .. }
+            ),
+            "the registration of another parent should be kept"
+        );
+        assert!(
+            matches!(
+                &failed_registration.event.kind,
+                TreeEventKind::TerminalFailure {
+                    lane: Lane::Regular,
+                    message,
+                } if *message == expected_message
+            ),
+            "the registering event should become its job's failure"
+        );
+        assert!(
+            matches!(stale_start.event.kind, TreeEventKind::Start { .. }),
+            "a stale event of the job should be kept"
         );
         Ok(())
     }
@@ -646,6 +989,7 @@ mod tests {
             &task_tracker,
             Arc::new(CommitterEnv {
                 db: MockDbConnector::default(),
+                job_cache: JobCache::new(),
                 job_cache_gc_handle: JobCacheGcHandle::new(mpsc::unbounded_channel().0),
                 inbound_queue_sender: MockInboundQueueSender,
                 shutdown_handle: shutdown_handle.clone(),

@@ -1,11 +1,15 @@
+use std::collections::VecDeque;
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
+use rand::Rng;
+use rand::SeedableRng;
 use spider_core::job::JobState;
 use spider_core::task::DataTypeDescriptor;
 use spider_core::task::ExecutionPolicy;
@@ -58,6 +62,10 @@ use crate::test_hooks::TestHooks;
 /// transition.
 pub const MOCK_MAX_OUTPUTS_SIZE: u64 = 1024 * 1024;
 
+/// The maximum payload size of one child insertion that [`MockDbConnector`] accepts in a tree
+/// transition.
+pub const MOCK_MAX_CHILD_SIZE: u64 = 64 * 1024;
+
 /// The maximum statement payload that [`MockDbConnector`] reports.
 pub const MOCK_MAX_STATEMENT_PAYLOAD: u64 = 4 * 1024 * 1024;
 
@@ -108,7 +116,21 @@ pub struct MockDbConnector {
     /// The parent of every inserted child job.
     pub parents: Arc<DashMap<JobId, JobId>>,
 
+    /// The root of every inserted child job's tree.
+    pub roots: Arc<DashMap<JobId, JobId>>,
+
+    /// The resource group of every inserted child job.
+    pub child_owner_ids: Arc<DashMap<JobId, ResourceGroupId>>,
+
     pub next_job_id: Arc<AtomicU64>,
+
+    /// The errors that the next tree transitions return, in order, before they check or write
+    /// anything.
+    pub injected_transition_errors: Arc<Mutex<VecDeque<DbError>>>,
+
+    /// The numbers of child IDs that the next successful tree transitions return, in order, in
+    /// place of one per insertion.
+    pub injected_child_id_counts: Arc<Mutex<VecDeque<usize>>>,
 
     pub resource_groups: Arc<DashMap<ResourceGroupId, ExternalResourceGroupCredentials>>,
     pub resource_group_ids: Arc<DashMap<String, ResourceGroupId>>,
@@ -135,7 +157,11 @@ impl Default for MockDbConnector {
             errors: Arc::new(DashMap::new()),
             outputs: Arc::new(DashMap::new()),
             parents: Arc::new(DashMap::new()),
+            roots: Arc::new(DashMap::new()),
+            child_owner_ids: Arc::new(DashMap::new()),
             next_job_id: Arc::new(AtomicU64::new(MOCK_FIRST_JOB_ID)),
+            injected_transition_errors: Arc::new(Mutex::new(VecDeque::new())),
+            injected_child_id_counts: Arc::new(Mutex::new(VecDeque::new())),
             resource_groups: Arc::new(DashMap::new()),
             resource_group_ids: Arc::new(DashMap::new()),
             next_resource_group_id: Arc::new(AtomicUsize::new(1)),
@@ -187,6 +213,14 @@ impl InternalJobOrchestration for MockDbConnector {
         &self,
         transition: TreeTransition<'_>,
     ) -> Result<Vec<JobId>, DbError> {
+        let injected_error = self
+            .injected_transition_errors
+            .lock()
+            .expect("the injected transition errors' mutex should not be poisoned")
+            .pop_front();
+        if let Some(error) = injected_error {
+            return Err(error);
+        }
         for update in &transition.updates {
             let size: u64 = update
                 .outputs
@@ -201,6 +235,17 @@ impl InternalJobOrchestration for MockDbConnector {
                     limit: MOCK_MAX_OUTPUTS_SIZE,
                 });
             }
+        }
+        if let Some(insertion) = transition
+            .child_insertions
+            .iter()
+            .find(|insertion| insertion.payload_size() > MOCK_MAX_CHILD_SIZE)
+        {
+            return Err(DbError::ChildTooLarge {
+                parent_id: insertion.parent_id,
+                size: insertion.payload_size(),
+                limit: MOCK_MAX_CHILD_SIZE,
+            });
         }
         for update in &transition.updates {
             let current = self.states.get(&update.job_id).map(|state| *state);
@@ -220,16 +265,28 @@ impl InternalJobOrchestration for MockDbConnector {
                 self.errors.insert(update.job_id, error_message);
             }
         }
-        Ok(transition
+        let mut child_ids: Vec<JobId> = transition
             .child_insertions
             .iter()
             .map(|insertion| {
                 let child_id = self.allocate_job_id();
                 self.states.insert(child_id, JobState::Running);
                 self.parents.insert(child_id, insertion.parent_id);
+                self.roots.insert(child_id, insertion.root_id);
+                self.child_owner_ids
+                    .insert(child_id, insertion.resource_group_id);
                 child_id
             })
-            .collect())
+            .collect();
+        let injected_child_id_count = self
+            .injected_child_id_counts
+            .lock()
+            .expect("the injected child ID counts' mutex should not be poisoned")
+            .pop_front();
+        if let Some(child_id_count) = injected_child_id_count {
+            child_ids.resize_with(child_id_count, || self.allocate_job_id());
+        }
+        Ok(child_ids)
     }
 
     fn max_statement_payload(&self) -> u64 {
@@ -546,6 +603,54 @@ pub async fn create_test_prepared_child(input_byte: u8) -> PreparedChild {
     PreparedChild::create(create_test_child_submission(input_byte))
         .await
         .expect("child preparation should succeed")
+}
+
+/// # Returns
+///
+/// A prepared child with [`create_test_task_graph`]'s task graph whose only positional input is
+/// `input_size` pseudo-random bytes, so that its payload exceeds `input_size`.
+///
+/// # Panics
+///
+/// Panics if:
+///
+/// * `input_size` does not fit in `usize`.
+/// * The input serialization, the compression or the child preparation fails.
+/// * The child's payload does not exceed `input_size`.
+pub async fn create_test_incompressible_prepared_child(input_size: u64) -> PreparedChild {
+    let mut input = vec![0u8; usize::try_from(input_size).expect("the size should fit in `usize`")];
+    rand::rngs::StdRng::seed_from_u64(0).fill(input.as_mut_slice());
+    let mut builder = TaskGraphInputBuilder::new();
+    builder
+        .append_task_input(&input)
+        .expect("task input appending should succeed");
+    let child = PreparedChild::create(CompressedJobSubmission {
+        compressed_serialized_task_graph: compress_task_graph(&create_test_task_graph()),
+        compressed_serialized_job_inputs: compress_job_inputs(&builder.build()),
+    })
+    .await
+    .expect("child preparation should succeed");
+    assert!(
+        child.submission().size() > input_size,
+        "the child's payload should not compress below its input size"
+    );
+    child
+}
+
+/// # Returns
+///
+/// The prepared children of [`create_test_prepared_child`] for the input bytes `0` to
+/// `num_children - 1`, in order.
+///
+/// # Panics
+///
+/// Panics if [`create_test_prepared_child`] panics.
+pub async fn create_test_prepared_children(num_children: u8) -> Vec<PreparedChild> {
+    let mut children = Vec::with_capacity(usize::from(num_children));
+    for input_byte in 0..num_children {
+        children.push(create_test_prepared_child(input_byte).await);
+    }
+    children
 }
 
 pub async fn create_test_jcb(job_id: JobId) -> (TestJcb, EventReceivers) {
