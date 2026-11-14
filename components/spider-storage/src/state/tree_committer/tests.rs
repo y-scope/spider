@@ -1,6 +1,10 @@
 //! Unit tests for the tree committer's loop, its pending queue and its context guard.
 
+use std::time::Duration;
+
 use spider_core::job::JobState;
+use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::id::TaskId;
 
 use super::*;
 use crate::cache::error::InternalError;
@@ -8,10 +12,19 @@ use crate::cache::error::StaleStateError;
 use crate::cache::tree::Lane;
 use crate::cache::tree::TreeControlBlock;
 use crate::cache::tree::TreeEvent;
+use crate::db::DbError;
+use crate::inbound_queue::InboundQueueEntry;
+use crate::inbound_queue::create_inbound_queue;
+use crate::state::test_utils::MOCK_FIRST_JOB_ID;
 use crate::state::test_utils::MockInboundQueueSender;
+use crate::state::test_utils::create_test_prepared_children;
 use crate::state::tree_committer::test_utils::ROOT_ID;
+use crate::state::tree_committer::test_utils::TIMEOUT;
 use crate::state::tree_committer::test_utils::TestTree;
+use crate::state::tree_committer::test_utils::payload_rejected;
 use crate::state::tree_committer::test_utils::pending;
+use crate::state::tree_committer::test_utils::registration;
+use crate::state::tree_committer::test_utils::regular_tasks_done;
 use crate::state::tree_committer::test_utils::reply;
 use crate::state::tree_committer::test_utils::start;
 
@@ -64,6 +77,158 @@ async fn a_fast_forward_event_is_planned_before_an_earlier_regular_event() {
         ),
         "a start submitted before the cancel gave {start:?}"
     );
+}
+
+#[tokio::test]
+async fn a_registration_blocks_the_parent_and_publishes_its_childrens_ready_tasks()
+-> anyhow::Result<()> {
+    const NUM_CHILDREN: usize = 3;
+    let (inbound_queue_sender, inbound_queue_receiver) = create_inbound_queue();
+    let tree = TestTree::spawn(false, false, inbound_queue_sender).await;
+    reply(tree.submit(start())).await?;
+    inbound_queue_receiver.recv_tasks(1, TIMEOUT).await?;
+
+    let children = create_test_prepared_children(u8::try_from(NUM_CHILDREN)?).await;
+    let registration = reply(tree.submit(registration(children))).await;
+    assert!(
+        matches!(
+            registration,
+            Ok(TreeEventOutcome::Applied(JobState::BlockingOnChildren))
+        ),
+        "a registration gave {registration:?}"
+    );
+    assert_eq!(
+        tree.db.states.get(&ROOT_ID).map(|state| *state),
+        Some(JobState::BlockingOnChildren)
+    );
+    assert_eq!(
+        tree.db.outputs.get(&ROOT_ID).map(|outputs| outputs.clone()),
+        Some(vec![vec![1]])
+    );
+    assert_eq!(tree.jcb.state().await, JobState::BlockingOnChildren);
+
+    let mut child_ids: Vec<JobId> = tree.db.parents.iter().map(|entry| *entry.key()).collect();
+    child_ids.sort_unstable_by_key(JobId::get);
+    assert_eq!(
+        child_ids,
+        (MOCK_FIRST_JOB_ID..)
+            .take(NUM_CHILDREN)
+            .map(JobId::from)
+            .collect::<Vec<_>>()
+    );
+    for child_id in &child_ids {
+        assert_eq!(
+            tree.db.parents.get(child_id).map(|parent_id| *parent_id),
+            Some(ROOT_ID)
+        );
+        let child = tree
+            .job_cache
+            .get(*child_id)
+            .await
+            .expect("a registered child should be cached");
+        assert_eq!(
+            (
+                child.state().await,
+                child.parent_id(),
+                child.depth(),
+                child.owner_id()
+            ),
+            (JobState::Running, Some(ROOT_ID), 1, tree.owner_id)
+        );
+    }
+    assert_eq!(
+        inbound_queue_receiver
+            .recv_tasks(NUM_CHILDREN, TIMEOUT)
+            .await?,
+        child_ids
+            .iter()
+            .map(|child_id| InboundQueueEntry {
+                resource_group_id: tree.owner_id,
+                job_id: *child_id,
+                task_kind: 0,
+            })
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        inbound_queue_receiver.recv_tasks(1, Duration::ZERO).await?,
+        []
+    );
+
+    tree.shutdown_handle.shut_down_gracefully();
+    tree.wait_for_exit().await;
+    assert!(!tree.shutdown_handle.is_fatal());
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_last_reporter_registers_the_children_that_its_jobs_tasks_prepared()
+-> anyhow::Result<()> {
+    let tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+    tree.jcb.start().await?;
+    let execution_context = tree
+        .jcb
+        .create_task_instance(TaskId::Index(0), ExecutionManagerId::random())
+        .await?;
+
+    let state = tree
+        .jcb
+        .succeed_task_instance(
+            execution_context.task_instance_id,
+            0,
+            vec![vec![1]],
+            create_test_prepared_children(2).await,
+        )
+        .await?;
+    assert_eq!(state, JobState::BlockingOnChildren);
+    assert_eq!(tree.db.parents.len(), 2);
+
+    tree.shutdown_handle.shut_down_gracefully();
+    tree.wait_for_exit().await;
+    assert!(!tree.shutdown_handle.is_fatal());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_payload_error_without_a_registration_poisons_the_tree() -> anyhow::Result<()> {
+    let tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+    reply(tree.submit(start())).await?;
+    tree.inject_transition_error(payload_rejected());
+
+    let regular_tasks_done = reply(tree.submit(regular_tasks_done())).await;
+    assert!(
+        matches!(
+            regular_tasks_done,
+            Err(CacheError::Internal(InternalError::TreePoisoned))
+        ),
+        "a payload error of a round without a registration gave {regular_tasks_done:?}"
+    );
+    tree.wait_for_exit().await;
+    assert!(tree.shutdown_handle.is_fatal());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_transient_error_of_a_registration_poisons_the_tree() -> anyhow::Result<()> {
+    let tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+    reply(tree.submit(start())).await?;
+    tree.inject_transition_error(DbError::Sql(sqlx::Error::PoolTimedOut));
+
+    let children = create_test_prepared_children(1).await;
+    let registration = reply(tree.submit(registration(children))).await;
+    assert!(
+        matches!(
+            registration,
+            Err(CacheError::Internal(InternalError::TreePoisoned))
+        ),
+        "a transient error of a registration gave {registration:?}"
+    );
+    assert!(
+        tree.db.parents.is_empty(),
+        "a failed write should insert no child"
+    );
+    tree.wait_for_exit().await;
+    assert!(tree.shutdown_handle.is_fatal());
+    Ok(())
 }
 
 #[test]
@@ -291,19 +456,14 @@ fn job_ids_of<'pending_lifetime>(
 
 #[cfg(feature = "test-hooks")]
 mod hooked {
-    use std::time::Duration;
-
     use spider_core::task::TaskIndex;
     use spider_core::types::id::ResourceGroupId;
 
     use super::*;
-    use crate::db::DbError;
-    use crate::inbound_queue::InboundQueueEntry;
-    use crate::inbound_queue::create_inbound_queue;
+    use crate::state::test_utils::MOCK_MAX_CHILD_SIZE;
     use crate::state::test_utils::MOCK_MAX_OUTPUTS_SIZE;
-    use crate::state::tree_committer::test_utils::TIMEOUT;
+    use crate::state::test_utils::create_test_incompressible_prepared_child;
     use crate::state::tree_committer::test_utils::join_reply;
-    use crate::state::tree_committer::test_utils::regular_tasks_done;
     use crate::test_hooks::HookAction;
     use crate::test_hooks::HookCount;
     use crate::test_hooks::HookFilter;
@@ -590,6 +750,99 @@ mod hooked {
     }
 
     #[tokio::test]
+    async fn a_rejected_registration_payload_fails_the_parent_in_the_next_round()
+    -> anyhow::Result<()> {
+        let mut tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+        tree.inject_transition_error(payload_rejected());
+
+        let children = create_test_prepared_children(1).await;
+        let reply_join_handles = tree
+            .submit_in_one_round(vec![registration(children), start()])
+            .await;
+        let [registration_join_handle, start_join_handle] =
+            <[_; 2]>::try_from(reply_join_handles).expect("two events were submitted");
+        let registration = join_reply(registration_join_handle).await;
+        assert!(
+            matches!(
+                registration,
+                Ok(TreeEventOutcome::Applied(JobState::Failed))
+            ),
+            "a registration whose payload the database rejected gave {registration:?}"
+        );
+        let start = join_reply(start_join_handle).await;
+        assert!(
+            matches!(
+                start,
+                Ok(TreeEventOutcome::Stale(StaleStateError::JobAlreadyStarted))
+            ),
+            "a stale start of the round that the database rejected gave {start:?}"
+        );
+        assert_eq!(
+            tree.db.errors.get(&ROOT_ID).as_deref(),
+            Some(&"child payload rejected by the database".to_owned())
+        );
+        assert!(
+            tree.db.parents.is_empty(),
+            "a rejected registration should insert no child"
+        );
+        assert_eq!(tree.jcb.state().await, JobState::Failed);
+        assert_eq!(tree.gc_receiver.try_recv(), Ok(ROOT_ID));
+        tree.wait_for_exit().await;
+        assert!(!tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_registration_of_a_child_too_large_fails_the_parent_in_the_next_round()
+    -> anyhow::Result<()> {
+        let mut tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+
+        let oversized_child = create_test_incompressible_prepared_child(MOCK_MAX_CHILD_SIZE).await;
+        let expected_message = DbError::ChildTooLarge {
+            parent_id: ROOT_ID,
+            size: oversized_child.submission().size(),
+            limit: MOCK_MAX_CHILD_SIZE,
+        }
+        .to_string();
+        let reply_join_handles = tree
+            .submit_in_one_round(vec![registration(vec![oversized_child]), start()])
+            .await;
+        let [registration_join_handle, start_join_handle] =
+            <[_; 2]>::try_from(reply_join_handles).expect("two events were submitted");
+        let registration = join_reply(registration_join_handle).await;
+        assert!(
+            matches!(
+                registration,
+                Ok(TreeEventOutcome::Applied(JobState::Failed))
+            ),
+            "a registration of a child too large gave {registration:?}"
+        );
+        let start = join_reply(start_join_handle).await;
+        assert!(
+            matches!(
+                start,
+                Ok(TreeEventOutcome::Stale(StaleStateError::JobAlreadyStarted))
+            ),
+            "a stale start of the round with a child too large gave {start:?}"
+        );
+        assert_eq!(
+            tree.db.errors.get(&ROOT_ID).as_deref(),
+            Some(&expected_message)
+        );
+        assert!(
+            tree.db.parents.is_empty(),
+            "a registration of a child too large should insert no child"
+        );
+        assert_eq!(tree.jcb.state().await, JobState::Failed);
+        assert_eq!(tree.gc_receiver.try_recv(), Ok(ROOT_ID));
+        tree.wait_for_exit().await;
+        assert!(!tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn rejected_outputs_put_the_whole_round_back_and_fail_their_job_in_the_next_round()
     -> anyhow::Result<()> {
         let mut tree = TestTree::spawn(true, false, MockInboundQueueSender).await;
@@ -598,7 +851,10 @@ mod hooked {
         let outputs = vec![vec![0; usize::try_from(MOCK_MAX_OUTPUTS_SIZE)? + 1]];
         let reply_join_handles = tree
             .submit_in_one_round(vec![
-                TreeEventKind::RegularTasksDone { outputs },
+                TreeEventKind::RegularTasksDone {
+                    outputs,
+                    children: Vec::new(),
+                },
                 regular_tasks_done(),
             ])
             .await;
