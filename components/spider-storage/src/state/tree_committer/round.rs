@@ -279,7 +279,10 @@ impl<
     ///
     /// * [`CacheError`] converted from [`DbError::CorruptedDbState`] if the number of `child_ids`
     ///   differs from the number of registered children.
+    /// * [`CacheError`] converted from [`InternalError::TaskGraphCorrupted`] if a registered child
+    ///   has no ready task.
     /// * Forwards [`registered_children`]'s return values on failure.
+    /// * Forwards [`SharedJobControlBlock::get_ready_task_indices`]'s return values on failure.
     /// * Forwards [`TreeStructure::insert_children`]'s return values on failure.
     /// * Forwards [`JobCache::insert_many`](crate::state::JobCache::insert_many)'s return values on
     ///   failure.
@@ -308,9 +311,15 @@ impl<
         let mut jcbs = Vec::with_capacity(child_ids.len());
         let mut publications = Vec::with_capacity(child_ids.len());
         for (child_id, prepared_child) in child_ids.into_iter().zip(prepared_children) {
-            let task_indices = prepared_child.ready_task_indices().to_vec();
             let jcb =
                 SharedJobControlBlock::from_prepared_child(child_id, &parent, prepared_child).await;
+            let task_indices = jcb.get_ready_task_indices().await?;
+            if task_indices.is_empty() {
+                return Err(InternalError::TaskGraphCorrupted(format!(
+                    "the registered child {child_id:?} has no ready task"
+                ))
+                .into());
+            }
             nodes.push((child_id, jcb.tree_node().await));
             jcbs.push(jcb);
             publications.push(Publication::Ready {
