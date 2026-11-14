@@ -63,15 +63,6 @@ impl TreeEventKind {
 
     /// # Returns
     ///
-    /// Whether an event of this kind registers a child set: a [`Self::RegularTasksDone`] with
-    /// children.
-    #[must_use]
-    pub const fn registers(&self) -> bool {
-        matches!(self, Self::RegularTasksDone { children, .. } if !children.is_empty())
-    }
-
-    /// # Returns
-    ///
     /// The job state that an event of this kind requires.
     #[must_use]
     pub const fn state_requirement(&self) -> StateRequirement {

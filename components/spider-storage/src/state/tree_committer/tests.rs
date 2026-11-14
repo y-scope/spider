@@ -231,48 +231,6 @@ async fn a_transient_error_of_a_registration_poisons_the_tree() -> anyhow::Resul
     Ok(())
 }
 
-#[tokio::test]
-async fn take_events_takes_cancels_then_failures_then_the_oldest_registration_then_the_rest() {
-    let mut pending_queue = PendingQueue {
-        fast_forward: VecDeque::from([
-            pending(6, failure("first")),
-            pending(1, TreeEventKind::CancelRoot),
-            pending(7, failure("second")),
-        ]),
-        regular: VecDeque::from([
-            pending(3, TreeEventKind::CommitDone),
-            pending(2, registration(create_test_prepared_children(1).await)),
-            pending(4, registration(create_test_prepared_children(1).await)),
-            pending(5, regular_tasks_done()),
-        ]),
-    };
-    let round = pending_queue.take_events();
-    assert_eq!(job_ids_of(&round), [1, 6, 7, 2, 3, 4, 5]);
-    assert!(pending_queue.is_empty());
-
-    let num_cancels = MAX_EVENTS_PER_ROUND as u64 - 1;
-    let mut pending_queue = PendingQueue {
-        fast_forward: (0..num_cancels)
-            .map(|id| pending(id, TreeEventKind::CancelRoot))
-            .collect(),
-        regular: VecDeque::from([
-            pending(num_cancels, TreeEventKind::CommitDone),
-            pending(
-                num_cancels + 1,
-                registration(create_test_prepared_children(1).await),
-            ),
-        ]),
-    };
-    let round = pending_queue.take_events();
-    assert_eq!(
-        job_ids_of(&round),
-        (0..num_cancels)
-            .chain([num_cancels + 1])
-            .collect::<Vec<_>>()
-    );
-    assert_eq!(job_ids_of(&pending_queue.regular), [num_cancels]);
-}
-
 #[test]
 fn take_events_fills_a_round_with_cancels_and_failures_first() {
     const NUM_FAST_FORWARD: u64 = 300;

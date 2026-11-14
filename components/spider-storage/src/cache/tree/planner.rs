@@ -158,8 +158,8 @@ pub(super) enum Admission {
     /// already changes.
     JobConflict(JobId),
 
-    /// The event is deferred to a later round: it registers children while the round's plan
-    /// already registers a child set.
+    /// The event is deferred to a later round: it registers children while the round's plan already
+    /// registers a child set.
     ChildSetAlreadyPlanned,
 
     /// The event is deferred to a later round: its outputs and children would push the round's

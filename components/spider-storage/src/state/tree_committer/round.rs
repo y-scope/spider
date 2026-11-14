@@ -266,8 +266,8 @@ impl<
     }
 
     /// Adds the children that `registration` registers, which the round has inserted under the IDs
-    /// `child_ids`, in order, to the structure, the committer and the job cache. Takes the
-    /// children out of the registering event of `in_flight`.
+    /// `child_ids`, in order, to the structure, the committer and the job cache. Takes the children
+    /// out of the registering event of `in_flight`.
     ///
     /// # Returns
     ///
