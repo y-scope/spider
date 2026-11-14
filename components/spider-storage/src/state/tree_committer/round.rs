@@ -503,7 +503,7 @@ fn fail_job_with_oversized_payload(
     registration: Option<&PlannedRegistration>,
     error: DbError,
 ) -> Result<(), CacheError> {
-    let pending_and_message = match (&error, registration) {
+    let Some((pending, message)) = (match (&error, registration) {
         (DbError::OutputsTooLarge { job_id, .. }, _) => in_flight
             .iter_mut()
             .zip(outcomes)
@@ -527,8 +527,7 @@ fn fail_job_with_oversized_payload(
                 .map(|pending| (pending, error.to_string()))
         }
         _ => None,
-    };
-    let Some((pending, message)) = pending_and_message else {
+    }) else {
         return Err(error.into());
     };
     tracing::warn!(
