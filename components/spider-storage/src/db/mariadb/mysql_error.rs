@@ -1,3 +1,5 @@
+use std::io::ErrorKind;
+
 use sqlx::mysql::MySqlDatabaseError;
 
 /// `MySQL` error number for foreign key constraint violation.
@@ -63,6 +65,22 @@ pub(super) fn is_payload_rejection(error: &sqlx::Error) -> bool {
 
 /// # Returns
 ///
+/// Whether `error` is an I/O error of a broken connection to the database.
+pub(super) fn is_connection_loss(error: &sqlx::Error) -> bool {
+    let sqlx::Error::Io(error) = error else {
+        return false;
+    };
+    matches!(
+        error.kind(),
+        ErrorKind::BrokenPipe
+            | ErrorKind::ConnectionReset
+            | ErrorKind::ConnectionAborted
+            | ErrorKind::UnexpectedEof
+    )
+}
+
+/// # Returns
+///
 /// Whether `error` is a database error whose `MySQL` error number is one of `numbers`.
 pub(super) fn has_mysql_error_number(error: &sqlx::Error, numbers: &[u16]) -> bool {
     let sqlx::Error::Database(error) = error else {
@@ -71,4 +89,37 @@ pub(super) fn has_mysql_error_number(error: &sqlx::Error, numbers: &[u16]) -> bo
     error
         .try_downcast_ref::<MySqlDatabaseError>()
         .is_some_and(|mysql_error| numbers.contains(&mysql_error.number()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::ErrorKind;
+
+    use super::is_connection_loss;
+
+    #[test]
+    fn only_io_errors_of_a_broken_connection_are_connection_losses() {
+        for kind in [
+            ErrorKind::BrokenPipe,
+            ErrorKind::ConnectionReset,
+            ErrorKind::ConnectionAborted,
+            ErrorKind::UnexpectedEof,
+        ] {
+            assert!(
+                is_connection_loss(&sqlx::Error::Io(std::io::Error::from(kind))),
+                "{kind:?} should be a connection loss"
+            );
+        }
+        for error in [
+            sqlx::Error::Io(std::io::Error::from(ErrorKind::TimedOut)),
+            sqlx::Error::Io(std::io::Error::from(ErrorKind::ConnectionRefused)),
+            sqlx::Error::Protocol("unexpected packet".to_owned()),
+            sqlx::Error::PoolTimedOut,
+        ] {
+            assert!(
+                !is_connection_loss(&error),
+                "{error:?} should not be a connection loss"
+            );
+        }
+    }
 }

@@ -266,7 +266,7 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     /// * [`DbError::ChildTooLarge`] if a child insertion's payload is too large for one statement.
     ///   Nothing is sent to the database then.
     /// * [`DbError::PayloadRejected`] if the database rejects a child insertion's payload as too
-    ///   large.
+    ///   large, including by breaking the connection while the payload is sent.
     /// * [`DbError::ValueSerializationFailure`] if an update's outputs fail to serialize.
     /// * [`DbError::CorruptedDbState`] if:
     ///   * An update's row is missing or not in its `from` state.
