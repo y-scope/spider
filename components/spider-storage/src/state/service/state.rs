@@ -1057,6 +1057,8 @@ impl<
 
         let mut prepared_children = Vec::with_capacity(children.len());
         for (index, child) in children.into_iter().enumerate() {
+            // Building a child is CPU-bound and its awaits complete immediately, so without this
+            // yield, a report of many children would hold its runtime worker until all are built.
             tokio::task::yield_now().await;
             match PreparedChild::create(child).await {
                 Ok(prepared_child) => prepared_children.push(prepared_child),
