@@ -836,8 +836,8 @@ mod tests {
         assert!(
             matches!(
                 result,
-                Err(DbError::ChildTooLarge { parent_id, size: culprit_size, limit })
-                    if parent_id == JobId::from(1) && culprit_size == size && limit == size - 1
+                Err(DbError::ChildTooLarge { parent_id, size: reported_size, limit })
+                    if parent_id == JobId::from(1) && reported_size == size && limit == size - 1
             ),
             "unexpected result {result:?}"
         );

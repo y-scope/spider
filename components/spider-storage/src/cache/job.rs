@@ -355,6 +355,22 @@ impl<
         node
     }
 
+    /// # Returns
+    ///
+    /// The indices of the job's ready tasks on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
+    pub(crate) async fn get_ready_task_indices(&self) -> Result<Vec<TaskIndex>, CacheError> {
+        let job = self.inner.job_execution_state.read_running().await?;
+        let ready_task_indices = job.task_graph.get_all_ready_task_indices().await;
+        drop(job);
+        Ok(ready_task_indices)
+    }
+
     /// Gets the outputs of the job from the in-memory task graph.
     ///
     /// # Returns
@@ -1606,6 +1622,22 @@ mod tests {
             );
             drop(execution_state);
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn get_ready_task_indices_returns_a_running_childs_ready_tasks() -> anyhow::Result<()> {
+        const CHILD_ID: JobId = JobId::from(2);
+
+        let (parent, _receivers) = create_test_jcb(JOB_ID).await;
+        let child = SharedJobControlBlock::from_prepared_child(
+            CHILD_ID,
+            &parent,
+            PreparedChild::create(create_test_child_submission_with_independent_tasks(2)).await?,
+        )
+        .await;
+
+        assert_eq!(child.get_ready_task_indices().await?, vec![0, 1]);
         Ok(())
     }
 }
