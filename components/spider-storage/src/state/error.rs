@@ -71,9 +71,6 @@ pub enum ReportRejection {
     #[error("child jobs at depth {depth} exceed the maximum depth {limit}")]
     TooDeep { depth: u32, limit: u32 },
 
-    #[error("{count} child jobs exceed the limit of {limit} per report")]
-    TooManyChildren { count: usize, limit: usize },
-
     #[error("child job {index} of {size} bytes exceeds the limit of {limit} bytes")]
     ChildTooLarge { index: usize, size: u64, limit: u64 },
 

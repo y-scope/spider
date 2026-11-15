@@ -995,8 +995,6 @@ impl<
     ///
     /// * [`ReportRejection::OutputsTooLarge`] if the outputs exceed [`MAX_REPORT_OUTPUTS_SIZE`].
     /// * [`ReportRejection::TooDeep`] if the children would be deeper than [`MAX_DEPTH`].
-    /// * [`ReportRejection::TooManyChildren`] if there are more than [`MAX_CHILDREN_PER_JOB`]
-    ///   children.
     /// * [`ReportRejection::ChildTooLarge`] if a child exceeds the database's statement payload.
     /// * [`ReportRejection::ChildrenTooLarge`] if the children exceed [`MAX_REPORT_CHILDREN_SIZE`].
     /// * [`ReportRejection::JobChildrenTooLarge`] if the children would take the job over a per-job
@@ -1023,12 +1021,6 @@ impl<
             return Err(ReportRejection::TooDeep {
                 depth: child_depth,
                 limit: MAX_DEPTH,
-            });
-        }
-        if children.len() > MAX_CHILDREN_PER_JOB {
-            return Err(ReportRejection::TooManyChildren {
-                count: children.len(),
-                limit: MAX_CHILDREN_PER_JOB,
             });
         }
         let max_child_size = self.inner.db.max_statement_payload();

@@ -89,9 +89,11 @@ async fn a_report_over_a_limit_fails_its_task() -> anyhow::Result<()> {
                     .take(MAX_CHILDREN_PER_JOB + 1)
                     .collect()
             },
-            error_prefix: ReportRejection::TooManyChildren {
+            error_prefix: ReportRejection::JobChildrenTooLarge {
                 count: MAX_CHILDREN_PER_JOB + 1,
-                limit: MAX_CHILDREN_PER_JOB,
+                size: (MAX_CHILDREN_PER_JOB + 1) as u64 * chain_child(1).size(),
+                count_limit: MAX_CHILDREN_PER_JOB,
+                size_limit: MAX_JOB_CHILDREN_SIZE,
             }
             .to_string(),
         },
