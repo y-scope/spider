@@ -63,6 +63,7 @@ use crate::state::test_utils::MOCK_MAX_OUTPUTS_SIZE;
 use crate::state::test_utils::MockDbConnector;
 use crate::state::test_utils::MockInboundQueueSender;
 use crate::state::test_utils::MockTaskInstancePoolConnector;
+use crate::state::test_utils::create_test_child_submission;
 use crate::state::test_utils::create_test_jcb;
 use crate::state::test_utils::create_test_task_graph;
 use crate::state::test_utils::create_test_task_graph_input;
@@ -507,6 +508,7 @@ async fn get_job_outputs_returns_outputs_from_db() -> anyhow::Result<()> {
     let db = MockDbConnector::default();
     let job_id = JobId::random();
     let outputs: Vec<TaskOutput> = vec![vec![1, 2, 3]];
+    db.states.insert(job_id, JobState::Succeeded);
     db.outputs.insert(job_id, outputs.clone());
 
     let service = create_test_service_with_db(db);
@@ -598,6 +600,7 @@ async fn get_job_error_returns_error_message_from_db() -> anyhow::Result<()> {
     let db = MockDbConnector::default();
     let job_id = JobId::random();
     let error_msg = "something went wrong".to_owned();
+    db.states.insert(job_id, JobState::Failed);
     db.errors.insert(job_id, error_msg.clone());
 
     let service = create_test_service_with_db(db);
@@ -615,6 +618,115 @@ async fn get_job_error_returns_error_for_unknown_job() -> anyhow::Result<()> {
         "get_job_error should fail for unknown job"
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn job_rpcs_reject_an_uncached_child_job() -> anyhow::Result<()> {
+    for state in [JobState::Running, JobState::Succeeded, JobState::Failed] {
+        let db = MockDbConnector::default();
+        let job_id = JobId::random();
+        db.states.insert(job_id, state);
+        db.parents.insert(job_id, JobId::random());
+        db.errors.insert(job_id, "child error".to_owned());
+        db.outputs.insert(job_id, Vec::new());
+
+        let service = create_test_service_with_db(db.clone());
+        assert_job_rpcs_reject_as_a_bad_request(
+            &service,
+            job_id,
+            &format!("an uncached {state} child"),
+        )
+        .await;
+        assert_eq!(db.states.get(&job_id).map(|stored| *stored), Some(state));
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn job_rpcs_reject_a_cached_child_job() -> anyhow::Result<()> {
+    let db = MockDbConnector::default();
+    let service = create_test_service_with_db(db.clone());
+    let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
+        create_test_job_submission();
+    let root_id = service
+        .register_job(
+            ResourceGroupId::random(),
+            compressed_serialized_task_graph,
+            compressed_serialized_task_graph_input,
+        )
+        .await?;
+    service.start_job(root_id).await?;
+    let context = service
+        .create_task_instance(
+            TEST_SESSION_ID,
+            root_id,
+            TaskId::Index(0),
+            ExecutionManagerId::random(),
+        )
+        .await?;
+    let state = service
+        .succeed_task_instance(
+            TEST_SESSION_ID,
+            root_id,
+            context.task_instance_id,
+            0,
+            create_test_serialized_outputs(),
+            vec![create_test_child_submission(1)],
+        )
+        .await?;
+    assert_eq!(state, JobState::BlockingOnChildren);
+    let child_ids: Vec<JobId> = db.parents.iter().map(|entry| *entry.key()).collect();
+    let [child_id] = child_ids.as_slice() else {
+        panic!("the report should register one child, got {child_ids:?}");
+    };
+    let child = service
+        .inner
+        .job_cache
+        .get(*child_id)
+        .await
+        .expect("the registered child should be cached");
+
+    assert_job_rpcs_reject_as_a_bad_request(&service, *child_id, "a cached running child").await;
+    assert_eq!(child.state().await, JobState::Running);
+    assert_eq!(
+        service.get_job_state(root_id).await?,
+        JobState::BlockingOnChildren
+    );
+    Ok(())
+}
+
+/// Asserts that each of the five external job RPCs rejects `job_id` as a bad request.
+///
+/// # Panics
+///
+/// Panics if an RPC does not answer [`StorageServerError::BadRequest`].
+async fn assert_job_rpcs_reject_as_a_bad_request(
+    service: &TestServiceState,
+    job_id: JobId,
+    description: &str,
+) {
+    let results = [
+        ("StartJob", service.start_job(job_id).await),
+        ("CancelJob", service.cancel_job(job_id).await.map(|_| ())),
+        (
+            "GetJobState",
+            service.get_job_state(job_id).await.map(|_| ()),
+        ),
+        (
+            "GetJobOutputs",
+            service.get_job_outputs(job_id).await.map(|_| ()),
+        ),
+        (
+            "GetJobError",
+            service.get_job_error(job_id).await.map(|_| ()),
+        ),
+    ];
+    for (rpc, result) in results {
+        assert!(
+            matches!(result, Err(StorageServerError::BadRequest(_))),
+            "{rpc} of {description} gave {result:?}"
+        );
+    }
 }
 
 #[tokio::test]

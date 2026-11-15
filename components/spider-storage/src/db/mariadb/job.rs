@@ -132,6 +132,22 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         Ok(state)
     }
 
+    async fn get_state_and_parent(
+        &self,
+        job_id: JobId,
+    ) -> Result<(JobState, Option<JobId>), DbError> {
+        const QUERY: &str = formatcp!(
+            "SELECT `state`, `parent_id` FROM `{table}` WHERE `id` = ?;",
+            table = JOBS_TABLE_NAME,
+        );
+
+        sqlx::query_as::<_, (JobState, Option<JobId>)>(QUERY)
+            .bind(job_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(DbError::JobNotFound(job_id))
+    }
+
     async fn get_outputs(&self, job_id: JobId) -> Result<Vec<TaskOutput>, DbError> {
         const QUERY: &str = formatcp!(
             "SELECT `state`, `serialized_job_outputs` FROM `{table}` WHERE `id` = ?;",

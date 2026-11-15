@@ -194,6 +194,31 @@ pub trait ExternalJobOrchestration {
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn get_state(&self, job_id: JobId) -> Result<JobState, DbError>;
 
+    /// Gets the state of a job and the ID of its parent.
+    ///
+    /// # Parameters
+    ///
+    /// * `job_id` - The ID of the job.
+    ///
+    /// # Returns
+    ///
+    /// A pair on success, containing:
+    ///
+    /// * The state of the job.
+    /// * The ID of the job's parent, or [`None`] if the job is a root.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn get_state_and_parent(
+        &self,
+        job_id: JobId,
+    ) -> Result<(JobState, Option<JobId>), DbError>;
+
     /// Gets the outputs of a job.
     ///
     /// # Parameters

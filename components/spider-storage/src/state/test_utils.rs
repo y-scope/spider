@@ -179,6 +179,14 @@ impl ExternalJobOrchestration for MockDbConnector {
             .ok_or(DbError::JobNotFound(job_id))
     }
 
+    async fn get_state_and_parent(
+        &self,
+        job_id: JobId,
+    ) -> Result<(JobState, Option<JobId>), DbError> {
+        let state = self.get_state(job_id).await?;
+        Ok((state, self.parents.get(&job_id).map(|parent_id| *parent_id)))
+    }
+
     async fn get_outputs(&self, job_id: JobId) -> Result<Vec<TaskOutput>, DbError> {
         self.outputs
             .get(&job_id)

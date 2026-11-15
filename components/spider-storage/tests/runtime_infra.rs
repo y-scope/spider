@@ -570,6 +570,23 @@ impl TestEnv {
 
     /// # Returns
     ///
+    /// The error message of `job_id`'s row in the database, or [`None`] if it has none.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the query fails.
+    pub async fn row_error(&self, job_id: JobId) -> Option<String> {
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT `error_message` FROM `jobs` WHERE `id` = ?;",
+        )
+        .bind(job_id)
+        .fetch_one(&self.pool)
+        .await
+        .expect("the row error query should succeed")
+    }
+
+    /// # Returns
+    ///
     /// Whether `job_id`'s row in the database has job outputs.
     ///
     /// # Panics
