@@ -100,6 +100,7 @@ impl<
     /// * Forwards [`TreeStructure::plan_events`]'s return values on failure.
     /// * Forwards [`Self::child_insertions`]'s return values on failure.
     /// * Forwards [`fail_job_with_oversized_payload`]'s return values on failure.
+    /// * Forwards [`TreeStructure::set_active_children`]'s return values on failure.
     /// * Forwards [`Self::apply_to_cache`]'s return values on failure.
     /// * Forwards [`Self::insert_registered_children_into_tree`]'s return values on failure.
     /// * Forwards [`Self::publish`]'s return values on failure.
@@ -114,6 +115,7 @@ impl<
         let Plan {
             updates,
             mut publications,
+            active_children,
             outcomes,
             registration,
             ..
@@ -147,6 +149,10 @@ impl<
             };
             self.hit_hook(HookPoint::CommitterRoundAfterDbWrite, &transitions)
                 .await;
+            for (job_id, active_children) in active_children {
+                self.structure
+                    .set_active_children(job_id, active_children)?;
+            }
             for transition in transitions {
                 self.apply_to_cache(transition).await?;
             }
