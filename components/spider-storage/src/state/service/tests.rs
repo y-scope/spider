@@ -547,6 +547,7 @@ async fn get_job_outputs_returns_outputs_from_cache_when_jcb_present() -> anyhow
             context.task_instance_id,
             0,
             serialized_outputs,
+            Vec::new(),
         )
         .await?;
 
@@ -695,6 +696,7 @@ async fn succeed_task_instance_transitions_job_to_succeeded() -> anyhow::Result<
             context.task_instance_id,
             0,
             serialized_outputs,
+            Vec::new(),
         )
         .await?;
     assert_eq!(state, JobState::Succeeded);
@@ -749,6 +751,7 @@ async fn succeed_task_instance_with_outputs_too_large_for_the_database_fails_the
             context.task_instance_id,
             0,
             serialized_outputs,
+            Vec::new(),
         )
         .await?;
     assert_eq!(state, JobState::Failed);
@@ -777,6 +780,7 @@ async fn succeed_task_instance_returns_job_not_found_when_not_in_cache() -> anyh
             1,
             0,
             create_test_serialized_outputs(),
+            Vec::new(),
         )
         .await;
     assert!(
@@ -816,6 +820,7 @@ async fn a_report_with_the_wrong_output_count_fails_the_task_instance() -> anyho
             0,
             TaskOutputsSerializer::from_tuple(&(1, 2))
                 .expect("output serialization should succeed"),
+            Vec::new(),
         )
         .await?;
 
@@ -890,6 +895,7 @@ async fn a_report_with_outputs_over_the_limit_fails_the_task_instance() -> anyho
                     context.task_instance_id,
                     0,
                     serialized_outputs.clone(),
+                    Vec::new(),
                 )
                 .await?;
             assert_eq!(
@@ -1038,6 +1044,7 @@ async fn succeed_task_instance_enqueues_terminal_job_for_cache_gc() -> anyhow::R
             context.task_instance_id,
             0,
             create_test_serialized_outputs(),
+            Vec::new(),
         )
         .await?;
 
@@ -1147,6 +1154,7 @@ async fn task_instance_orchestration_return_stale_session_on_mismatch() -> anyho
                 TASK_INSTANCE_ID,
                 TASK_INDEX,
                 create_test_serialized_outputs(),
+                Vec::new(),
             )
             .await;
         assert!(

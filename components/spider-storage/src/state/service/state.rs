@@ -31,6 +31,8 @@ use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
 use crate::cache::error::StaleStateError;
 use crate::cache::job::SharedJobControlBlock;
+use crate::cache::task::PreparedChild;
+use crate::cache::tree::ChildJobUsage;
 use crate::cache::tree::EventReceivers;
 use crate::cache::tree::TreeControlBlock;
 use crate::db::DbStorage;
@@ -39,7 +41,12 @@ use crate::inbound_queue::CommitTaskMarker;
 use crate::inbound_queue::InboundQueueEntry;
 use crate::inbound_queue::InboundQueueReceiverHandle;
 use crate::inbound_queue::InboundQueueSender;
+use crate::job_submission::CompressedJobSubmission;
 use crate::job_submission::ValidatedJobSubmission;
+use crate::limits::MAX_CHILDREN_PER_JOB;
+use crate::limits::MAX_DEPTH;
+use crate::limits::MAX_JOB_CHILDREN_SIZE;
+use crate::limits::MAX_REPORT_CHILDREN_SIZE;
 use crate::limits::MAX_REPORT_OUTPUTS_SIZE;
 use crate::partial_mutation::PartialMutationGuard;
 use crate::state::CommitterEnv;
@@ -470,10 +477,10 @@ impl<
         .await
     }
 
-    /// Marks a task instance as succeeded.
+    /// Marks a task instance as succeeded, with the child jobs that its report creates.
     ///
-    /// A report that breaks a limit of [`crate::limits`] or whose number of outputs doesn't match
-    /// its task's fails the task instance instead.
+    /// A report that breaks a limit of [`crate::limits`], whose children fail to decode or build,
+    /// or whose number of outputs doesn't match its task's fails the task instance instead.
     ///
     /// # Returns
     ///
@@ -497,6 +504,7 @@ impl<
         task_instance_id: TaskInstanceId,
         task_index: TaskIndex,
         serialized_outputs: Vec<u8>,
+        children: Vec<CompressedJobSubmission>,
     ) -> Result<JobState, StorageServerError> {
         self.validate_session(session_id)?;
         let task_outputs = TaskOutputsSerializer::deserialize(&serialized_outputs)
@@ -509,13 +517,28 @@ impl<
                 .get(job_id)
                 .await
                 .ok_or(StorageServerError::JobNotFound(job_id))?;
-            if let Err(rejection) = Self::prepare_report(&task_outputs) {
-                return Self::fail_rejected_report(&jcb, task_instance_id, task_index, &rejection)
-                    .await;
-            }
+            let (prepared_children, reserved_children_usage) =
+                match this.prepare_report(&jcb, &task_outputs, children).await {
+                    Ok(prepared_report) => prepared_report,
+                    Err(rejection) => {
+                        return Self::fail_rejected_report(
+                            &jcb,
+                            task_instance_id,
+                            task_index,
+                            &rejection,
+                        )
+                        .await;
+                    }
+                };
             let state = match jcb
-                .succeed_task_instance(task_instance_id, task_index, task_outputs, Vec::new())
+                .succeed_task_instance(
+                    task_instance_id,
+                    task_index,
+                    task_outputs,
+                    prepared_children,
+                )
                 .await
+                .inspect_err(|_| jcb.revert_children_usage_reservation(reserved_children_usage))
             {
                 Err(rejection @ CacheError::TaskOutputsLengthMismatch { .. }) => {
                     return Self::fail_rejected_report(
@@ -955,14 +978,34 @@ impl<
         Ok(())
     }
 
-    /// Checks a success report of a task against the limits.
+    /// Checks a success report of a task of `jcb` against the limits, reserves its children against
+    /// `jcb`'s per-job child limits, then decodes and builds every child, yielding to the runtime
+    /// between children.
+    ///
+    /// # Returns
+    ///
+    /// A pair on success, containing:
+    ///
+    /// * The prepared children, in report order.
+    /// * The children usage reserved for them, which the caller reverts if they are not stored.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * [`ReportRejection::OutputsTooLarge`] if the outputs exceed [`MAX_REPORT_OUTPUTS_SIZE`].
-    fn prepare_report(task_outputs: &[TaskOutput]) -> Result<(), ReportRejection> {
+    /// * [`ReportRejection::TooDeep`] if the children would be deeper than [`MAX_DEPTH`].
+    /// * [`ReportRejection::ChildTooLarge`] if a child exceeds the database's statement payload.
+    /// * [`ReportRejection::ChildrenTooLarge`] if the children exceed [`MAX_REPORT_CHILDREN_SIZE`].
+    /// * [`ReportRejection::JobChildrenTooLarge`] if the children would take the job over a per-job
+    ///   child limit.
+    /// * [`ReportRejection::InvalidChild`] if [`PreparedChild::create`] fails for a child.
+    async fn prepare_report(
+        &self,
+        jcb: &SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
+        task_outputs: &[TaskOutput],
+        children: Vec<CompressedJobSubmission>,
+    ) -> Result<(Vec<PreparedChild>, ChildJobUsage), ReportRejection> {
         let outputs_size: u64 = task_outputs.iter().map(|output| output.len() as u64).sum();
         if outputs_size > MAX_REPORT_OUTPUTS_SIZE {
             return Err(ReportRejection::OutputsTooLarge {
@@ -970,7 +1013,62 @@ impl<
                 limit: MAX_REPORT_OUTPUTS_SIZE,
             });
         }
-        Ok(())
+        if children.is_empty() {
+            return Ok((Vec::new(), ChildJobUsage::default()));
+        }
+        let child_depth = jcb.depth() + 1;
+        if child_depth > MAX_DEPTH {
+            return Err(ReportRejection::TooDeep {
+                depth: child_depth,
+                limit: MAX_DEPTH,
+            });
+        }
+        let max_child_size = self.inner.db.max_statement_payload();
+        if let Some((index, child)) = children
+            .iter()
+            .enumerate()
+            .find(|(_, child)| child.size() > max_child_size)
+        {
+            return Err(ReportRejection::ChildTooLarge {
+                index,
+                size: child.size(),
+                limit: max_child_size,
+            });
+        }
+        let children_size: u64 = children.iter().map(CompressedJobSubmission::size).sum();
+        if children_size > MAX_REPORT_CHILDREN_SIZE {
+            return Err(ReportRejection::ChildrenTooLarge {
+                size: children_size,
+                limit: MAX_REPORT_CHILDREN_SIZE,
+            });
+        }
+
+        let reserved_children_usage = ChildJobUsage {
+            count: children.len(),
+            size: children_size,
+        };
+        jcb.reserve_children_usage(reserved_children_usage)
+            .map_err(|total_usage| ReportRejection::JobChildrenTooLarge {
+                count: total_usage.count,
+                size: total_usage.size,
+                count_limit: MAX_CHILDREN_PER_JOB,
+                size_limit: MAX_JOB_CHILDREN_SIZE,
+            })?;
+
+        let mut prepared_children = Vec::with_capacity(children.len());
+        for (index, child) in children.into_iter().enumerate() {
+            // Building a child is CPU-bound and its awaits complete immediately, so without this
+            // yield, a report of many children would hold its runtime worker until all are built.
+            tokio::task::yield_now().await;
+            match PreparedChild::create(child).await {
+                Ok(prepared_child) => prepared_children.push(prepared_child),
+                Err(source) => {
+                    jcb.revert_children_usage_reservation(reserved_children_usage);
+                    return Err(ReportRejection::InvalidChild { index, source });
+                }
+            }
+        }
+        Ok((prepared_children, reserved_children_usage))
     }
 
     /// Fails the task instance `task_instance_id` of the task `task_index` of `jcb`, whose success

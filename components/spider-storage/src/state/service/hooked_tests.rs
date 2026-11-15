@@ -186,6 +186,7 @@ async fn succeed(
             task_instance_id,
             0,
             create_test_serialized_outputs(),
+            Vec::new(),
         )
         .await
 }
