@@ -46,6 +46,7 @@ async fn outputs_over_the_packet_size_fail_the_job() -> anyhow::Result<()> {
                 task_instance_id,
                 task_index,
                 serialized_output(incompressible(OUTPUT_SIZE, u64::try_from(task_index)?)),
+                Vec::new(),
             )
             .await?;
     }
@@ -119,6 +120,7 @@ async fn a_straggler_failure_in_the_committers_write_window_is_stale() -> anyhow
                 first_instance_id,
                 0,
                 serialized_output(vec![1; 4]),
+                Vec::new(),
             )
             .await
     });
@@ -276,6 +278,7 @@ async fn a_job_failure_cancels_the_jobs_other_running_tasks() -> anyhow::Result<
             running_instance_id,
             1,
             serialized_output(vec![1; 4]),
+            Vec::new(),
         )
         .await;
     assert!(

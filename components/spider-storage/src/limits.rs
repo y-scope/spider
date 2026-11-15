@@ -30,8 +30,11 @@ pub const MAX_REPORT_OUTPUTS_SIZE: u64 = 4 * 1024 * 1024;
 /// The maximum size of a decoded message of the task instance management service.
 pub const MAX_TASK_INSTANCE_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
 
-const _: () = assert!(2 * MAX_REPORT_OUTPUTS_SIZE <= MAX_TASK_INSTANCE_MESSAGE_SIZE as u64);
+/// The room that a task instance message leaves beyond a success report's outputs and children, for
+/// its framing and metadata.
+const TASK_INSTANCE_MESSAGE_MARGIN: u64 = 1024 * 1024;
 
 const _: () = assert!(
-    MAX_REPORT_CHILDREN_SIZE + MAX_REPORT_OUTPUTS_SIZE <= MAX_TASK_INSTANCE_MESSAGE_SIZE as u64
+    MAX_REPORT_OUTPUTS_SIZE + MAX_REPORT_CHILDREN_SIZE + TASK_INSTANCE_MESSAGE_MARGIN
+        <= MAX_TASK_INSTANCE_MESSAGE_SIZE as u64
 );

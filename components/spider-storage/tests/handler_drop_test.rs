@@ -41,6 +41,7 @@ async fn dropped_report_after_the_tcb_flip_still_finishes_the_job() -> anyhow::R
                 instance_id,
                 0,
                 serialized_output(1),
+                Vec::new(),
             )
             .await
     });
@@ -81,6 +82,7 @@ async fn dropped_report_at_the_successor_lock_publishes_the_successor_once() -> 
                 instance_id,
                 0,
                 serialized_output(1),
+                Vec::new(),
             )
             .await
     });
@@ -112,6 +114,7 @@ async fn dropped_report_at_the_successor_lock_publishes_the_successor_once() -> 
             instance_id,
             1,
             serialized_output(2),
+            Vec::new(),
         )
         .await?;
     assert_eq!(state, JobState::Succeeded);
@@ -188,6 +191,7 @@ async fn dropped_instance_creation_still_hands_the_instance_to_the_pool() -> any
             instance_id,
             0,
             serialized_output(1),
+            Vec::new(),
         )
         .await?;
     assert_eq!(state, JobState::Succeeded);

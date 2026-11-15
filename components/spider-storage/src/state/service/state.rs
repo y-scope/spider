@@ -477,36 +477,6 @@ impl<
         .await
     }
 
-    /// Marks a task instance as succeeded, with no child jobs.
-    ///
-    /// # Returns
-    ///
-    /// The current job state after the operation on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`Self::succeed_task_instance_with_children`]'s return values on failure.
-    pub async fn succeed_task_instance(
-        &self,
-        session_id: SessionId,
-        job_id: JobId,
-        task_instance_id: TaskInstanceId,
-        task_index: TaskIndex,
-        serialized_outputs: Vec<u8>,
-    ) -> Result<JobState, StorageServerError> {
-        self.succeed_task_instance_with_children(
-            session_id,
-            job_id,
-            task_instance_id,
-            task_index,
-            serialized_outputs,
-            Vec::new(),
-        )
-        .await
-    }
-
     /// Marks a task instance as succeeded, with the child jobs that its report creates.
     ///
     /// A report that breaks a limit of [`crate::limits`], whose children fail to decode or build,
@@ -527,7 +497,7 @@ impl<
     /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
     /// * Forwards [`Self::fail_rejected_report`]'s return values on failure.
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
-    pub async fn succeed_task_instance_with_children(
+    pub async fn succeed_task_instance(
         &self,
         session_id: SessionId,
         job_id: JobId,

@@ -381,7 +381,7 @@ impl TestEnv {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ServiceState::succeed_task_instance_with_children`]'s return values on failure.
+    /// * Forwards [`ServiceState::succeed_task_instance`]'s return values on failure.
     ///
     /// # Panics
     ///
@@ -395,7 +395,7 @@ impl TestEnv {
         children: Vec<CompressedJobSubmission>,
     ) -> Result<JobState, StorageServerError> {
         self.service
-            .succeed_task_instance_with_children(
+            .succeed_task_instance(
                 self.service.session_id(),
                 job_id,
                 task_instance_id,
