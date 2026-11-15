@@ -8,13 +8,16 @@ use spider_core::types::id::JobId;
 use spider_core::types::io::TaskOutput;
 
 use crate::cache::error::StaleStateError;
+use crate::cache::tree::ChildJobUsage;
 use crate::cache::tree::TreeEvent;
 use crate::cache::tree::TreeEventKind;
 use crate::cache::tree::TreeEventOutcome;
 use crate::cache::tree::TreeNode;
 use crate::cache::tree::TreeStructure;
 use crate::db::JobStateUpdate;
+use crate::limits::MAX_CHILDREN_PER_JOB;
 use crate::limits::MAX_ERROR_MESSAGE_CHARS;
+use crate::limits::MAX_JOB_CHILDREN_SIZE;
 use crate::limits::MAX_ROUND_PAYLOAD;
 
 /// The plan of a round of events.
@@ -29,7 +32,10 @@ pub struct Plan {
     /// The outcome of each event of the round, in the round's order.
     pub outcomes: Vec<RoundOutcome>,
 
-    /// The number of bytes of job outputs that the updates write.
+    /// The children to register, at most one parent's.
+    pub registration: Option<PlannedRegistration>,
+
+    /// The number of bytes of job outputs and child payloads that the plan writes.
     payload_size: u64,
 }
 
@@ -39,6 +45,7 @@ impl Plan {
     /// Whether `event_plan` can join this plan:
     ///
     /// * [`Admission::JobConflict`] if it changes a job that this plan changes.
+    /// * [`Admission::ChildSetAlreadyPlanned`] if it registers children and this plan does too.
     /// * [`Admission::PayloadBudgetExceeded`] if it writes payload, this plan writes payload too,
     ///   and the payload of both exceeds [`MAX_ROUND_PAYLOAD`].
     /// * [`Admission::Admitted`] otherwise.
@@ -49,6 +56,9 @@ impl Plan {
                 .any(|planned_update| planned_update.job_id == update.job_id)
         }) {
             return Admission::JobConflict(update.job_id);
+        }
+        if event_plan.registration.is_some() && self.registration.is_some() {
+            return Admission::ChildSetAlreadyPlanned;
         }
         let payload_size = event_plan.payload_size();
         if payload_size == 0
@@ -64,6 +74,17 @@ impl Plan {
     /// Adds `event_plan`, the plan of the round's next event, to this plan.
     fn merge(&mut self, event_plan: EventPlan) {
         self.payload_size += event_plan.payload_size();
+        if let Some(EventRegistration {
+            parent_id,
+            children,
+        }) = event_plan.registration
+        {
+            self.registration = Some(PlannedRegistration {
+                event_index: self.outcomes.len(),
+                parent_id,
+                children,
+            });
+        }
         self.outcomes
             .push(RoundOutcome::Planned(event_plan.outcome));
         self.updates.extend(event_plan.updates);
@@ -74,6 +95,19 @@ impl Plan {
     fn defer(&mut self) {
         self.outcomes.push(RoundOutcome::Deferred);
     }
+}
+
+/// The registration of a child set that a round plans.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PlannedRegistration {
+    /// The index, in the round, of the event that registers the children.
+    pub event_index: usize,
+
+    /// The job whose children the event registers.
+    pub parent_id: JobId,
+
+    /// The usage of the children that the event registers.
+    pub children: ChildJobUsage,
 }
 
 /// The outcome of an event in a round.
@@ -124,8 +158,12 @@ pub(super) enum Admission {
     /// already changes.
     JobConflict(JobId),
 
-    /// The event is deferred to a later round: its outputs would push the round's payload over
-    /// [`MAX_ROUND_PAYLOAD`].
+    /// The event is deferred to a later round: it registers children while the round's plan already
+    /// registers a child set.
+    ChildSetAlreadyPlanned,
+
+    /// The event is deferred to a later round: its outputs and children would push the round's
+    /// payload over [`MAX_ROUND_PAYLOAD`].
     PayloadBudgetExceeded,
 }
 
@@ -150,8 +188,8 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
     }
 
     /// Plans `event` against the overlay, then applies its admission: an admitted event's plan is
-    /// merged into the round's plan and the overlay; an event over the payload budget is deferred;
-    /// a job conflict applies nothing.
+    /// merged into the round's plan and the overlay; an event that registers a second child set or
+    /// is over the payload budget is deferred; a job conflict applies nothing.
     ///
     /// # Returns
     ///
@@ -165,7 +203,9 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
                 self.plan.merge(event_plan);
             }
             Admission::JobConflict(_) => {}
-            Admission::PayloadBudgetExceeded => self.plan.defer(),
+            Admission::ChildSetAlreadyPlanned | Admission::PayloadBudgetExceeded => {
+                self.plan.defer();
+            }
         }
         admission
     }
@@ -210,9 +250,15 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     /// * Otherwise, the event is applied:
     ///   * [`TreeEventKind::Start`]: the root moves from [`JobState::Ready`] to
     ///     [`JobState::Running`], and its ready tasks are published.
-    ///   * [`TreeEventKind::RegularTasksDone`]: the job stores its outputs and moves from
-    ///     [`JobState::Running`] to [`JobState::CommitReady`], with its commit task published, if
-    ///     it has a commit task, otherwise to [`JobState::Succeeded`].
+    ///   * [`TreeEventKind::RegularTasksDone`] without children: the job stores its outputs and
+    ///     moves from [`JobState::Running`] to [`JobState::CommitReady`], with its commit task
+    ///     published, if it has a commit task, otherwise to [`JobState::Succeeded`].
+    ///   * [`TreeEventKind::RegularTasksDone`] with children over the limits of one job (see
+    ///     [`ChildJobUsage::is_within_job_limits`]): the job moves from [`JobState::Running`] to
+    ///     [`JobState::Failed`].
+    ///   * [`TreeEventKind::RegularTasksDone`] with other children: the job stores its outputs,
+    ///     moves from [`JobState::Running`] to [`JobState::BlockingOnChildren`] and registers its
+    ///     children.
     ///   * [`TreeEventKind::CommitDone`]: the job moves from [`JobState::CommitReady`] to
     ///     [`JobState::Succeeded`].
     ///   * [`TreeEventKind::CleanupDone`]: the job moves from [`JobState::CleanupReady`] to
@@ -235,8 +281,25 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
             TreeEventKind::Start { ready_task_indices } => {
                 EventPlan::start_root(job_id, ready_task_indices.clone())
             }
-            TreeEventKind::RegularTasksDone { outputs } => {
+            TreeEventKind::RegularTasksDone { outputs, children } if children.is_empty() => {
                 EventPlan::complete_regular_tasks(job_id, &node, outputs.clone())
+            }
+            TreeEventKind::RegularTasksDone { outputs, children } => {
+                let children = ChildJobUsage::of(children);
+                if children.is_within_job_limits() {
+                    EventPlan::register_children(job_id, outputs.clone(), children)
+                } else {
+                    EventPlan::fail_job(
+                        job_id,
+                        node.state,
+                        &format!(
+                            "child jobs ({} of {} bytes) exceed the limits of \
+                             {MAX_CHILDREN_PER_JOB} child jobs and {MAX_JOB_CHILDREN_SIZE} bytes \
+                             per job",
+                            children.count, children.size
+                        ),
+                    )
+                }
             }
             TreeEventKind::CommitDone => EventPlan::complete_commit(job_id),
             TreeEventKind::CleanupDone => EventPlan::complete_cleanup(job_id),
@@ -272,12 +335,20 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     }
 }
 
+/// The children that the plan of one event registers.
+#[derive(Debug, Clone, Copy)]
+struct EventRegistration {
+    parent_id: JobId,
+    children: ChildJobUsage,
+}
+
 /// The plan of one event of a round.
 #[derive(Debug)]
 struct EventPlan {
     updates: Vec<JobStateUpdate>,
     publications: Vec<Publication>,
     outcome: TreeEventOutcome,
+    registration: Option<EventRegistration>,
 }
 
 impl EventPlan {
@@ -322,6 +393,25 @@ impl EventPlan {
             },
             publications,
         )
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// The plan of the regular tasks of `job_id` being done with `children` to register: the job
+    /// stores `outputs` and moves from [`JobState::Running`] to [`JobState::BlockingOnChildren`].
+    fn register_children(job_id: JobId, outputs: Vec<TaskOutput>, children: ChildJobUsage) -> Self {
+        Self {
+            registration: Some(EventRegistration {
+                parent_id: job_id,
+                children,
+            }),
+            ..Self::applying(JobStateUpdate {
+                outputs: Some(outputs),
+                ..JobStateUpdate::new(job_id, JobState::Running, JobState::BlockingOnChildren)
+            })
+        }
     }
 
     /// Factory function.
@@ -403,6 +493,7 @@ impl EventPlan {
             updates: Vec::new(),
             publications: Vec::new(),
             outcome: TreeEventOutcome::Stale(error),
+            registration: None,
         }
     }
 
@@ -417,6 +508,7 @@ impl EventPlan {
             updates: Vec::new(),
             publications: Vec::new(),
             outcome: TreeEventOutcome::Untracked,
+            registration: None,
         }
     }
 
@@ -441,19 +533,26 @@ impl EventPlan {
             outcome: TreeEventOutcome::Applied(update.to),
             updates: vec![update],
             publications,
+            registration: None,
         }
     }
 
     /// # Returns
     ///
-    /// The number of bytes of job outputs that the plan's updates write.
+    /// The number of bytes of job outputs that the plan's updates write, plus the number of bytes
+    /// of the children that the plan registers.
     fn payload_size(&self) -> u64 {
-        self.updates
+        let outputs_size: u64 = self
+            .updates
             .iter()
             .filter_map(|update| update.outputs.as_ref())
             .flatten()
             .map(|output| output.len() as u64)
-            .sum()
+            .sum();
+        outputs_size
+            + self
+                .registration
+                .map_or(0, |registration| registration.children.size)
     }
 }
 
@@ -472,7 +571,9 @@ mod tests {
     use spider_core::job::JobState;
     use spider_core::types::id::JobId;
 
+    use crate::cache::tree::ChildJobUsage;
     use crate::cache::tree::Plan;
+    use crate::cache::tree::PlannedRegistration;
     use crate::cache::tree::TreeNode;
     use crate::cache::tree::planner::Admission;
     use crate::cache::tree::planner::EventPlan;
@@ -493,14 +594,23 @@ mod tests {
             JobId::from(job_id),
             &TreeNode {
                 state: JobState::Running,
+                parent: None,
                 has_commit: false,
                 has_cleanup: false,
+                active_children: 0,
             },
             vec![
                 vec![0; first_output_size],
                 vec![0; payload_size - first_output_size],
             ],
         )
+    }
+
+    /// # Returns
+    ///
+    /// The plan of the regular tasks of the job `job_id` being done with no output and `children`.
+    fn registration(job_id: u64, children: ChildJobUsage) -> EventPlan {
+        EventPlan::register_children(JobId::from(job_id), Vec::new(), children)
     }
 
     #[test]
@@ -530,5 +640,44 @@ mod tests {
             plan.admission(&completion(3, 3)),
             Admission::PayloadBudgetExceeded
         );
+    }
+
+    #[test]
+    fn a_child_set_counts_toward_the_round_payload() {
+        let children = ChildJobUsage {
+            count: 1,
+            size: MAX_ROUND_PAYLOAD,
+        };
+        let mut plan = Plan::default();
+        let registration = registration(2, children);
+        assert_eq!(plan.admission(&registration), Admission::Admitted);
+
+        plan.merge(registration);
+        assert_eq!(
+            plan.admission(&completion(3, 1)),
+            Admission::PayloadBudgetExceeded
+        );
+    }
+
+    #[test]
+    fn a_second_child_set_is_deferred_but_an_event_without_one_is_admitted() {
+        let children = ChildJobUsage { count: 1, size: 1 };
+        let mut plan = Plan::default();
+        plan.merge(completion(2, 1));
+        plan.merge(registration(3, children));
+        assert_eq!(
+            plan.registration,
+            Some(PlannedRegistration {
+                event_index: 1,
+                parent_id: JobId::from(3),
+                children,
+            })
+        );
+
+        assert_eq!(
+            plan.admission(&registration(4, children)),
+            Admission::ChildSetAlreadyPlanned
+        );
+        assert_eq!(plan.admission(&completion(4, 1)), Admission::Admitted);
     }
 }

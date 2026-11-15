@@ -71,6 +71,9 @@ pub enum InternalError {
     #[error("job {0:?} would change twice in one round")]
     JobChangedTwiceInRound(JobId),
 
+    #[error("the round's event that registers the children of job {0:?} differs from its plan")]
+    RegistrationMismatch(JobId),
+
     #[error("task index out of bound")]
     TaskIndexOutOfBound,
 

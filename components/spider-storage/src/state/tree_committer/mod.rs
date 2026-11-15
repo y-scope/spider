@@ -11,9 +11,9 @@
 //! the terminal failures, then the other events, and runs each *round* in the following steps:
 //!
 //! 1. Plans the events against the tree's structure.
-//! 2. Writes the plan to the database in one transaction.
-//! 3. Applies the plan to the cached jobs and the structure, and enqueues newly terminal jobs for
-//!    cache GC.
+//! 2. Writes the plan, with the children that it registers, to the database in one transaction.
+//! 3. Applies the plan to the cached jobs and the structure, adds the registered children to the
+//!    tree and the job cache, and enqueues newly terminal jobs for cache GC.
 //! 4. Replies to the planned events. The events that the plan defers go back to the front of the
 //!    pending queue for the next round.
 //! 5. Publishes the ready work.
@@ -44,6 +44,7 @@ use crate::cache::tree::TreeEventReply;
 use crate::db::InternalJobOrchestration;
 use crate::inbound_queue::InboundQueueSender;
 use crate::limits::MAX_EVENTS_PER_ROUND;
+use crate::state::JobCache;
 use crate::state::JobCacheGcHandle;
 use crate::state::tree_committer::round::Committer;
 use crate::task_instance_pool::TaskInstancePoolConnector;
@@ -57,11 +58,14 @@ use crate::test_hooks::TestHooks;
 ///
 /// * `InboundQueueSenderType` - The type of the inbound queue sender.
 /// * `DbConnectorType` - The type of the DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
 pub struct CommitterEnv<
     InboundQueueSenderType: InboundQueueSender,
     DbConnectorType: InternalJobOrchestration,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
     pub db: DbConnectorType,
+    pub job_cache: JobCache<InboundQueueSenderType, TaskInstancePoolConnectorType>,
     pub job_cache_gc_handle: JobCacheGcHandle,
     pub inbound_queue_sender: InboundQueueSenderType,
     pub shutdown_handle: ShutdownHandle,
@@ -79,15 +83,14 @@ pub struct CommitterEnv<
 ///
 /// * `InboundQueueSenderType` - The type of the inbound queue sender.
 /// * `DbConnectorType` - The type of the DB-layer connector.
-/// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector, which only
-///   types the tree's job control blocks.
+/// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
 pub fn spawn_committer<
     InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: InternalJobOrchestration + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 >(
     task_tracker: &TaskTracker,
-    env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
+    env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>,
     root: SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
     receivers: EventReceivers,
 ) {
@@ -242,7 +245,7 @@ async fn run_committer<
     DbConnectorType: InternalJobOrchestration + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 >(
-    env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType>>,
+    env: Arc<CommitterEnv<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>,
     root: SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
     receivers: EventReceivers,
 ) {

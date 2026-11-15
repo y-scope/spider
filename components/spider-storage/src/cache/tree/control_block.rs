@@ -157,6 +157,7 @@ mod tests {
         let (control_block, mut receivers) = TreeControlBlock::new(ShutdownHandle::new());
         let regular_tasks_done = || TreeEventKind::RegularTasksDone {
             outputs: Vec::new(),
+            children: Vec::new(),
         };
         for kind in [
             start(),
