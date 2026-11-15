@@ -19,6 +19,7 @@ use crate::db::JobStateUpdate;
 use crate::limits::MAX_CHILDREN_PER_JOB;
 use crate::limits::MAX_ERROR_MESSAGE_CHARS;
 use crate::limits::MAX_JOB_CHILDREN_SIZE;
+use crate::limits::MAX_PROPAGATED_MESSAGE_CHARS;
 use crate::limits::MAX_ROUND_PAYLOAD;
 
 /// The plan of a round of events.
@@ -270,8 +271,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     ///     [`JobState::CommitReady`], or with its success climbing (see
     ///     [`Self::climb_after_success`]) if that is [`JobState::Succeeded`].
     ///   * [`TreeEventKind::RegularTasksDone`] with children over the limits of one job (see
-    ///     [`ChildJobUsage::is_within_job_limits`]): the job moves from [`JobState::Running`] to
-    ///     [`JobState::Failed`].
+    ///     [`ChildJobUsage::is_within_job_limits`]): the job fails (see [`Self::fail_and_abort`]).
     ///   * [`TreeEventKind::RegularTasksDone`] with other children: the job stores its outputs,
     ///     moves from [`JobState::Running`] to [`JobState::BlockingOnChildren`] and registers its
     ///     children.
@@ -279,9 +279,8 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     ///     [`JobState::Succeeded`], and its success climbs (see [`Self::climb_after_success`]).
     ///   * [`TreeEventKind::CleanupDone`]: the job moves from [`JobState::CleanupReady`] to
     ///     [`JobState::Cancelled`].
-    ///   * [`TreeEventKind::TerminalFailure`]: the job moves from its lane's state to
-    ///     [`JobState::Failed`] and stores the failure's message, cut to
-    ///     [`MAX_ERROR_MESSAGE_CHARS`] characters.
+    ///   * [`TreeEventKind::TerminalFailure`]: the job fails from its lane's state with the
+    ///     failure's message (see [`Self::fail_and_abort`]).
     ///   * [`TreeEventKind::CancelRoot`]: the tree is cancelled (see [`Self::cancel_root`]).
     ///
     /// # Errors
@@ -289,6 +288,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     /// Returns an error if:
     ///
     /// * Forwards [`Self::climb_after_success`]'s return values on failure.
+    /// * Forwards [`Self::fail_and_abort`]'s return values on failure.
     /// * Forwards [`Self::cancel_root`]'s return values on failure.
     fn plan_event(&self, event: &TreeEvent) -> Result<EventPlan, InternalError> {
         let job_id = event.job_id;
@@ -315,16 +315,16 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
                 if children.is_within_job_limits() {
                     EventPlan::register_children(job_id, outputs.clone(), children)
                 } else {
-                    EventPlan::fail_job(
+                    self.fail_and_abort(
                         job_id,
-                        node.state,
+                        &node,
                         &format!(
                             "child jobs ({} of {} bytes) exceed the limits of \
                              {MAX_CHILDREN_PER_JOB} child jobs and {MAX_JOB_CHILDREN_SIZE} bytes \
                              per job",
                             children.count, children.size
                         ),
-                    )
+                    )?
                 }
             }
             TreeEventKind::CommitDone => {
@@ -334,11 +334,89 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
             }
             TreeEventKind::CleanupDone => EventPlan::complete_cleanup(job_id),
             TreeEventKind::TerminalFailure { message, .. } => {
-                EventPlan::fail_job(job_id, node.state, message)
+                self.fail_and_abort(job_id, &node, message)?
             }
             TreeEventKind::CancelRoot => self.cancel_root(job_id, &node)?,
         };
         Ok(event_plan)
+    }
+
+    /// # Returns
+    ///
+    /// The plan of failing the tree's job `job_id`, whose node is `node`, with `message` on
+    /// success: the job moves from the node's state to [`JobState::Failed`] (see
+    /// [`EventPlan::fail_job`]). The failure of a job's regular or commit tasks under a parent that
+    /// blocks on its children fails the tree: every ancestor moves from
+    /// [`JobState::BlockingOnChildren`] to [`JobState::Failed`] with a message naming the job and
+    /// repeating `message`, cut to [`MAX_PROPAGATED_MESSAGE_CHARS`] characters, and every other
+    /// abortable job of the tree is aborted (see [`Self::abort_rest`]). The failure of a job's
+    /// cleanup task fails only the job.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::blocking_parent`]'s return values on failure.
+    /// * Forwards [`Self::blocking_ancestors`]'s return values on failure.
+    fn fail_and_abort(
+        &self,
+        job_id: JobId,
+        node: &TreeNode,
+        message: &str,
+    ) -> Result<EventPlan, InternalError> {
+        let mut event_plan = EventPlan::fail_job(job_id, node.state, message);
+        if node.state == JobState::CleanupReady || self.blocking_parent(job_id)?.is_none() {
+            return Ok(event_plan);
+        }
+        let mut failed_job_ids = self.blocking_ancestors(job_id)?;
+        let propagated_message = format!(
+            "descendant job {job_id} failed: {}",
+            truncate_chars(message, MAX_PROPAGATED_MESSAGE_CHARS)
+        );
+        for ancestor_id in &failed_job_ids {
+            event_plan.absorb_changes(EventPlan::fail_job(
+                *ancestor_id,
+                JobState::BlockingOnChildren,
+                &propagated_message,
+            ));
+        }
+        failed_job_ids.push(job_id);
+        self.abort_rest(&mut event_plan, &failed_job_ids);
+        Ok(event_plan)
+    }
+
+    /// # Returns
+    ///
+    /// The IDs of the ancestors of the tree's job `job_id`, nearest first, on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::JobNotFound`] if `job_id` or an ancestor is not in the tree.
+    /// * [`InternalError::UnexpectedParentState`] if an ancestor does not block on its children.
+    fn blocking_ancestors(&self, job_id: JobId) -> Result<Vec<JobId>, InternalError> {
+        let mut ancestor_ids = Vec::new();
+        let mut descendant_id = job_id;
+        while let Some(parent_id) = self
+            .node(descendant_id)
+            .ok_or(InternalError::JobNotFound(descendant_id))?
+            .parent
+        {
+            let parent = self
+                .node(parent_id)
+                .ok_or(InternalError::JobNotFound(parent_id))?;
+            if parent.state != JobState::BlockingOnChildren {
+                return Err(InternalError::UnexpectedParentState {
+                    job_id: descendant_id,
+                    parent_id,
+                    state: parent.state,
+                });
+            }
+            ancestor_ids.push(parent_id);
+            descendant_id = parent_id;
+        }
+        Ok(ancestor_ids)
     }
 
     /// # Returns

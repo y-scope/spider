@@ -550,6 +550,8 @@ fn fail_job_with_oversized_payload(
 
 #[cfg(test)]
 mod tests {
+    use spider_core::types::id::ExecutionManagerId;
+    use spider_core::types::id::TaskId;
     use spider_utils::shutdown::ShutdownHandle;
     use tokio::sync::mpsc;
     use tokio_util::task::TaskTracker;
@@ -620,6 +622,84 @@ mod tests {
             "outputs too large for the database should not be stored"
         );
         assert_eq!(tree.gc_receiver.try_recv(), Ok(ROOT_ID));
+        tree.wait_for_exit().await;
+        assert!(!tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn outputs_too_large_for_the_database_fail_the_job_and_abort_its_tree()
+    -> anyhow::Result<()> {
+        let mut tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+        reply(tree.submit(registration(create_test_prepared_children(2).await))).await?;
+        let mut child_ids: Vec<JobId> = tree.db.parents.iter().map(|entry| *entry.key()).collect();
+        child_ids.sort_unstable_by_key(JobId::get);
+        let [failing_child_id, aborted_child_id] = <[JobId; 2]>::try_from(child_ids)
+            .map_err(|child_ids| anyhow::anyhow!("expected two children, got {child_ids:?}"))?;
+        let failing_child = tree
+            .job_cache
+            .get(failing_child_id)
+            .await
+            .expect("a registered child should be cached");
+        let execution_context = failing_child
+            .create_task_instance(TaskId::Index(0), ExecutionManagerId::random())
+            .await?;
+
+        let state = failing_child
+            .succeed_task_instance(
+                execution_context.task_instance_id,
+                0,
+                vec![vec![0; usize::try_from(MOCK_MAX_OUTPUTS_SIZE)? + 1]],
+                Vec::new(),
+            )
+            .await?;
+        assert_eq!(state, JobState::Failed);
+        let expected_message = DbError::OutputsTooLarge {
+            job_id: failing_child_id,
+            size: MOCK_MAX_OUTPUTS_SIZE + 1,
+            limit: MOCK_MAX_OUTPUTS_SIZE,
+        }
+        .to_string();
+        for (job_id, state, error) in [
+            (
+                failing_child_id,
+                JobState::Failed,
+                Some(expected_message.clone()),
+            ),
+            (
+                ROOT_ID,
+                JobState::Failed,
+                Some(format!(
+                    "descendant job {failing_child_id} failed: {expected_message}"
+                )),
+            ),
+            (aborted_child_id, JobState::Cancelled, None),
+        ] {
+            assert_eq!(
+                tree.db.states.get(&job_id).map(|state| *state),
+                Some(state),
+                "the stored state of {job_id:?}"
+            );
+            assert_eq!(
+                tree.db.errors.get(&job_id).map(|error| error.clone()),
+                error,
+                "the stored error of {job_id:?}"
+            );
+        }
+        assert!(
+            !tree.db.outputs.contains_key(&failing_child_id),
+            "outputs too large for the database should not be stored"
+        );
+        let mut terminated_job_ids = Vec::new();
+        while let Ok(job_id) = tree.gc_receiver.try_recv() {
+            terminated_job_ids.push(job_id);
+        }
+        terminated_job_ids.sort_unstable_by_key(JobId::get);
+        assert_eq!(
+            terminated_job_ids,
+            [ROOT_ID, failing_child_id, aborted_child_id]
+        );
         tree.wait_for_exit().await;
         assert!(!tree.shutdown_handle.is_fatal());
         Ok(())

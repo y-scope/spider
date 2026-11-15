@@ -946,6 +946,77 @@ mod hooked {
     }
 
     #[tokio::test]
+    async fn a_completion_rolled_back_with_a_rejected_registration_is_planned_again()
+    -> anyhow::Result<()> {
+        let tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+        reply(tree.submit(registration(create_test_prepared_children(2).await))).await?;
+        let [registering_child_id, completing_child_id] =
+            [MOCK_FIRST_JOB_ID, MOCK_FIRST_JOB_ID + 1].map(JobId::from);
+        tree.inject_transition_error(payload_rejected());
+
+        let grandchildren = create_test_prepared_children(1).await;
+        let reply_join_handles = tree
+            .submit_events_in_one_round(vec![
+                TreeEvent {
+                    job_id: completing_child_id,
+                    kind: regular_tasks_done(),
+                },
+                TreeEvent {
+                    job_id: registering_child_id,
+                    kind: registration(grandchildren),
+                },
+            ])
+            .await;
+        let [completion_join_handle, registration_join_handle] =
+            <[_; 2]>::try_from(reply_join_handles).expect("two events were submitted");
+        let registration = join_reply(registration_join_handle).await;
+        assert!(
+            matches!(
+                registration,
+                Ok(TreeEventOutcome::Applied(JobState::Failed))
+            ),
+            "a registration whose payload the database rejected gave {registration:?}"
+        );
+        let completion = join_reply(completion_join_handle).await;
+        assert!(
+            matches!(
+                completion,
+                Ok(TreeEventOutcome::Stale(
+                    StaleStateError::JobAlreadyTerminated(JobState::Cancelled)
+                ))
+            ),
+            "a completion of the rolled-back round gave {completion:?}"
+        );
+        for (job_id, state) in [
+            (ROOT_ID, JobState::Failed),
+            (registering_child_id, JobState::Failed),
+            (completing_child_id, JobState::Cancelled),
+        ] {
+            assert_eq!(
+                tree.db.states.get(&job_id).map(|state| *state),
+                Some(state),
+                "the stored state of {job_id:?}"
+            );
+        }
+        assert_eq!(
+            tree.db.errors.get(&ROOT_ID).map(|error| error.clone()),
+            Some(format!(
+                "descendant job {registering_child_id} failed: child payload rejected by the \
+                 database"
+            ))
+        );
+        assert!(
+            !tree.db.outputs.contains_key(&completing_child_id),
+            "the outputs of the rolled-back completion should not be stored"
+        );
+        assert_eq!(tree.db.parents.len(), 2, "no grandchild should be inserted");
+        tree.wait_for_exit().await;
+        assert!(!tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn a_registration_of_a_child_too_large_fails_the_parent_in_the_next_round()
     -> anyhow::Result<()> {
         let mut tree = TestTree::spawn(false, false, MockInboundQueueSender).await;

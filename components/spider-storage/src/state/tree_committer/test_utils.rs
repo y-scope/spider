@@ -209,10 +209,37 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
         &self,
         kinds: Vec<TreeEventKind>,
     ) -> Vec<JoinHandle<TreeEventReply>> {
+        self.submit_events_in_one_round(
+            kinds
+                .into_iter()
+                .map(|kind| TreeEvent {
+                    job_id: ROOT_ID,
+                    kind,
+                })
+                .collect(),
+        )
+        .await
+    }
+
+    /// Submits each of `events`, in order, while the tree's committer is paused before it receives
+    /// the queued events, so that one round receives them all.
+    ///
+    /// # Returns
+    ///
+    /// The tasks that wait for the events' replies, in the order of `events`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the committer does not wake for the first event within 5 seconds.
+    #[cfg(feature = "test-hooks")]
+    pub(super) async fn submit_events_in_one_round(
+        &self,
+        events: Vec<TreeEvent>,
+    ) -> Vec<JoinHandle<TreeEventReply>> {
         let pause = self.arm_pause(HookPoint::CommitterBeforeReceive);
-        let reply_join_handles = kinds
+        let reply_join_handles = events
             .into_iter()
-            .map(|kind| tokio::spawn(self.submit(kind)))
+            .map(|event| tokio::spawn(self.control_block.submit(event)))
             .collect();
         pause
             .reached(1, TIMEOUT)

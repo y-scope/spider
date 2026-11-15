@@ -12,6 +12,10 @@ pub const MAX_ROUND_PAYLOAD: u64 = 16 * 1024 * 1024;
 /// longer message is cut to this many characters.
 pub const MAX_ERROR_MESSAGE_CHARS: usize = 64 * 1024;
 
+/// The maximum number of characters of a job's failure message that the failure message of each
+/// ancestor that the failure fails repeats. A longer message is cut to this many characters.
+pub const MAX_PROPAGATED_MESSAGE_CHARS: usize = 1024;
+
 /// The maximum number of child jobs of one job, over all of its tasks' reports.
 pub const MAX_CHILDREN_PER_JOB: usize = 1024;
 
