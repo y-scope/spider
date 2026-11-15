@@ -240,7 +240,7 @@ async fn children_over_the_job_limits_across_reports_fail_the_task_before_decodi
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn rejected_reports_release_their_children_from_the_job_limits() -> anyhow::Result<()> {
+async fn rejected_reports_revert_their_children_usage_reservation() -> anyhow::Result<()> {
     let env = TestEnv::start().await;
     let job_id = env
         .start_independent_job(

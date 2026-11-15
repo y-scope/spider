@@ -1048,9 +1048,9 @@ impl<
             size: children_size,
         };
         jcb.reserve_children_usage(reserved_children_usage)
-            .map_err(|totals| ReportRejection::JobChildrenTooLarge {
-                count: totals.count,
-                size: totals.size,
+            .map_err(|total_usage| ReportRejection::JobChildrenTooLarge {
+                count: total_usage.count,
+                size: total_usage.size,
                 count_limit: MAX_CHILDREN_PER_JOB,
                 size_limit: MAX_JOB_CHILDREN_SIZE,
             })?;
