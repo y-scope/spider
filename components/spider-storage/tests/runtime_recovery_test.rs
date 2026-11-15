@@ -446,6 +446,7 @@ async fn restart_after_commit_ready(
             task_instance_id,
             inbound_entry.task_kind,
             serialized_single_output()?,
+            Vec::new(),
         )
         .await?;
     assert_eq!(state, JobState::CommitReady);
@@ -628,6 +629,7 @@ async fn run_single_task_job_to_succeed<
             task_instance_id,
             task_index,
             serialized_single_output()?,
+            Vec::new(),
         )
         .await?;
     assert_eq!(state, JobState::Succeeded);

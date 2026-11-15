@@ -692,6 +692,7 @@ impl<
                         task_instance_id,
                         task_index,
                         serialized_outputs,
+                        Vec::new(),
                     )
                     .await
             }

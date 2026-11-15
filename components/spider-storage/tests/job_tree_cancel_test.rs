@@ -108,6 +108,7 @@ impl TestEnv {
                 task_instance_id,
                 0,
                 serialized_outputs.clone(),
+                Vec::new(),
             )
             .await?;
         assert_eq!(state, JobState::CommitReady, "{what}: the regular task");
