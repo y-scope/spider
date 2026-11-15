@@ -16,7 +16,7 @@ mod test_utils;
 pub use control_block::EventReceivers;
 pub use control_block::Pending;
 pub use control_block::TreeControlBlock;
-pub use event::ChildSetSummary;
+pub use event::ChildJobUsage;
 pub use event::Lane;
 pub use event::StateRequirement;
 pub use event::TreeEvent;

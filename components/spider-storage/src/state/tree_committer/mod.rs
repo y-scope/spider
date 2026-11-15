@@ -8,8 +8,7 @@
 //!
 //! The committer takes its received events in rounds of at most
 //! [`MAX_EVENTS_PER_ROUND`](crate::limits::MAX_EVENTS_PER_ROUND) events, every cancel first, then
-//! the terminal failures, then the oldest event that registers a child set, then the other events,
-//! and runs each *round* in the following steps:
+//! the terminal failures, then the other events, and runs each *round* in the following steps:
 //!
 //! 1. Plans the events against the tree's structure.
 //! 2. Writes the plan, with the children that it registers, to the database in one transaction.
@@ -133,8 +132,7 @@ impl PendingQueue {
 
     /// Takes the events of the next round, at most [`MAX_EVENTS_PER_ROUND`], in this order: every
     /// queued [`TreeEventKind::CancelRoot`], then the queued [`TreeEventKind::TerminalFailure`]s,
-    /// then the oldest queued regular event that registers a child set (see
-    /// [`TreeEventKind::registers`]), then the other regular events, each in its channel's order.
+    /// then the regular events, each in its channel's order.
     ///
     /// # Returns
     ///
@@ -145,22 +143,12 @@ impl PendingQueue {
                 .into_iter()
                 .partition(|pending| matches!(pending.event.kind, TreeEventKind::CancelRoot));
         let mut events = Vec::new();
-        for queue in [&mut cancels, &mut failures] {
+        for queue in [&mut cancels, &mut failures, &mut self.regular] {
             let num_taken = queue.len().min(MAX_EVENTS_PER_ROUND - events.len());
             events.extend(queue.drain(..num_taken));
         }
         cancels.append(&mut failures);
         self.fast_forward = cancels;
-        if events.len() < MAX_EVENTS_PER_ROUND
-            && let Some(registration_index) = self
-                .regular
-                .iter()
-                .position(|pending| pending.event.kind.registers())
-        {
-            events.extend(self.regular.remove(registration_index));
-        }
-        let num_taken = self.regular.len().min(MAX_EVENTS_PER_ROUND - events.len());
-        events.extend(self.regular.drain(..num_taken));
         events
     }
 

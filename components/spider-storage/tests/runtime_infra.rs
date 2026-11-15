@@ -23,7 +23,7 @@ use spider_core::types::io::TaskOutputsSerializer;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::inbound_queue::InboundQueueSenderHandle;
-use spider_storage::job_submission::ChildJobSubmission;
+use spider_storage::job_submission::CompressedJobSubmission;
 use spider_storage::state::JobCacheGcConfig;
 use spider_storage::state::Runtime;
 use spider_storage::state::ServiceState;
@@ -392,7 +392,7 @@ impl TestEnv {
         task_index: TaskIndex,
         task_instance_id: u64,
         output: Vec<u8>,
-        children: Vec<ChildJobSubmission>,
+        children: Vec<CompressedJobSubmission>,
     ) -> Result<JobState, StorageServerError> {
         self.service
             .succeed_task_instance_with_children(

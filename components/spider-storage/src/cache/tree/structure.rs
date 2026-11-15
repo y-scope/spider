@@ -260,7 +260,7 @@ mod tests {
 
     use crate::cache::error::InternalError;
     use crate::cache::error::StaleStateError;
-    use crate::cache::tree::ChildSetSummary;
+    use crate::cache::tree::ChildJobUsage;
     use crate::cache::tree::Lane;
     use crate::cache::tree::Plan;
     use crate::cache::tree::PlannedRegistration;
@@ -281,6 +281,7 @@ mod tests {
     use crate::limits::MAX_ERROR_MESSAGE_CHARS;
     use crate::limits::MAX_EVENTS_PER_ROUND;
     use crate::limits::MAX_JOB_CHILDREN_SIZE;
+    use crate::state::test_utils::create_test_prepared_child;
     use crate::state::test_utils::create_test_prepared_children;
 
     const PLAIN_NODE: TreeNode = TreeNode {
@@ -485,7 +486,7 @@ mod tests {
     #[tokio::test]
     async fn regular_tasks_done_with_children_blocks_the_job_and_registers_them() {
         let children = create_test_prepared_children(2).await;
-        let summary = ChildSetSummary::of(&children);
+        let usage = ChildJobUsage::of(&children);
         let mut plan = plan_root_events(
             TreeNode {
                 state: JobState::Running,
@@ -517,19 +518,19 @@ mod tests {
             Some(PlannedRegistration {
                 event_index: 0,
                 parent_id: ROOT_ID,
-                children: summary,
+                children: usage,
             })
         );
-        assert_eq!(summary.count, 2);
+        assert_eq!(usage.count, 2);
     }
 
     #[tokio::test]
-    async fn a_child_set_over_the_job_limits_fails_its_job() -> anyhow::Result<()> {
-        let mut children = create_test_prepared_children(1).await;
-        let child = children.first_mut().expect("one child was prepared");
-        child.submission.compressed_serialized_job_inputs =
-            vec![0; usize::try_from(MAX_JOB_CHILDREN_SIZE)? + 1];
-        let size = ChildSetSummary::of(&children).size;
+    async fn a_child_set_over_the_job_limits_fails_its_job() {
+        let mut children = Vec::with_capacity(MAX_CHILDREN_PER_JOB + 1);
+        for _ in 0..=MAX_CHILDREN_PER_JOB {
+            children.push(create_test_prepared_child(0).await);
+        }
+        let usage = ChildJobUsage::of(&children);
         let (plan, outcome) = plan_root_event(
             TreeNode {
                 state: JobState::Running,
@@ -545,14 +546,14 @@ mod tests {
             plan.updates,
             [JobStateUpdate {
                 error_message: Some(format!(
-                    "child jobs (1 of {size} bytes) exceed the limits of {MAX_CHILDREN_PER_JOB} \
-                     child jobs and {MAX_JOB_CHILDREN_SIZE} bytes per job"
+                    "child jobs ({} of {} bytes) exceed the limits of {MAX_CHILDREN_PER_JOB} \
+                     child jobs and {MAX_JOB_CHILDREN_SIZE} bytes per job",
+                    usage.count, usage.size
                 )),
                 ..JobStateUpdate::new(ROOT_ID, JobState::Running, JobState::Failed)
             }]
         );
         assert_eq!(plan.registration, None);
-        Ok(())
     }
 
     #[tokio::test]
@@ -595,7 +596,7 @@ mod tests {
     #[tokio::test]
     async fn a_round_registers_its_first_applicable_child_set_and_defers_the_other_child_sets() {
         let children = create_test_prepared_children(2).await;
-        let summary = ChildSetSummary::of(&children);
+        let usage = ChildJobUsage::of(&children);
         let events = vec![
             root_event(TreeEventKind::CancelRoot),
             event(2, failure(Lane::Regular, "boom")),
@@ -637,12 +638,12 @@ mod tests {
             Some(PlannedRegistration {
                 event_index: 2,
                 parent_id: JobId::from(3),
-                children: summary,
+                children: usage,
             })
         );
 
         let children = create_test_prepared_children(1).await;
-        let summary = ChildSetSummary::of(&children);
+        let usage = ChildJobUsage::of(&children);
         let events = vec![
             event(2, failure(Lane::Regular, "boom")),
             event(2, registration(create_test_prepared_children(1).await)),
@@ -670,7 +671,7 @@ mod tests {
             Some(PlannedRegistration {
                 event_index: 2,
                 parent_id: JobId::from(3),
-                children: summary,
+                children: usage,
             })
         );
     }

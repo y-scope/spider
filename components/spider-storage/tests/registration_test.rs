@@ -9,7 +9,7 @@ use spider_core::types::id::TaskId;
 use spider_core::types::io::TaskGraphInputBuilder;
 use spider_storage::cache::error::CacheError;
 use spider_storage::cache::error::StaleStateError;
-use spider_storage::job_submission::ChildJobSubmission;
+use spider_storage::job_submission::CompressedJobSubmission;
 use spider_storage::limits::MAX_CHILDREN_PER_JOB;
 use spider_storage::limits::MAX_DEPTH;
 use spider_storage::limits::MAX_JOB_CHILDREN_SIZE;
@@ -76,7 +76,7 @@ async fn a_report_with_children_blocks_its_job_and_inserts_them() -> anyhow::Res
 async fn a_report_over_a_limit_fails_its_task() -> anyhow::Result<()> {
     struct Case {
         output_size: usize,
-        children: fn() -> Vec<ChildJobSubmission>,
+        children: fn() -> Vec<CompressedJobSubmission>,
         error_prefix: String,
     }
 
@@ -186,7 +186,10 @@ async fn children_over_the_job_limits_across_reports_fail_the_task_before_decodi
     let second_task_instance_id = env.create_instance(job_id, TaskId::Index(1)).await;
 
     let stored_children: Vec<_> = iter::repeat_with(|| large_child(2 * MIB)).take(2).collect();
-    let stored_bytes: u64 = stored_children.iter().map(ChildJobSubmission::size).sum();
+    let stored_bytes: u64 = stored_children
+        .iter()
+        .map(CompressedJobSubmission::size)
+        .sum();
     assert_eq!(
         env.report_success(
             job_id,
@@ -204,7 +207,7 @@ async fn children_over_the_job_limits_across_reports_fail_the_task_before_decodi
         .collect();
     let undecodable_bytes: u64 = undecodable_children
         .iter()
-        .map(ChildJobSubmission::size)
+        .map(CompressedJobSubmission::size)
         .sum();
     assert_eq!(
         env.report_success(
@@ -380,9 +383,9 @@ async fn a_report_at_the_maximum_depth_with_children_fails_its_task() -> anyhow:
 /// # Panics
 ///
 /// Panics if the job fails to compress.
-fn chain_child(num_tasks: usize) -> ChildJobSubmission {
+fn chain_child(num_tasks: usize) -> CompressedJobSubmission {
     let (graph, inputs) = build_chain_task_graph(num_tasks, ExecutionPolicy::default());
-    ChildJobSubmission {
+    CompressedJobSubmission {
         compressed_serialized_task_graph: compress_task_graph(&graph)
             .expect("task graph compression should succeed"),
         compressed_serialized_job_inputs: compress_job_inputs(&inputs)
@@ -397,13 +400,13 @@ fn chain_child(num_tasks: usize) -> ChildJobSubmission {
 /// # Panics
 ///
 /// Panics if the job fails to build or to compress.
-fn large_child(input_size: usize) -> ChildJobSubmission {
+fn large_child(input_size: usize) -> CompressedJobSubmission {
     let (graph, _) = build_chain_task_graph(1, ExecutionPolicy::default());
     let mut inputs = TaskGraphInputBuilder::new();
     inputs
         .append_task_input(&incompressible(input_size))
         .expect("task input appending should succeed");
-    ChildJobSubmission {
+    CompressedJobSubmission {
         compressed_serialized_task_graph: compress_task_graph(&graph)
             .expect("task graph compression should succeed"),
         compressed_serialized_job_inputs: compress_job_inputs(&inputs.build())
@@ -414,8 +417,8 @@ fn large_child(input_size: usize) -> ChildJobSubmission {
 /// # Returns
 ///
 /// A child job of `size` bytes that fails to decode.
-fn undecodable_child(size: usize) -> ChildJobSubmission {
-    ChildJobSubmission {
+fn undecodable_child(size: usize) -> CompressedJobSubmission {
+    CompressedJobSubmission {
         compressed_serialized_task_graph: vec![0u8; size],
         compressed_serialized_job_inputs: Vec::new(),
     }

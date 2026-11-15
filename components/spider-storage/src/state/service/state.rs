@@ -32,7 +32,7 @@ use crate::cache::error::InternalError;
 use crate::cache::error::StaleStateError;
 use crate::cache::job::SharedJobControlBlock;
 use crate::cache::task::PreparedChild;
-use crate::cache::tree::ChildSetSummary;
+use crate::cache::tree::ChildJobUsage;
 use crate::cache::tree::EventReceivers;
 use crate::cache::tree::TreeControlBlock;
 use crate::db::DbStorage;
@@ -41,7 +41,7 @@ use crate::inbound_queue::CommitTaskMarker;
 use crate::inbound_queue::InboundQueueEntry;
 use crate::inbound_queue::InboundQueueReceiverHandle;
 use crate::inbound_queue::InboundQueueSender;
-use crate::job_submission::ChildJobSubmission;
+use crate::job_submission::CompressedJobSubmission;
 use crate::job_submission::ValidatedJobSubmission;
 use crate::limits::MAX_CHILDREN_PER_JOB;
 use crate::limits::MAX_DEPTH;
@@ -241,7 +241,7 @@ impl<
             let job_id = this
                 .inner
                 .db
-                .register(resource_group_id, &job_submission)
+                .register(resource_group_id, job_submission.compressed())
                 .await?;
 
             let partial_mutation_guard =
@@ -524,8 +524,7 @@ impl<
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`spider_core::types::io::TaskOutputsSerializer::deserialize`]'s return values on
     ///   failure.
-    /// * Forwards [`SharedJobControlBlock::succeed_task_instance_with_children`]'s return values on
-    ///   failure.
+    /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
     /// * Forwards [`Self::fail_rejected_report`]'s return values on failure.
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn succeed_task_instance_with_children(
@@ -535,7 +534,7 @@ impl<
         task_instance_id: TaskInstanceId,
         task_index: TaskIndex,
         serialized_outputs: Vec<u8>,
-        children: Vec<ChildJobSubmission>,
+        children: Vec<CompressedJobSubmission>,
     ) -> Result<JobState, StorageServerError> {
         self.validate_session(session_id)?;
         let task_outputs = TaskOutputsSerializer::deserialize(&serialized_outputs)
@@ -548,7 +547,7 @@ impl<
                 .get(job_id)
                 .await
                 .ok_or(StorageServerError::JobNotFound(job_id))?;
-            let (prepared_children, reserved_children) =
+            let (prepared_children, reserved_children_usage) =
                 match this.prepare_report(&jcb, &task_outputs, children).await {
                     Ok(prepared_report) => prepared_report,
                     Err(rejection) => {
@@ -562,14 +561,14 @@ impl<
                     }
                 };
             let state = match jcb
-                .succeed_task_instance_with_children(
+                .succeed_task_instance(
                     task_instance_id,
                     task_index,
                     task_outputs,
                     prepared_children,
                 )
                 .await
-                .inspect_err(|_| jcb.release_children(reserved_children))
+                .inspect_err(|_| jcb.revert_children_usage_reservation(reserved_children_usage))
             {
                 Err(rejection @ CacheError::TaskOutputsLengthMismatch { .. }) => {
                     return Self::fail_rejected_report(
@@ -1018,7 +1017,7 @@ impl<
     /// A pair on success, containing:
     ///
     /// * The prepared children, in report order.
-    /// * The children's reservation, which the caller releases if they are not stored.
+    /// * The children usage reserved for them, which the caller reverts if they are not stored.
     ///
     /// # Errors
     ///
@@ -1037,8 +1036,8 @@ impl<
         &self,
         jcb: &SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
         task_outputs: &[TaskOutput],
-        children: Vec<ChildJobSubmission>,
-    ) -> Result<(Vec<PreparedChild>, ChildSetSummary), ReportRejection> {
+        children: Vec<CompressedJobSubmission>,
+    ) -> Result<(Vec<PreparedChild>, ChildJobUsage), ReportRejection> {
         let outputs_size: u64 = task_outputs.iter().map(|output| output.len() as u64).sum();
         if outputs_size > MAX_REPORT_OUTPUTS_SIZE {
             return Err(ReportRejection::OutputsTooLarge {
@@ -1047,7 +1046,7 @@ impl<
             });
         }
         if children.is_empty() {
-            return Ok((Vec::new(), ChildSetSummary::default()));
+            return Ok((Vec::new(), ChildJobUsage::default()));
         }
         let child_depth = jcb.depth() + 1;
         if child_depth > MAX_DEPTH {
@@ -1074,7 +1073,7 @@ impl<
                 limit: max_child_size,
             });
         }
-        let children_size: u64 = children.iter().map(ChildJobSubmission::size).sum();
+        let children_size: u64 = children.iter().map(CompressedJobSubmission::size).sum();
         if children_size > MAX_REPORT_CHILDREN_SIZE {
             return Err(ReportRejection::ChildrenTooLarge {
                 size: children_size,
@@ -1082,18 +1081,17 @@ impl<
             });
         }
 
-        let reserved_children = ChildSetSummary {
+        let reserved_children_usage = ChildJobUsage {
             count: children.len(),
             size: children_size,
         };
-        jcb.reserve_children(reserved_children).map_err(|totals| {
-            ReportRejection::JobChildrenTooLarge {
+        jcb.reserve_children_usage(reserved_children_usage)
+            .map_err(|totals| ReportRejection::JobChildrenTooLarge {
                 count: totals.count,
                 size: totals.size,
                 count_limit: MAX_CHILDREN_PER_JOB,
                 size_limit: MAX_JOB_CHILDREN_SIZE,
-            }
-        })?;
+            })?;
 
         let mut prepared_children = Vec::with_capacity(children.len());
         for (index, child) in children.into_iter().enumerate() {
@@ -1101,12 +1099,12 @@ impl<
             match PreparedChild::create(child).await {
                 Ok(prepared_child) => prepared_children.push(prepared_child),
                 Err(source) => {
-                    jcb.release_children(reserved_children);
+                    jcb.revert_children_usage_reservation(reserved_children_usage);
                     return Err(ReportRejection::InvalidChild { index, source });
                 }
             }
         }
-        Ok((prepared_children, reserved_children))
+        Ok((prepared_children, reserved_children_usage))
     }
 
     /// Fails the task instance `task_instance_id` of the task `task_index` of `jcb`, whose success

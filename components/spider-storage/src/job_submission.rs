@@ -23,17 +23,18 @@ pub enum JobSubmissionError {
     TaskGraphInputSizeMismatch { expected: usize, actual: usize },
 }
 
-/// A child job that a task's success report asks to create, as submitted: its zstd-compressed
-/// serialized task graph and its zstd-compressed serialized job inputs, not validated yet.
-pub struct ChildJobSubmission {
+/// A job submission as submitted: its zstd-compressed serialized task graph and its
+/// zstd-compressed serialized job inputs, not validated yet.
+#[derive(Debug, PartialEq, Eq)]
+pub struct CompressedJobSubmission {
     pub compressed_serialized_task_graph: Vec<u8>,
     pub compressed_serialized_job_inputs: Vec<u8>,
 }
 
-impl ChildJobSubmission {
+impl CompressedJobSubmission {
     /// # Returns
     ///
-    /// The total size of the child's compressed serialized task graph and job inputs.
+    /// The total size of the compressed serialized task graph and job inputs.
     #[must_use]
     pub const fn size(&self) -> u64 {
         (self.compressed_serialized_task_graph.len() + self.compressed_serialized_job_inputs.len())
@@ -51,10 +52,10 @@ impl ChildJobSubmission {
 /// * The number of positional job inputs matches the number of graph inputs expected by the task
 ///   graph.
 ///
-/// The compressed serializations are stored alongside the decoded forms so that the database can
-/// persist them without recompressing. They are expected to be in the same format the database
-/// stores: zstd-compressed JSON for the task graph and zstd-compressed serialized
-/// [`TaskGraphInput`] for the job inputs.
+/// The compressed serializations are stored alongside the decoded forms, as a
+/// [`ValidatedCompressedJobSubmission`], so that the database can persist them without
+/// recompressing. They are expected to be in the same format the database stores: zstd-compressed
+/// JSON for the task graph and zstd-compressed serialized [`TaskGraphInput`] for the job inputs.
 ///
 /// By passing this type through the call chain, downstream consumers can trust the consistency
 /// invariant without re-validating.
@@ -62,8 +63,7 @@ impl ChildJobSubmission {
 pub struct ValidatedJobSubmission {
     task_graph: TaskGraph,
     task_graph_input: TaskGraphInput,
-    compressed_serialized_task_graph: Vec<u8>,
-    compressed_serialized_job_inputs: Vec<u8>,
+    compressed: ValidatedCompressedJobSubmission,
 }
 
 impl ValidatedJobSubmission {
@@ -109,8 +109,12 @@ impl ValidatedJobSubmission {
         Ok(Self {
             task_graph,
             task_graph_input,
-            compressed_serialized_task_graph,
-            compressed_serialized_job_inputs,
+            compressed: ValidatedCompressedJobSubmission {
+                compressed_job_submission: CompressedJobSubmission {
+                    compressed_serialized_task_graph,
+                    compressed_serialized_job_inputs,
+                },
+            },
         })
     }
 
@@ -124,11 +128,48 @@ impl ValidatedJobSubmission {
 
     /// # Returns
     ///
+    /// A reference to the compressed serializations that the database persists verbatim.
+    #[must_use]
+    pub const fn compressed(&self) -> &ValidatedCompressedJobSubmission {
+        &self.compressed
+    }
+
+    /// Consumes the wrapper and returns the owned task graph, job inputs, and compressed
+    /// serializations.
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing:
+    ///
+    /// * The task graph.
+    /// * The job inputs.
+    /// * The compressed serializations.
+    #[must_use]
+    pub fn into_parts(self) -> (TaskGraph, TaskGraphInput, ValidatedCompressedJobSubmission) {
+        (self.task_graph, self.task_graph_input, self.compressed)
+    }
+}
+
+/// The compressed serializations of a validated job submission, which the database persists
+/// verbatim.
+///
+/// Only a [`ValidatedJobSubmission`] creates this type, so the serializations are guaranteed to
+/// deserialize into a valid task graph and matching job inputs.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ValidatedCompressedJobSubmission {
+    compressed_job_submission: CompressedJobSubmission,
+}
+
+impl ValidatedCompressedJobSubmission {
+    /// # Returns
+    ///
     /// A reference to the zstd-compressed serialized task graph that the database persists
     /// verbatim.
     #[must_use]
     pub fn compressed_serialized_task_graph(&self) -> &[u8] {
-        &self.compressed_serialized_task_graph
+        &self
+            .compressed_job_submission
+            .compressed_serialized_task_graph
     }
 
     /// # Returns
@@ -137,39 +178,17 @@ impl ValidatedJobSubmission {
     /// verbatim.
     #[must_use]
     pub fn compressed_serialized_job_inputs(&self) -> &[u8] {
-        &self.compressed_serialized_job_inputs
+        &self
+            .compressed_job_submission
+            .compressed_serialized_job_inputs
     }
 
-    /// Consumes the wrapper and returns the owned task graph and job inputs.
-    ///
-    /// The compressed serializations are not returned: they are only needed for database
-    /// persistence, which reads them via the accessor methods before the wrapper is consumed.
-    ///
     /// # Returns
     ///
-    /// A tuple of `(task_graph, task_graph_input)`.
+    /// The total size of the compressed serialized task graph and job inputs.
     #[must_use]
-    pub fn into_parts(self) -> (TaskGraph, TaskGraphInput) {
-        (self.task_graph, self.task_graph_input)
-    }
-
-    /// Consumes the wrapper of a child job's submission and returns the owned task graph and job
-    /// inputs with the compressed serializations, which the child's database row stores verbatim.
-    ///
-    /// # Returns
-    ///
-    /// A tuple of `(task_graph, task_graph_input, submission)`, where `submission` holds the
-    /// compressed serializations as submitted.
-    #[must_use]
-    pub fn into_child_parts(self) -> (TaskGraph, TaskGraphInput, ChildJobSubmission) {
-        (
-            self.task_graph,
-            self.task_graph_input,
-            ChildJobSubmission {
-                compressed_serialized_task_graph: self.compressed_serialized_task_graph,
-                compressed_serialized_job_inputs: self.compressed_serialized_job_inputs,
-            },
-        )
+    pub const fn size(&self) -> u64 {
+        self.compressed_job_submission.size()
     }
 }
 
@@ -319,7 +338,7 @@ mod tests {
             compress_task_graph(&create_single_task_graph(2)),
             compress_job_inputs(&task_graph_input),
         )?;
-        let (_, validated_task_graph_input) = submission.into_parts();
+        let (_, validated_task_graph_input, _) = submission.into_parts();
         assert_eq!(validated_task_graph_input, task_graph_input);
         Ok(())
     }
@@ -356,11 +375,38 @@ mod tests {
         builder.append_task_input(&[1u8; 4])?;
         let task_graph_input = builder.build();
         let submission = create_validated_submission(graph, task_graph_input.clone());
-        let (graph, validated_task_graph_input) = submission.into_parts();
+        let (graph, validated_task_graph_input, _) = submission.into_parts();
         assert_eq!(graph.get_num_tasks(), 1, "task graph should have 1 task");
         assert_eq!(
             validated_task_graph_input, task_graph_input,
             "task graph input should be preserved"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn compressed_returns_the_serializations_it_was_created_from() -> anyhow::Result<()> {
+        let mut builder = TaskGraphInputBuilder::new();
+        builder.append_task_input(&[1u8; 4])?;
+        let compressed_task_graph = compress_task_graph(&create_single_task_graph(1));
+        let compressed_job_inputs = compress_job_inputs(&builder.build());
+
+        let submission = ValidatedJobSubmission::create(
+            compressed_task_graph.clone(),
+            compressed_job_inputs.clone(),
+        )?;
+        let compressed = submission.compressed();
+        assert_eq!(
+            compressed.compressed_serialized_task_graph(),
+            compressed_task_graph.as_slice()
+        );
+        assert_eq!(
+            compressed.compressed_serialized_job_inputs(),
+            compressed_job_inputs.as_slice()
+        );
+        assert_eq!(
+            compressed.size(),
+            u64::try_from(compressed_task_graph.len() + compressed_job_inputs.len())?
         );
         Ok(())
     }

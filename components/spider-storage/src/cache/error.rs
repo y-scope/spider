@@ -182,7 +182,4 @@ pub enum ChildPreparationError {
 
     #[error(transparent)]
     TaskGraph(#[from] InternalError),
-
-    #[error("the child job's task graph has no ready task")]
-    NoReadyTask,
 }

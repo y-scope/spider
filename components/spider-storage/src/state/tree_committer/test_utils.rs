@@ -255,7 +255,7 @@ pub(super) fn registration(children: Vec<PreparedChild>) -> TreeEventKind {
 
 /// # Returns
 ///
-/// A rejection of a child insert's payload.
+/// A rejection of a child insertion's payload.
 pub(super) fn payload_rejected() -> DbError {
     DbError::PayloadRejected(sqlx::Error::Protocol(
         "the child payload exceeds the packet size".to_owned(),

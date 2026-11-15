@@ -172,7 +172,7 @@ async fn the_last_reporter_registers_the_children_that_its_jobs_tasks_prepared()
 
     let state = tree
         .jcb
-        .succeed_task_instance_with_children(
+        .succeed_task_instance(
             execution_context.task_instance_id,
             0,
             vec![vec![1]],
@@ -229,48 +229,6 @@ async fn a_transient_error_of_a_registration_poisons_the_tree() -> anyhow::Resul
     tree.wait_for_exit().await;
     assert!(tree.shutdown_handle.is_fatal());
     Ok(())
-}
-
-#[tokio::test]
-async fn take_events_takes_cancels_then_failures_then_the_oldest_registration_then_the_rest() {
-    let mut pending_queue = PendingQueue {
-        fast_forward: VecDeque::from([
-            pending(6, failure("first")),
-            pending(1, TreeEventKind::CancelRoot),
-            pending(7, failure("second")),
-        ]),
-        regular: VecDeque::from([
-            pending(3, TreeEventKind::CommitDone),
-            pending(2, registration(create_test_prepared_children(1).await)),
-            pending(4, registration(create_test_prepared_children(1).await)),
-            pending(5, regular_tasks_done()),
-        ]),
-    };
-    let round = pending_queue.take_events();
-    assert_eq!(job_ids_of(&round), [1, 6, 7, 2, 3, 4, 5]);
-    assert!(pending_queue.is_empty());
-
-    let num_cancels = MAX_EVENTS_PER_ROUND as u64 - 1;
-    let mut pending_queue = PendingQueue {
-        fast_forward: (0..num_cancels)
-            .map(|id| pending(id, TreeEventKind::CancelRoot))
-            .collect(),
-        regular: VecDeque::from([
-            pending(num_cancels, TreeEventKind::CommitDone),
-            pending(
-                num_cancels + 1,
-                registration(create_test_prepared_children(1).await),
-            ),
-        ]),
-    };
-    let round = pending_queue.take_events();
-    assert_eq!(
-        job_ids_of(&round),
-        (0..num_cancels)
-            .chain([num_cancels + 1])
-            .collect::<Vec<_>>()
-    );
-    assert_eq!(job_ids_of(&pending_queue.regular), [num_cancels]);
 }
 
 #[test]
@@ -502,7 +460,9 @@ mod hooked {
     use spider_core::types::id::ResourceGroupId;
 
     use super::*;
+    use crate::state::test_utils::MOCK_MAX_CHILD_SIZE;
     use crate::state::test_utils::MOCK_MAX_OUTPUTS_SIZE;
+    use crate::state::test_utils::create_test_incompressible_prepared_child;
     use crate::state::tree_committer::test_utils::join_reply;
     use crate::test_hooks::HookAction;
     use crate::test_hooks::HookCount;
@@ -825,6 +785,55 @@ mod hooked {
         assert!(
             tree.db.parents.is_empty(),
             "a rejected registration should insert no child"
+        );
+        assert_eq!(tree.jcb.state().await, JobState::Failed);
+        assert_eq!(tree.gc_receiver.try_recv(), Ok(ROOT_ID));
+        tree.wait_for_exit().await;
+        assert!(!tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_registration_of_a_child_too_large_fails_the_parent_in_the_next_round()
+    -> anyhow::Result<()> {
+        let mut tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+
+        let oversized_child = create_test_incompressible_prepared_child(MOCK_MAX_CHILD_SIZE).await;
+        let expected_message = DbError::ChildTooLarge {
+            parent_id: ROOT_ID,
+            size: oversized_child.submission().size(),
+            limit: MOCK_MAX_CHILD_SIZE,
+        }
+        .to_string();
+        let reply_join_handles = tree
+            .submit_in_one_round(vec![registration(vec![oversized_child]), start()])
+            .await;
+        let [registration_join_handle, start_join_handle] =
+            <[_; 2]>::try_from(reply_join_handles).expect("two events were submitted");
+        let registration = join_reply(registration_join_handle).await;
+        assert!(
+            matches!(
+                registration,
+                Ok(TreeEventOutcome::Applied(JobState::Failed))
+            ),
+            "a registration of a child too large gave {registration:?}"
+        );
+        let start = join_reply(start_join_handle).await;
+        assert!(
+            matches!(
+                start,
+                Ok(TreeEventOutcome::Stale(StaleStateError::JobAlreadyStarted))
+            ),
+            "a stale start of the round with a child too large gave {start:?}"
+        );
+        assert_eq!(
+            tree.db.errors.get(&ROOT_ID).as_deref(),
+            Some(&expected_message)
+        );
+        assert!(
+            tree.db.parents.is_empty(),
+            "a registration of a child too large should insert no child"
         );
         assert_eq!(tree.jcb.state().await, JobState::Failed);
         assert_eq!(tree.gc_receiver.try_recv(), Ok(ROOT_ID));

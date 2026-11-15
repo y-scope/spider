@@ -64,6 +64,43 @@ pub fn create_validated_submission(
         .expect("job submission should be valid")
 }
 
+/// # Returns
+///
+/// A validated submission of a one-task job whose only input is `input`.
+///
+/// # Panics
+///
+/// Panics if the job fails to build, compress or validate.
+#[must_use]
+pub fn submission_with_input(input: &[u8]) -> ValidatedJobSubmission {
+    let (graph, _) = build_flat_task_graph(1, 0, false, false);
+    let mut inputs = TaskGraphInputBuilder::new();
+    inputs
+        .append_task_input(input)
+        .expect("task input appending should succeed");
+    create_validated_submission(graph, inputs.build())
+}
+
+/// # Returns
+///
+/// `size` pseudo-random bytes.
+///
+/// # Panics
+///
+/// Panics if `size` does not fit in `usize`.
+#[must_use]
+pub fn incompressible(size: u64) -> Vec<u8> {
+    let mut xorshift_state = 0x9e37_79b9_7f4a_7c15_u64;
+    (0..usize::try_from(size).expect("the size should fit in `usize`"))
+        .map(|_| {
+            xorshift_state ^= xorshift_state << 13;
+            xorshift_state ^= xorshift_state >> 7;
+            xorshift_state ^= xorshift_state << 17;
+            xorshift_state.to_le_bytes()[0]
+        })
+        .collect()
+}
+
 /// Builds a flat workload of `num_tasks` independent tasks
 ///
 /// # Inputs and Outputs
