@@ -84,6 +84,9 @@ pub enum InternalError {
         state: JobState,
     },
 
+    #[error("job {0:?} is cancelled, but it is not the root of its tree")]
+    NonRootCancelled(JobId),
+
     #[error("task index out of bound")]
     TaskIndexOutOfBound,
 

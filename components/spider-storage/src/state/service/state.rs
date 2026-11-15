@@ -325,7 +325,7 @@ impl<
         .await
     }
 
-    /// Cancels a root job.
+    /// Cancels a root job and the rest of its tree.
     ///
     /// # Returns
     ///
