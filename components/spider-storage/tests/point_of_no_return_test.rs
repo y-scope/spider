@@ -40,6 +40,7 @@ async fn a_report_with_the_wrong_output_count_fails_its_task_instance() -> anyho
             instance_id,
             0,
             wrong_output_count.clone(),
+            Vec::new(),
         )
         .await?;
     assert_eq!(
@@ -59,6 +60,7 @@ async fn a_report_with_the_wrong_output_count_fails_its_task_instance() -> anyho
             instance_id,
             0,
             wrong_output_count,
+            Vec::new(),
         )
         .await?;
     assert_eq!(state, JobState::Failed, "the retry should fail the job");
@@ -97,6 +99,7 @@ async fn a_fault_after_the_tcb_flip_is_fatal_and_a_restart_reruns_the_task() -> 
                 instance_id,
                 0,
                 serialized_output(1),
+                Vec::new(),
             )
             .await;
         assert!(
@@ -122,6 +125,7 @@ async fn a_fault_after_the_tcb_flip_is_fatal_and_a_restart_reruns_the_task() -> 
                 instance_id,
                 0,
                 serialized_output(2),
+                Vec::new(),
             )
             .await?;
         assert_eq!(state, JobState::Succeeded, "{point:?}: the rerun");
@@ -150,6 +154,7 @@ async fn stale_reports_before_a_mutation_are_not_fatal() -> anyhow::Result<()> {
             first_instance_id,
             0,
             serialized_output(1),
+            Vec::new(),
         )
         .await?;
     assert_eq!(state, JobState::Running);
@@ -163,6 +168,7 @@ async fn stale_reports_before_a_mutation_are_not_fatal() -> anyhow::Result<()> {
             straggler_instance_id,
             0,
             serialized_output(2),
+            Vec::new(),
         )
         .await;
     assert!(
@@ -201,6 +207,7 @@ async fn stale_reports_before_a_mutation_are_not_fatal() -> anyhow::Result<()> {
             first_instance_id,
             0,
             serialized_output(1),
+            Vec::new(),
         )
         .await;
     assert!(
@@ -218,6 +225,7 @@ async fn stale_reports_before_a_mutation_are_not_fatal() -> anyhow::Result<()> {
             instance_id,
             1,
             serialized_output(3),
+            Vec::new(),
         )
         .await?;
     assert_eq!(state, JobState::Succeeded);

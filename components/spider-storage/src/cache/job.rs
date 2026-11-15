@@ -340,17 +340,35 @@ impl<
 
     /// # Returns
     ///
-    /// The job as a node of its tree: its state and whether it has a commit task and a cleanup
-    /// task.
+    /// The job as a node of its tree, without an active child: its state, its parent and whether it
+    /// has a commit task and a cleanup task.
     pub(crate) async fn tree_node(&self) -> TreeNode {
         let job = self.inner.job_execution_state.read().await;
         let node = TreeNode {
             state: job.state,
+            parent: self.inner.parent_id,
             has_commit: job.task_graph.has_commit_task(),
             has_cleanup: job.task_graph.has_cleanup_task(),
+            active_children: 0,
         };
         drop(job);
         node
+    }
+
+    /// # Returns
+    ///
+    /// The indices of the job's ready tasks on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
+    pub(crate) async fn get_ready_task_indices(&self) -> Result<Vec<TaskIndex>, CacheError> {
+        let job = self.inner.job_execution_state.read_running().await?;
+        let ready_task_indices = job.task_graph.get_all_ready_task_indices().await;
+        drop(job);
+        Ok(ready_task_indices)
     }
 
     /// Gets the outputs of the job from the in-memory task graph.
@@ -479,18 +497,20 @@ impl<
     /// Marks the task instance as succeeded and stores the children that its report prepared in
     /// the task.
     ///
-    /// If all tasks have succeeded, submits the job's outputs to the job's tree and waits until the
-    /// committer has stored them and moved the job on. Otherwise, if the completed task unblocks
-    /// any child tasks, those child tasks are enqueued to the inbound queue.
+    /// If all tasks have succeeded, submits the job's outputs and the children that its tasks
+    /// prepared to the job's tree and waits until the committer has stored them and moved the job
+    /// on. Otherwise, if the completed task unblocks any child tasks, those child tasks are
+    /// enqueued to the inbound queue.
     ///
     /// # Returns
     ///
     /// The current [`JobState`] after the operation on success. Must be one of:
     ///
     /// * [`JobState::Running`]
+    /// * [`JobState::BlockingOnChildren`] if the job's tasks prepared children.
     /// * [`JobState::CommitReady`]
     /// * [`JobState::Succeeded`]
-    /// * [`JobState::Failed`] if the database rejected the job's outputs as too large.
+    /// * [`JobState::Failed`] if the database rejected the job's outputs or children.
     ///
     /// # Errors
     ///
@@ -532,8 +552,8 @@ impl<
             .await?;
         // NOTE: `fetch_sub` returns the previous value, so the new count is the returned value
         // minus 1.
-        // `AcqRel` orders every sibling's output write before the outputs that the last reporter
-        // reads below.
+        // `AcqRel` orders every sibling's output and prepared-children writes before the last
+        // reporter reads them below.
         let num_incomplete_tasks = job.num_incomplete_tasks.fetch_sub(1, Ordering::AcqRel) - 1;
 
         if !ready_task_indices.is_empty() {
@@ -556,6 +576,7 @@ impl<
         }
 
         let outputs = job.task_graph.read_output_payloads().await?;
+        let children = job.task_graph.take_prepared_children().await;
         drop(job);
         jcb.hit_hook(
             HookPoint::TaskSuccessBeforeOutputsCommit,
@@ -563,7 +584,7 @@ impl<
         )
         .await?;
         self.submit_event_and_wait_for_reply(
-            TreeEventKind::RegularTasksDone { outputs },
+            TreeEventKind::RegularTasksDone { outputs, children },
             Some(partial_mutation_guard),
         )
         .await
@@ -1601,6 +1622,22 @@ mod tests {
             );
             drop(execution_state);
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn get_ready_task_indices_returns_a_running_childs_ready_tasks() -> anyhow::Result<()> {
+        const CHILD_ID: JobId = JobId::from(2);
+
+        let (parent, _receivers) = create_test_jcb(JOB_ID).await;
+        let child = SharedJobControlBlock::from_prepared_child(
+            CHILD_ID,
+            &parent,
+            PreparedChild::create(create_test_child_submission_with_independent_tasks(2)).await?,
+        )
+        .await;
+
+        assert_eq!(child.get_ready_task_indices().await?, vec![0, 1]);
         Ok(())
     }
 }
