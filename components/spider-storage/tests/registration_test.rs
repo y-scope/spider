@@ -48,6 +48,7 @@ async fn a_report_with_children_blocks_its_job_and_inserts_them() -> anyhow::Res
     assert!(env.has_outputs(parent_id).await);
 
     let rows = env.child_rows(parent_id).await;
+    assert_eq!(rows.len(), task_graphs.len());
     let child_ids: Vec<JobId> = rows.iter().map(|row| row.id).collect();
     assert_eq!(
         rows,
