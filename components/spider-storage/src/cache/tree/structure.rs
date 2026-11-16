@@ -48,6 +48,8 @@ impl TreeStructure {
     /// * Its outputs and children would push the round's payload over
     ///   [`MAX_ROUND_PAYLOAD`](crate::limits::MAX_ROUND_PAYLOAD) after the payload of the round's
     ///   earlier events.
+    /// * It reports children over the limits of one job, and the failure of its job would abort a
+    ///   job that an earlier event of the round changes.
     ///
     /// # Type Parameters
     ///
@@ -655,6 +657,52 @@ mod tests {
             }]
         );
         assert_eq!(plan.registration, None);
+    }
+
+    #[tokio::test]
+    async fn a_child_set_over_the_job_limits_after_a_siblings_registration_is_deferred()
+    -> anyhow::Result<()> {
+        let children = create_test_prepared_children(1).await;
+        let usage = ChildJobUsage::of(&children);
+        let mut over_limit_children = Vec::with_capacity(MAX_CHILDREN_PER_JOB + 1);
+        for _ in 0..=MAX_CHILDREN_PER_JOB {
+            over_limit_children.push(create_test_prepared_child(0).await);
+        }
+        let mut plan = tree_with_children([2, 3]).plan_events(&[
+            event(2, registration(children)),
+            event(3, registration(over_limit_children)),
+        ])?;
+        assert!(
+            matches!(
+                plan.outcomes.as_slice(),
+                [
+                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::BlockingOnChildren)),
+                    RoundOutcome::Deferred,
+                ]
+            ),
+            "a registration and a sibling's child set over the job limits gave {:?}",
+            plan.outcomes
+        );
+        assert_eq!(
+            plan.updates,
+            [JobStateUpdate {
+                outputs: Some(vec![vec![1]]),
+                ..JobStateUpdate::new(
+                    JobId::from(2),
+                    JobState::Running,
+                    JobState::BlockingOnChildren
+                )
+            }]
+        );
+        assert_eq!(
+            plan.registration.take(),
+            Some(PlannedRegistration {
+                event_index: 0,
+                parent_id: JobId::from(2),
+                children: usage,
+            })
+        );
+        Ok(())
     }
 
     #[tokio::test]

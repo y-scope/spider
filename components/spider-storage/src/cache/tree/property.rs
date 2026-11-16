@@ -921,7 +921,7 @@ impl Coverage {
                         }),
                 );
             }
-            Admission::Admitted | Admission::JobConflict(_) => {}
+            Admission::Admitted | Admission::JobConflict(_) | Admission::AbortOfChangedJob => {}
         }
     }
 

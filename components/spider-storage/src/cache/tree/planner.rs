@@ -172,6 +172,10 @@ pub(super) enum Admission {
     /// The event is deferred to a later round: its outputs and children would push the round's
     /// payload over [`MAX_ROUND_PAYLOAD`].
     PayloadBudgetExceeded,
+
+    /// The event is deferred to a later round: it reports children over the limits of one job, and
+    /// the failure of its job aborts a job that the round's plan already changes.
+    AbortOfChangedJob,
 }
 
 /// The planner of a round of events: it plans each event against the result of the round's
@@ -195,8 +199,9 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
     }
 
     /// Plans `event` against the overlay, then applies its admission: an admitted event's plan is
-    /// merged into the round's plan and the overlay; an event that registers a second child set or
-    /// is over the payload budget is deferred; a job conflict applies nothing.
+    /// merged into the round's plan and the overlay; an event that registers a second child set, is
+    /// over the payload budget, or reports children over the limits of one job and aborts a job
+    /// that the round's plan already changes is deferred; any other job conflict applies nothing.
     ///
     /// # Returns
     ///
@@ -209,14 +214,21 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
     /// * Forwards [`Overlay::plan_event`]'s return values on failure.
     pub(super) fn plan_event(&mut self, event: &TreeEvent) -> Result<Admission, InternalError> {
         let event_plan = self.overlay.plan_event(event)?;
-        let admission = self.plan.admission(&event_plan);
+        let admission = match self.plan.admission(&event_plan) {
+            Admission::JobConflict(_) if is_failed_report(event, &event_plan) => {
+                Admission::AbortOfChangedJob
+            }
+            admission => admission,
+        };
         match admission {
             Admission::Admitted => {
                 self.overlay.merge(&event_plan);
                 self.plan.merge(event_plan);
             }
             Admission::JobConflict(_) => {}
-            Admission::ChildSetAlreadyPlanned | Admission::PayloadBudgetExceeded => {
+            Admission::ChildSetAlreadyPlanned
+            | Admission::PayloadBudgetExceeded
+            | Admission::AbortOfChangedJob => {
                 self.plan.defer();
             }
         }
@@ -803,6 +815,18 @@ impl EventPlan {
                 .registration
                 .map_or(0, |registration| registration.children.size)
     }
+}
+
+/// # Returns
+///
+/// Whether `event_plan`, the plan of `event`, fails the job of a report whose children exceed the
+/// limits of one job.
+const fn is_failed_report(event: &TreeEvent, event_plan: &EventPlan) -> bool {
+    matches!(event.kind, TreeEventKind::RegularTasksDone { .. })
+        && matches!(
+            event_plan.outcome,
+            TreeEventOutcome::Applied(JobState::Failed)
+        )
 }
 
 /// # Returns
