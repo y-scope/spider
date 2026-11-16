@@ -673,8 +673,14 @@ impl<
         &self,
         request: Request<storage::ReportTaskSuccessRequest>,
     ) -> Result<Response<common::Void>, Status> {
-        let (session_id, job_id, task_id, task_instance_id, serialized_outputs) =
+        let (session_id, job_id, task_id, task_instance_id, serialized_outputs, children) =
             request.into_inner().unpack()?;
+        if !children.is_empty() {
+            return Err(Status::invalid_argument(match task_id {
+                TaskId::Index(_) => "child job submission is not enabled",
+                TaskId::Commit | TaskId::Cleanup => "termination tasks cannot submit child jobs",
+            }));
+        }
         tracing::info!(
             session_id = session_id,
             job_id = job_id.get(),
@@ -1002,13 +1008,27 @@ fn make_job_state_response(
 
 #[cfg(test)]
 mod tests {
+    use spider_core::job::JobState;
+    use spider_core::task::ExecutionPolicy;
+    use spider_core::task::TdlContext;
+    use spider_core::task::TerminationTaskDescriptor;
+    use spider_core::types::id::ExecutionManagerId;
+    use spider_core::types::id::ResourceGroupId;
+    use spider_core::types::id::TaskId;
+    use spider_core::types::io::TaskOutputsSerializer;
+    use spider_proto_rust::common;
+    use spider_proto_rust::storage;
+    use spider_proto_rust::storage::TaskInstanceManagementService;
     use spider_utils::shutdown::ShutdownHandle;
     use tonic::Code;
+    use tonic::Request;
     use tonic::Status;
 
     use super::GrpcServiceState;
     use crate::db::DbError;
     use crate::inbound_queue::create_inbound_queue;
+    use crate::job_submission::compress_job_inputs;
+    use crate::job_submission::compress_task_graph;
     use crate::state::JobCache;
     use crate::state::JobCacheGcHandle;
     use crate::state::ServiceState;
@@ -1017,12 +1037,103 @@ mod tests {
     use crate::state::test_utils::MockDbConnector;
     use crate::state::test_utils::MockInboundQueueSender;
     use crate::state::test_utils::MockTaskInstancePoolConnector;
+    use crate::state::test_utils::create_test_task_graph_input;
+    use crate::state::test_utils::create_test_task_graph_with_termination_tasks;
     use crate::test_hooks::TestHooks;
 
     type TestGrpcServiceState =
         GrpcServiceState<MockInboundQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
 
     type ErrorHandler = fn(&TestGrpcServiceState, StorageServerError, &'static str) -> Status;
+
+    #[tokio::test]
+    async fn child_reports_are_rejected_without_completing_any_task_kind() -> anyhow::Result<()> {
+        for task_id in [TaskId::Index(0), TaskId::Commit, TaskId::Cleanup] {
+            let grpc = create_test_grpc_service(ShutdownHandle::new());
+            let termination_task = TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: "test_pkg".to_owned(),
+                    task_func: "termination_fn".to_owned(),
+                },
+                execution_policy: Some(ExecutionPolicy::default()),
+            };
+            let graph = create_test_task_graph_with_termination_tasks(
+                (task_id == TaskId::Commit).then_some(termination_task.clone()),
+                (task_id == TaskId::Cleanup).then_some(termination_task),
+            );
+            let job_id = grpc
+                .inner
+                .register_job(
+                    ResourceGroupId::random(),
+                    compress_task_graph(&graph),
+                    compress_job_inputs(&create_test_task_graph_input()),
+                )
+                .await?;
+            grpc.inner.start_job(job_id).await?;
+            let em_id = ExecutionManagerId::random();
+            let outputs = TaskOutputsSerializer::from_tuple(&(1,))?;
+            let expected_state = match task_id {
+                TaskId::Commit => {
+                    let instance = grpc
+                        .inner
+                        .create_task_instance(0, job_id, TaskId::Index(0), em_id)
+                        .await?;
+                    grpc.inner
+                        .succeed_task_instance(
+                            0,
+                            job_id,
+                            instance.task_instance_id,
+                            0,
+                            outputs.clone(),
+                            Vec::new(),
+                        )
+                        .await?;
+                    JobState::CommitReady
+                }
+                TaskId::Cleanup => {
+                    grpc.inner.cancel_job(job_id).await?;
+                    JobState::CleanupReady
+                }
+                TaskId::Index(_) => JobState::Running,
+            };
+            let instance = grpc
+                .inner
+                .create_task_instance(0, job_id, task_id, em_id)
+                .await?;
+            let mut request = storage::ReportTaskSuccessRequest {
+                job_id: job_id.get(),
+                task_id: Some(common::TaskId::from(task_id)),
+                task_instance_id: instance.task_instance_id,
+                execution_manager_id: em_id.get(),
+                session_id: 0,
+                serialized_outputs: outputs,
+                children: vec![storage::ChildJobRequest {
+                    compressed_serialized_task_graph: compress_task_graph(&graph),
+                    compressed_serialized_task_graph_input: compress_job_inputs(
+                        &create_test_task_graph_input(),
+                    ),
+                }],
+            };
+            let status = grpc
+                .report_task_success(Request::new(request.clone()))
+                .await
+                .expect_err("child submissions must be rejected");
+            assert_eq!(status.code(), Code::InvalidArgument);
+            assert_eq!(grpc.inner.get_job_state(job_id).await?, expected_state);
+
+            request.children.clear();
+            grpc.report_task_success(Request::new(request)).await?;
+            assert_eq!(
+                grpc.inner.get_job_state(job_id).await?,
+                if task_id == TaskId::Cleanup {
+                    JobState::Cancelled
+                } else {
+                    JobState::Succeeded
+                },
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn fenced_is_fatal_in_every_error_handler() {
