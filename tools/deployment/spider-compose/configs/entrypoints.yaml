@@ -1,0 +1,86 @@
+configs:
+  # Entrypoint of the scheduler container: replaces a dispatch queue capacity of `auto` in the
+  # scheduler's config with four times the number of CPU cores, then runs the container's command.
+  spider-scheduler-entrypoint:
+    content: |
+      #!/usr/bin/env bash
+
+      set -o errexit
+      set -o nounset
+      set -o pipefail
+
+      readonly CONFIG_TEMPLATE_PATH="/etc/spider/scheduler.template.yaml"
+      readonly CONFIG_PATH="/tmp/scheduler.yaml"
+
+      num_cpus=$$(nproc)
+      dispatch_queue_capacity=$$(( 4 * num_cpus ))
+
+      # The template has the capacity's value on the line after its key.
+      sed "/dispatch_queue_capacity:/{n;s/^\( *\)auto$$/\1$${dispatch_queue_capacity}/}" \
+          "$$CONFIG_TEMPLATE_PATH" > "$$CONFIG_PATH"
+
+      exec "$$@"
+
+  # Entrypoint of a worker container: runs the container's command once per worker (execution
+  # manager).
+  #
+  # Environment variables:
+  # - SPIDER_WORKER_COUNT: The number of workers to run. If empty, the number is computed from
+  #   `SPIDER_WORKER_CPU_PERCENT`.
+  # - SPIDER_WORKER_CPU_PERCENT: The number of workers to run, as a percentage of the number of CPU
+  #   cores, rounded down and at least 1 (e.g., 25 on 16 cores gives 4 workers).
+  spider-worker-entrypoint:
+    content: |
+      #!/usr/bin/env bash
+
+      set -o errexit
+      set -o nounset
+      set -o pipefail
+
+      readonly POSITIVE_INTEGER_REGEX='^[1-9][0-9]*$$'
+
+      num_workers="$${SPIDER_WORKER_COUNT:-}"
+      if [[ -z "$$num_workers" ]]; then
+          cpu_percent="$${SPIDER_WORKER_CPU_PERCENT:-}"
+          if [[ ! "$$cpu_percent" =~ $$POSITIVE_INTEGER_REGEX ]]; then
+              echo "Invalid worker CPU percent '$${cpu_percent}': expected a positive integer." >&2
+              exit 1
+          fi
+          num_cpus=$$(nproc)
+          num_workers=$$(( num_cpus * cpu_percent / 100 ))
+          if (( num_workers < 1 )); then
+              num_workers=1
+          fi
+      elif [[ ! "$$num_workers" =~ $$POSITIVE_INTEGER_REGEX ]]; then
+          echo "Invalid worker count '$${num_workers}': expected a positive integer." >&2
+          exit 1
+      fi
+
+      # As the container's PID 1, bash ignores a stop signal unless it is trapped. The trap also
+      # stops the workers, because a signal that arrives just before `wait` starts does not
+      # interrupt it.
+      pids=()
+      stop_requested=false
+      trap 'stop_requested=true; kill -TERM "$${pids[@]}" 2>/dev/null || true' TERM INT
+
+      echo "Starting $${num_workers} execution manager(s)." >&2
+      for (( i = 0; i < num_workers; i++ )); do
+          if "$$stop_requested"; then
+              break
+          fi
+          "$$@" &
+          pids+=("$$!")
+      done
+
+      # Stop the whole pool once any worker exits or a stop signal arrives.
+      exit_code=0
+      if ! "$$stop_requested"; then
+          wait -n || exit_code=$$?
+      fi
+      kill -TERM "$${pids[@]}" 2>/dev/null || true
+
+      # `wait` returns early whenever a trapped signal arrives, so retry until every worker exits.
+      until wait; do
+          :
+      done
+      exit "$$exit_code"
