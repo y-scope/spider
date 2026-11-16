@@ -83,9 +83,8 @@ impl TestEnv {
     }
 
     /// Asserts that each of `StartJob`, `CancelJob` and `GetJobOutputs` rejects `child_id`, a child
-    /// job of `parent_id`, as a bad request that names the child and its parent, and that
-    /// `GetJobState` and `GetJobError` answer that the child is in `expected_state`, a state other
-    /// than [`JobState::Failed`].
+    /// job, as a bad request that names the child, and that `GetJobState` and `GetJobError` answer
+    /// that the child is in `expected_state`, a state other than [`JobState::Failed`].
     ///
     /// # Panics
     ///
@@ -93,12 +92,10 @@ impl TestEnv {
     async fn assert_job_rpcs_answer_child(
         &self,
         child_id: JobId,
-        parent_id: JobId,
         expected_state: JobState,
         what: &str,
     ) {
-        let expected_message =
-            format!("job {child_id} is a child job of job {parent_id}, not a root job");
+        let expected_message = format!("job {child_id} is not a root job");
         assert_bad_request(
             &self.service.start_job(child_id).await,
             &expected_message,
@@ -540,13 +537,8 @@ async fn external_job_rpcs_reject_a_child_except_for_its_state_and_error() -> an
             };
             env.assert_not_cached(child_id, "the child before its registration is applied")
                 .await;
-            env.assert_job_rpcs_answer_child(
-                child_id,
-                root_id,
-                JobState::Running,
-                "an uncached child",
-            )
-            .await;
+            env.assert_job_rpcs_answer_child(child_id, JobState::Running, "an uncached child")
+                .await;
             assert!(!env.is_fatal());
             registration_write.release();
             child_id
@@ -554,7 +546,7 @@ async fn external_job_rpcs_reject_a_child_except_for_its_state_and_error() -> an
     );
     assert_eq!(report?, JobState::BlockingOnChildren);
 
-    env.assert_job_rpcs_answer_child(child_id, root_id, JobState::Running, "a cached child")
+    env.assert_job_rpcs_answer_child(child_id, JobState::Running, "a cached child")
         .await;
     env.assert_job_state(root_id, JobState::BlockingOnChildren)
         .await;
@@ -571,7 +563,7 @@ async fn external_job_rpcs_reject_a_child_except_for_its_state_and_error() -> an
         .await?,
         JobState::Succeeded
     );
-    env.assert_job_rpcs_answer_child(child_id, root_id, JobState::Succeeded, "a succeeded child")
+    env.assert_job_rpcs_answer_child(child_id, JobState::Succeeded, "a succeeded child")
         .await;
 
     env.assert_job_rpcs_answer_unknown_job(JobId::from(u64::MAX))

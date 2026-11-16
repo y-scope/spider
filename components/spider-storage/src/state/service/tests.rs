@@ -641,9 +641,8 @@ async fn job_rpcs_reject_an_uncached_child_except_for_its_state_and_error() -> a
     for state in [JobState::Running, JobState::Succeeded, JobState::Failed] {
         let db = MockDbConnector::default();
         let job_id = JobId::random();
-        let parent_id = JobId::random();
         db.states.insert(job_id, state);
-        db.parents.insert(job_id, parent_id);
+        db.parents.insert(job_id, JobId::random());
         db.errors.insert(job_id, "child error".to_owned());
         db.outputs.insert(job_id, Vec::new());
 
@@ -651,7 +650,6 @@ async fn job_rpcs_reject_an_uncached_child_except_for_its_state_and_error() -> a
         assert_root_only_job_rpcs_reject_as_a_bad_request(
             &service,
             job_id,
-            parent_id,
             &format!("an uncached {state} child"),
         )
         .await;
@@ -708,7 +706,6 @@ async fn job_rpcs_reject_a_cached_child_except_for_its_state_and_error() -> anyh
     assert_root_only_job_rpcs_reject_as_a_bad_request(
         &service,
         *child_id,
-        root_id,
         "a cached running child",
     )
     .await;
@@ -721,8 +718,8 @@ async fn job_rpcs_reject_a_cached_child_except_for_its_state_and_error() -> anyh
     Ok(())
 }
 
-/// Asserts that each of `StartJob`, `CancelJob` and `GetJobOutputs` rejects `job_id`, a child of
-/// `parent_id`, as a bad request that names the job and its parent.
+/// Asserts that each of `StartJob`, `CancelJob` and `GetJobOutputs` rejects `job_id`, a child job,
+/// as a bad request that names the job.
 ///
 /// # Panics
 ///
@@ -730,11 +727,9 @@ async fn job_rpcs_reject_a_cached_child_except_for_its_state_and_error() -> anyh
 async fn assert_root_only_job_rpcs_reject_as_a_bad_request(
     service: &TestServiceState,
     job_id: JobId,
-    parent_id: JobId,
     description: &str,
 ) {
-    let expected_message =
-        format!("job {job_id} is a child job of job {parent_id}, not a root job");
+    let expected_message = format!("job {job_id} is not a root job");
     let results = [
         ("StartJob", service.start_job(job_id).await),
         ("CancelJob", service.cancel_job(job_id).await.map(|_| ())),

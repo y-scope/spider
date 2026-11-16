@@ -296,7 +296,7 @@ impl<
     ///   it is not in the cache.
     /// * [`StaleStateError::JobAlreadyTerminated`] if the job is not in the cache and is in a
     ///   terminal state in the database.
-    /// * Forwards [`ensure_root`]'s return values on failure (cache path).
+    /// * [`StorageServerError::BadRequest`] if the job is a child job (cache path).
     /// * Forwards [`SharedJobControlBlock::start`]'s return values on failure.
     /// * Forwards [`Self::uncached_root_state`]'s return values on failure (DB fallback).
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
@@ -304,7 +304,9 @@ impl<
         let this = self.clone();
         self.spawn_body(async move {
             if let Some(jcb) = this.inner.job_cache.get(job_id).await {
-                ensure_root(job_id, jcb.parent_id())?;
+                if !jcb.is_root() {
+                    return Err(not_a_root_job(job_id));
+                }
                 jcb.start().await?;
                 tracing::info!(
                     job_id = ? job_id,
@@ -339,7 +341,7 @@ impl<
     ///   it is not in the cache.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache and not in the
     ///   database.
-    /// * Forwards [`ensure_root`]'s return values on failure.
+    /// * [`StorageServerError::BadRequest`] if the job is a child job (cache path).
     /// * Forwards [`SharedJobControlBlock::cancel`]'s return values on failure.
     /// * Forwards [`Self::uncached_root_state`]'s return values on failure, except
     ///   [`DbError::JobNotFound`] (DB fallback).
@@ -348,7 +350,9 @@ impl<
         let this = self.clone();
         self.spawn_body(async move {
             if let Some(jcb) = this.inner.job_cache.get(job_id).await {
-                ensure_root(job_id, jcb.parent_id())?;
+                if !jcb.is_root() {
+                    return Err(not_a_root_job(job_id));
+                }
                 let state = jcb.cancel().await?;
                 tracing::info!(
                     job_id = ? job_id,
@@ -402,7 +406,7 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ensure_root`]'s return values on failure (cache path).
+    /// * [`StorageServerError::BadRequest`] if the job is a child job (cache path).
     /// * Forwards [`SharedJobControlBlock::get_outputs`]'s return values on failure (cache path).
     /// * Forwards [`Self::uncached_root_state`]'s return values on failure (DB fallback).
     /// * Forwards [`ExternalJobOrchestration::get_outputs`]'s return values on failure (DB
@@ -412,7 +416,9 @@ impl<
         job_id: JobId,
     ) -> Result<Vec<TaskOutput>, StorageServerError> {
         if let Some(jcb) = self.inner.job_cache.get(job_id).await {
-            ensure_root(job_id, jcb.parent_id())?;
+            if !jcb.is_root() {
+                return Err(not_a_root_job(job_id));
+            }
             return Ok(jcb.get_outputs().await?);
         }
         self.uncached_root_state(job_id).await?;
@@ -988,11 +994,13 @@ impl<
     ///
     /// Returns an error if:
     ///
+    /// * [`StorageServerError::BadRequest`] if the job is a child job.
     /// * Forwards [`ExternalJobOrchestration::get_state_and_parent`]'s return values on failure.
-    /// * Forwards [`ensure_root`]'s return values on failure.
     async fn uncached_root_state(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
         let (state, parent_id) = self.inner.db.get_state_and_parent(job_id).await?;
-        ensure_root(job_id, parent_id)?;
+        if parent_id.is_some() {
+            return Err(not_a_root_job(job_id));
+        }
         Ok(state)
     }
 
@@ -1304,18 +1312,10 @@ impl<ReturnType: Send + 'static> Drop for HandlerBodyJoinGuard<ReturnType> {
     }
 }
 
-/// Rejects a job that has a parent, for the job RPCs that accept only root jobs.
+/// # Returns
 ///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * [`StorageServerError::BadRequest`] if `parent_id` is not [`None`].
-fn ensure_root(job_id: JobId, parent_id: Option<JobId>) -> Result<(), StorageServerError> {
-    if let Some(parent_id) = parent_id {
-        return Err(StorageServerError::BadRequest(format!(
-            "job {job_id} is a child job of job {parent_id}, not a root job"
-        )));
-    }
-    Ok(())
+/// The [`StorageServerError::BadRequest`] that rejects `job_id`, a child job, from an RPC that
+/// accepts only root jobs.
+fn not_a_root_job(job_id: JobId) -> StorageServerError {
+    StorageServerError::BadRequest(format!("job {job_id} is not a root job"))
 }
