@@ -374,7 +374,7 @@ impl<
         .await
     }
 
-    /// Gets the state of a root job.
+    /// Gets the state of a job.
     ///
     /// # Returns
     ///
@@ -384,14 +384,12 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ensure_root`]'s return values on failure (cache path).
-    /// * Forwards [`Self::uncached_root_state`]'s return values on failure (DB fallback).
+    /// * Forwards [`ExternalJobOrchestration::get_state`]'s return values on failure (DB fallback).
     pub async fn get_job_state(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
         if let Some(jcb) = self.inner.job_cache.get(job_id).await {
-            ensure_root(job_id, jcb.parent_id())?;
             return Ok(jcb.state().await);
         }
-        self.uncached_root_state(job_id).await
+        Ok(self.inner.db.get_state(job_id).await?)
     }
 
     /// Gets the outputs of a root job.
@@ -421,7 +419,7 @@ impl<
         Ok(self.inner.db.get_outputs(job_id).await?)
     }
 
-    /// Gets the error message of a root job.
+    /// Gets the error message of a job.
     ///
     /// # Returns
     ///
@@ -431,16 +429,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ensure_root`]'s return values on failure (cache path).
-    /// * Forwards [`Self::uncached_root_state`]'s return values on failure (DB fallback).
     /// * Forwards [`ExternalJobOrchestration::get_error`]'s return values on failure.
     pub async fn get_job_error(&self, job_id: JobId) -> Result<String, StorageServerError> {
-        match self.inner.job_cache.get(job_id).await {
-            Some(jcb) => ensure_root(job_id, jcb.parent_id())?,
-            None => {
-                self.uncached_root_state(job_id).await?;
-            }
-        }
         Ok(self.inner.db.get_error(job_id).await?)
     }
 
@@ -1314,7 +1304,7 @@ impl<ReturnType: Send + 'static> Drop for HandlerBodyJoinGuard<ReturnType> {
     }
 }
 
-/// Rejects a job that has a parent: the external job RPCs accept only roots.
+/// Rejects a job that has a parent, for the job RPCs that accept only root jobs.
 ///
 /// # Errors
 ///

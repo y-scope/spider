@@ -82,13 +82,21 @@ impl TestEnv {
         );
     }
 
-    /// Asserts that each of the five external job RPCs rejects `child_id`, a child job of
-    /// `parent_id`, as a bad request that names the child and its parent.
+    /// Asserts that each of `StartJob`, `CancelJob` and `GetJobOutputs` rejects `child_id`, a child
+    /// job of `parent_id`, as a bad request that names the child and its parent, and that
+    /// `GetJobState` and `GetJobError` answer that the child is in `expected_state`, a state other
+    /// than [`JobState::Failed`].
     ///
     /// # Panics
     ///
     /// Panics if an RPC answers otherwise.
-    async fn assert_job_rpcs_reject_child(&self, child_id: JobId, parent_id: JobId, what: &str) {
+    async fn assert_job_rpcs_answer_child(
+        &self,
+        child_id: JobId,
+        parent_id: JobId,
+        expected_state: JobState,
+        what: &str,
+    ) {
         let expected_message =
             format!("job {child_id} is a child job of job {parent_id}, not a root job");
         assert_bad_request(
@@ -102,19 +110,24 @@ impl TestEnv {
             &format!("{what}: the cancel"),
         );
         assert_bad_request(
-            &self.service.get_job_state(child_id).await,
-            &expected_message,
-            &format!("{what}: the state"),
-        );
-        assert_bad_request(
             &self.service.get_job_outputs(child_id).await,
             &expected_message,
             &format!("{what}: the outputs"),
         );
-        assert_bad_request(
-            &self.service.get_job_error(child_id).await,
-            &expected_message,
-            &format!("{what}: the error"),
+        let state = self.service.get_job_state(child_id).await;
+        assert!(
+            matches!(state, Ok(current) if current == expected_state),
+            "{what}: expected the state {expected_state}, got {state:?}"
+        );
+        let error = self.service.get_job_error(child_id).await;
+        assert!(
+            matches!(
+                error,
+                Err(StorageServerError::Db(DbError::UnexpectedJobState { current, .. }))
+                    if current == expected_state
+            ),
+            "{what}: expected the error of a job in {expected_state} to be unavailable, got \
+             {error:?}"
         );
     }
 
@@ -183,13 +196,9 @@ async fn a_report_with_children_blocks_its_job_and_inserts_them() -> anyhow::Res
             .collect::<Vec<_>>()
     );
     for child_id in &child_ids {
-        assert_eq!(env.row_state(*child_id).await, JobState::Running);
+        env.assert_job_state(*child_id, JobState::Running).await;
     }
-    assert!(!env.is_fatal());
     env.poll_first_task_of_each(&child_ids).await;
-    for child_id in &child_ids {
-        env.create_instance(*child_id, TaskId::Index(0)).await;
-    }
     env.finish().await;
     Ok(())
 }
@@ -486,18 +495,15 @@ async fn a_report_at_the_maximum_depth_with_children_fails_its_task() -> anyhow:
         .await?,
         JobState::Failed
     );
-    assert_eq!(env.row_state(job_id).await, JobState::Failed);
+    env.assert_job_state(job_id, JobState::Failed).await;
     assert_eq!(
-        env.row_error(job_id).await,
-        Some(
-            ReportRejection::TooDeep {
-                depth: MAX_DEPTH + 1,
-                limit: MAX_DEPTH,
-            }
-            .to_string()
-        )
+        env.service.get_job_error(job_id).await?,
+        ReportRejection::TooDeep {
+            depth: MAX_DEPTH + 1,
+            limit: MAX_DEPTH,
+        }
+        .to_string()
     );
-    assert!(!env.is_fatal());
     assert_eq!(env.child_rows(job_id).await, Vec::new());
     env.finish().await;
     Ok(())
@@ -505,7 +511,7 @@ async fn a_report_at_the_maximum_depth_with_children_fails_its_task() -> anyhow:
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn external_job_rpcs_accept_only_roots() -> anyhow::Result<()> {
+async fn external_job_rpcs_reject_a_child_except_for_its_state_and_error() -> anyhow::Result<()> {
     let env = TestEnv::start().await;
     let root_id = env.start_chain_job(1, 1).await;
     let task_instance_id = env.create_instance(root_id, TaskId::Index(0)).await;
@@ -534,8 +540,13 @@ async fn external_job_rpcs_accept_only_roots() -> anyhow::Result<()> {
             };
             env.assert_not_cached(child_id, "the child before its registration is applied")
                 .await;
-            env.assert_job_rpcs_reject_child(child_id, root_id, "an uncached child")
-                .await;
+            env.assert_job_rpcs_answer_child(
+                child_id,
+                root_id,
+                JobState::Running,
+                "an uncached child",
+            )
+            .await;
             assert!(!env.is_fatal());
             registration_write.release();
             child_id
@@ -543,7 +554,7 @@ async fn external_job_rpcs_accept_only_roots() -> anyhow::Result<()> {
     );
     assert_eq!(report?, JobState::BlockingOnChildren);
 
-    env.assert_job_rpcs_reject_child(child_id, root_id, "a cached child")
+    env.assert_job_rpcs_answer_child(child_id, root_id, JobState::Running, "a cached child")
         .await;
     env.assert_job_state(root_id, JobState::BlockingOnChildren)
         .await;
@@ -560,7 +571,7 @@ async fn external_job_rpcs_accept_only_roots() -> anyhow::Result<()> {
         .await?,
         JobState::Succeeded
     );
-    env.assert_job_rpcs_reject_child(child_id, root_id, "a succeeded child")
+    env.assert_job_rpcs_answer_child(child_id, root_id, JobState::Succeeded, "a succeeded child")
         .await;
 
     env.assert_job_rpcs_answer_unknown_job(JobId::from(u64::MAX))

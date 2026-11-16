@@ -617,7 +617,6 @@ async fn get_job_error_returns_error_message_from_db() -> anyhow::Result<()> {
     let db = MockDbConnector::default();
     let job_id = JobId::random();
     let error_msg = "something went wrong".to_owned();
-    db.states.insert(job_id, JobState::Failed);
     db.errors.insert(job_id, error_msg.clone());
 
     let service = create_test_service_with_db(db);
@@ -638,7 +637,7 @@ async fn get_job_error_returns_error_for_unknown_job() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn job_rpcs_reject_an_uncached_child_job() -> anyhow::Result<()> {
+async fn job_rpcs_reject_an_uncached_child_except_for_its_state_and_error() -> anyhow::Result<()> {
     for state in [JobState::Running, JobState::Succeeded, JobState::Failed] {
         let db = MockDbConnector::default();
         let job_id = JobId::random();
@@ -649,7 +648,7 @@ async fn job_rpcs_reject_an_uncached_child_job() -> anyhow::Result<()> {
         db.outputs.insert(job_id, Vec::new());
 
         let service = create_test_service_with_db(db.clone());
-        assert_job_rpcs_reject_as_a_bad_request(
+        assert_root_only_job_rpcs_reject_as_a_bad_request(
             &service,
             job_id,
             parent_id,
@@ -657,12 +656,14 @@ async fn job_rpcs_reject_an_uncached_child_job() -> anyhow::Result<()> {
         )
         .await;
         assert_eq!(db.states.get(&job_id).map(|stored| *stored), Some(state));
+        assert_eq!(service.get_job_state(job_id).await?, state);
+        assert_eq!(service.get_job_error(job_id).await?, "child error");
     }
     Ok(())
 }
 
 #[tokio::test]
-async fn job_rpcs_reject_a_cached_child_job() -> anyhow::Result<()> {
+async fn job_rpcs_reject_a_cached_child_except_for_its_state_and_error() -> anyhow::Result<()> {
     let db = MockDbConnector::default();
     let service = create_test_service_with_db(db.clone());
     let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
@@ -698,16 +699,21 @@ async fn job_rpcs_reject_a_cached_child_job() -> anyhow::Result<()> {
     let [child_id] = child_ids.as_slice() else {
         panic!("the report should register one child, got {child_ids:?}");
     };
-    let child = service
-        .inner
-        .job_cache
-        .get(*child_id)
-        .await
-        .expect("the registered child should be cached");
+    assert!(
+        service.inner.job_cache.get(*child_id).await.is_some(),
+        "the registered child should be cached"
+    );
+    db.errors.insert(*child_id, "child error".to_owned());
 
-    assert_job_rpcs_reject_as_a_bad_request(&service, *child_id, root_id, "a cached running child")
-        .await;
-    assert_eq!(child.state().await, JobState::Running);
+    assert_root_only_job_rpcs_reject_as_a_bad_request(
+        &service,
+        *child_id,
+        root_id,
+        "a cached running child",
+    )
+    .await;
+    assert_eq!(service.get_job_state(*child_id).await?, JobState::Running);
+    assert_eq!(service.get_job_error(*child_id).await?, "child error");
     assert_eq!(
         service.get_job_state(root_id).await?,
         JobState::BlockingOnChildren
@@ -715,13 +721,13 @@ async fn job_rpcs_reject_a_cached_child_job() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Asserts that each of the five external job RPCs rejects `job_id`, a child of `parent_id`, as a
-/// bad request that names the job and its parent.
+/// Asserts that each of `StartJob`, `CancelJob` and `GetJobOutputs` rejects `job_id`, a child of
+/// `parent_id`, as a bad request that names the job and its parent.
 ///
 /// # Panics
 ///
 /// Panics if an RPC does not answer that [`StorageServerError::BadRequest`].
-async fn assert_job_rpcs_reject_as_a_bad_request(
+async fn assert_root_only_job_rpcs_reject_as_a_bad_request(
     service: &TestServiceState,
     job_id: JobId,
     parent_id: JobId,
@@ -733,16 +739,8 @@ async fn assert_job_rpcs_reject_as_a_bad_request(
         ("StartJob", service.start_job(job_id).await),
         ("CancelJob", service.cancel_job(job_id).await.map(|_| ())),
         (
-            "GetJobState",
-            service.get_job_state(job_id).await.map(|_| ()),
-        ),
-        (
             "GetJobOutputs",
             service.get_job_outputs(job_id).await.map(|_| ()),
-        ),
-        (
-            "GetJobError",
-            service.get_job_error(job_id).await.map(|_| ()),
         ),
     ];
     for (rpc, result) in results {
