@@ -958,4 +958,61 @@ mod hooked {
         assert!(!tree.shutdown_handle.is_fatal());
         Ok(())
     }
+
+    #[tokio::test]
+    async fn a_round_applies_its_changes_to_the_cache_deepest_first_and_the_root_last()
+    -> anyhow::Result<()> {
+        let [leaf_child_id, blocking_child_id, grandchild_id] = [
+            MOCK_FIRST_JOB_ID,
+            MOCK_FIRST_JOB_ID + 1,
+            MOCK_FIRST_JOB_ID + 2,
+        ]
+        .map(JobId::from);
+        let mut tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+        reply(tree.submit(registration(create_test_prepared_children(2).await))).await?;
+        let blocking = reply(tree.control_block.submit(TreeEvent {
+            job_id: blocking_child_id,
+            kind: registration(create_test_prepared_children(1).await),
+        }))
+        .await;
+        assert!(
+            matches!(
+                blocking,
+                Ok(TreeEventOutcome::Applied(JobState::BlockingOnChildren))
+            ),
+            "a child's registration gave {blocking:?}"
+        );
+
+        let reply_join_handles = tree
+            .submit_events_in_one_round(
+                [leaf_child_id, grandchild_id]
+                    .into_iter()
+                    .map(|job_id| TreeEvent {
+                        job_id,
+                        kind: regular_tasks_done(),
+                    })
+                    .collect(),
+            )
+            .await;
+        for reply_join_handle in reply_join_handles {
+            let success = join_reply(reply_join_handle).await;
+            assert!(
+                matches!(success, Ok(TreeEventOutcome::Applied(JobState::Succeeded))),
+                "a success of the round gave {success:?}"
+            );
+        }
+        let mut terminated_job_ids = Vec::new();
+        while let Ok(job_id) = tree.gc_receiver.try_recv() {
+            terminated_job_ids.push(job_id);
+        }
+        assert_eq!(
+            terminated_job_ids,
+            [grandchild_id, leaf_child_id, blocking_child_id, ROOT_ID]
+        );
+        assert_eq!(tree.jcb.state().await, JobState::Succeeded);
+        tree.wait_for_exit().await;
+        assert!(!tree.shutdown_handle.is_fatal());
+        Ok(())
+    }
 }
