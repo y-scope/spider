@@ -22,6 +22,7 @@ use anyhow::anyhow;
 use bytes::Bytes;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
+use spider_core::job_submission::MAX_TASK_INSTANCE_MESSAGE_SIZE;
 use spider_task_executor::ExecutorError;
 use spider_task_executor::TdlPackageManager;
 use spider_task_executor::protocol::ExecutorOutcome;
@@ -92,7 +93,12 @@ async fn main() -> Result<()> {
         .ok_or_else(|| anyhow!("{SPIDER_TDL_PACKAGE_DIR} env var not set"))?;
 
     let mut requests = FramedRead::new(stdin(), LengthDelimitedCodec::new());
-    let mut responses = FramedWrite::new(stdout(), LengthDelimitedCodec::new());
+    let mut responses = FramedWrite::new(
+        stdout(),
+        LengthDelimitedCodec::builder()
+            .max_frame_length(MAX_TASK_INSTANCE_MESSAGE_SIZE)
+            .new_codec(),
+    );
 
     let mut manager = TdlPackageManager::new();
 
@@ -118,7 +124,10 @@ async fn main() -> Result<()> {
                     &raw_ctx,
                     &raw_inputs,
                 ) {
-                    Ok(outputs) => ExecutorOutcome::Success { outputs },
+                    Ok(outputs) => ExecutorOutcome::Success {
+                        outputs,
+                        children: Vec::new(),
+                    },
                     Err(e) => ExecutorOutcome::Failure {
                         error: rmp_serde::to_vec(&e).inspect_err(
                             |e| tracing::error!(err = ? e, "Failed to serialize execution result."),

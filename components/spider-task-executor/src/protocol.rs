@@ -10,6 +10,7 @@
 
 use serde::Deserialize;
 use serde::Serialize;
+use spider_core::job_submission::CompressedJobSubmission;
 use spider_core::task::TdlContext;
 
 /// Request from the parent process (execution manager) to the executor.
@@ -42,8 +43,11 @@ pub enum Response {
 /// Outcome of a task execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ExecutorOutcome {
-    /// Task outputs serialized in wire-format.
-    Success { outputs: Vec<u8> },
+    /// Task outputs serialized in wire-format and compressed child job submissions.
+    Success {
+        outputs: Vec<u8>,
+        children: Vec<CompressedJobSubmission>,
+    },
 
     /// [`crate::ExecutorError`] serialized in msgpack.
     Failure { error: Vec<u8> },
