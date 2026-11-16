@@ -315,9 +315,9 @@ impl<
             )
             .await?;
         }
-        self.env.job_cache.insert_many(jcbs.clone()).await?;
         self.jcbs
-            .extend(jcbs.into_iter().map(|jcb| (jcb.id(), jcb)));
+            .extend(jcbs.iter().map(|jcb| (jcb.id(), jcb.clone())));
+        self.env.job_cache.insert_many(jcbs).await?;
         Ok(publications)
     }
 
