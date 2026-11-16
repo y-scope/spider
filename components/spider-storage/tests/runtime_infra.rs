@@ -923,23 +923,6 @@ impl TestEnv {
 
     /// # Returns
     ///
-    /// The error message of `job_id`'s row in the database, or [`None`] if it has none.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the query fails.
-    pub async fn row_error(&self, job_id: JobId) -> Option<String> {
-        sqlx::query_scalar::<_, Option<String>>(
-            "SELECT `error_message` FROM `jobs` WHERE `id` = ?;",
-        )
-        .bind(job_id)
-        .fetch_one(&self.pool)
-        .await
-        .expect("the row error query should succeed")
-    }
-
-    /// # Returns
-    ///
     /// Whether `job_id`'s row in the database has job outputs.
     ///
     /// # Panics
@@ -1164,30 +1147,41 @@ pub struct ChildRow {
     pub compressed_serialized_task_graph: Vec<u8>,
 }
 
-/// The shape of a test job of independent tasks, each taking and returning one byte-typed value.
+/// The shape of a test job of independent tasks, each taking and returning one byte-typed value,
+/// whose tasks, commit task and cleanup task each run at most `max_num_instances` instances at once
+/// and are retried at most `max_num_retry` times.
 #[derive(Clone, Copy, Debug)]
 pub struct JobShape {
     pub num_tasks: usize,
     pub with_commit: bool,
     pub with_cleanup: bool,
+    pub max_num_instances: u32,
+    pub max_num_retry: u32,
 }
 
 impl JobShape {
-    /// A job of one task, without a commit or a cleanup task.
+    /// A job of one task, without a commit or a cleanup task, whose task runs one instance at once
+    /// and is never retried.
     pub const ONE_TASK: Self = Self {
         num_tasks: 1,
         with_commit: false,
         with_cleanup: false,
+        max_num_instances: 1,
+        max_num_retry: 0,
     };
 
-    /// Builds a job of this shape under the default execution policy, which never retries a task.
+    /// Builds a job of this shape.
     ///
     /// # Returns
     ///
     /// The task graph and its inputs.
     #[must_use]
     pub fn build(self) -> (SubmittedTaskGraph, TaskGraphInput) {
-        self.build_with_execution_policy(ExecutionPolicy::default())
+        self.build_with_execution_policy(ExecutionPolicy {
+            max_num_instances: self.max_num_instances,
+            max_num_retry: self.max_num_retry,
+            ..ExecutionPolicy::default()
+        })
     }
 
     /// # Returns
@@ -1219,7 +1213,7 @@ impl JobShape {
     }
 
     /// Builds a job of this shape whose tasks, commit task and cleanup task run under
-    /// `execution_policy`.
+    /// `execution_policy` instead of the shape's own limits.
     ///
     /// # Returns
     ///
@@ -1404,6 +1398,35 @@ impl<FirstType: Send + 'static, SecondType: Send + 'static> Race<FirstType, Seco
         }
     }
 
+    /// Like [`Self::start`], for two RPCs whose events are both submitted by `job_id`: waits until
+    /// `first` has submitted its event before running `second`, so that `first`'s submission is
+    /// never taken for `second`'s.
+    ///
+    /// # Returns
+    ///
+    /// The race, with `first`'s round still paused.
+    pub async fn start_on_one_job(
+        env: &TestEnv,
+        point: HookPoint,
+        filter: HookFilter,
+        first: impl Future<Output = FirstType> + Send + 'static,
+        second: impl Future<Output = SecondType> + Send + 'static,
+        job_id: JobId,
+    ) -> Self {
+        let submitted = env.observe(HookPoint::JobEventAfterSubmit, HookFilter::job(job_id));
+        let paused = env.pause(point, filter);
+        let first = tokio::spawn(first);
+        reached(&paused, 1).await;
+        reached(&submitted, 1).await;
+        let second = tokio::spawn(second);
+        reached(&submitted, 2).await;
+        Self {
+            paused,
+            first,
+            second,
+        }
+    }
+
     /// Releases the first RPC's round.
     ///
     /// # Returns
@@ -1530,8 +1553,8 @@ pub fn build_independent_job(
 ) -> (SubmittedTaskGraph, TaskGraphInput) {
     JobShape {
         num_tasks,
-        with_commit: false,
         with_cleanup,
+        ..JobShape::ONE_TASK
     }
     .build_with_execution_policy(execution_policy)
 }
