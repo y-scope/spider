@@ -945,7 +945,7 @@ mod tests {
     }
 
     #[test]
-    fn a_cancel_moves_every_abortable_job_of_the_tree_to_its_abort_target() {
+    fn a_cancel_moves_every_abortable_job_of_the_tree_to_its_abort_target() -> anyhow::Result<()> {
         let structure = tree(
             TreeNode {
                 state: JobState::BlockingOnChildren,
@@ -987,9 +987,7 @@ mod tests {
                 ),
             ],
         );
-        let plan = structure
-            .plan_events(&[root_event(TreeEventKind::CancelRoot)])
-            .expect("the round should change each job at most once");
+        let plan = structure.plan_events(&[root_event(TreeEventKind::CancelRoot)])?;
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
@@ -1025,10 +1023,11 @@ mod tests {
                 Publication::Cleanup(JobId::from(4)),
             ]
         );
+        Ok(())
     }
 
     #[test]
-    fn a_cancel_skips_a_commit_ready_non_root_job_which_then_finishes() {
+    fn a_cancel_skips_a_commit_ready_non_root_job_which_then_finishes() -> anyhow::Result<()> {
         let structure = tree(
             TreeNode {
                 state: JobState::BlockingOnChildren,
@@ -1047,12 +1046,10 @@ mod tests {
                 (3, CHILD_NODE),
             ],
         );
-        let plan = structure
-            .plan_events(&[
-                root_event(TreeEventKind::CancelRoot),
-                event(2, TreeEventKind::CommitDone),
-            ])
-            .expect("the round should change each job at most once");
+        let plan = structure.plan_events(&[
+            root_event(TreeEventKind::CancelRoot),
+            event(2, TreeEventKind::CommitDone),
+        ])?;
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
@@ -1074,6 +1071,7 @@ mod tests {
         );
         assert_eq!(plan.active_children, HashMap::new());
         assert_eq!(plan.publications, []);
+        Ok(())
     }
 
     #[test]
@@ -1089,7 +1087,8 @@ mod tests {
     }
 
     #[test]
-    fn a_failure_under_a_blocking_parent_fails_every_ancestor_and_aborts_the_rest_of_the_tree() {
+    fn a_failure_under_a_blocking_parent_fails_every_ancestor_and_aborts_the_rest_of_the_tree()
+    -> anyhow::Result<()> {
         let structure = tree(
             TreeNode {
                 state: JobState::BlockingOnChildren,
@@ -1132,9 +1131,7 @@ mod tests {
                 ),
             ],
         );
-        let plan = structure
-            .plan_events(&[event(6, failure(Lane::Regular, "boom"))])
-            .expect("the round should change each job at most once");
+        let plan = structure.plan_events(&[event(6, failure(Lane::Regular, "boom"))])?;
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
@@ -1163,10 +1160,11 @@ mod tests {
             ]
         );
         assert_eq!(plan.publications, [Publication::Cleanup(JobId::from(5))]);
+        Ok(())
     }
 
     #[test]
-    fn a_commit_failure_under_a_blocking_parent_fails_its_ancestors() {
+    fn a_commit_failure_under_a_blocking_parent_fails_its_ancestors() -> anyhow::Result<()> {
         let plan = tree(
             TreeNode {
                 state: JobState::BlockingOnChildren,
@@ -1181,8 +1179,7 @@ mod tests {
                 },
             )],
         )
-        .plan_events(&[event(2, failure(Lane::Commit, "boom"))])
-        .expect("the round should change each job at most once");
+        .plan_events(&[event(2, failure(Lane::Commit, "boom"))])?;
         assert_eq!(
             plan.updates,
             [
@@ -1197,10 +1194,12 @@ mod tests {
             ],
             "a commit failure should fail the job's ancestors"
         );
+        Ok(())
     }
 
     #[test]
-    fn a_propagated_failure_message_is_cut_to_the_maximum_number_of_characters() {
+    fn a_propagated_failure_message_is_cut_to_the_maximum_number_of_characters()
+    -> anyhow::Result<()> {
         for (message_chars, propagated_chars) in [
             (
                 MAX_PROPAGATED_MESSAGE_CHARS + 1,
@@ -1210,8 +1209,7 @@ mod tests {
         ] {
             let message = "é".repeat(message_chars);
             let plan = tree_with_children([2])
-                .plan_events(&[event(2, failure(Lane::Regular, &message))])
-                .expect("the round should change each job at most once");
+                .plan_events(&[event(2, failure(Lane::Regular, &message))])?;
             let messages: Vec<Option<&str>> = plan
                 .updates
                 .iter()
@@ -1228,13 +1226,14 @@ mod tests {
                 "a message of {message_chars} characters"
             );
         }
+        Ok(())
     }
 
     #[test]
-    fn a_cleanup_failure_fails_only_its_job() {
+    fn a_cleanup_failure_fails_only_its_job() -> anyhow::Result<()> {
         let plan = tree(
             TreeNode {
-                state: JobState::CleanupReady,
+                state: JobState::BlockingOnChildren,
                 has_cleanup: true,
                 ..PLAIN_NODE
             },
@@ -1247,18 +1246,10 @@ mod tests {
                         ..CHILD_NODE
                     },
                 ),
-                (
-                    3,
-                    TreeNode {
-                        state: JobState::CleanupReady,
-                        has_cleanup: true,
-                        ..CHILD_NODE
-                    },
-                ),
+                (3, CHILD_NODE),
             ],
         )
-        .plan_events(&[event(2, failure(Lane::Cleanup, "boom"))])
-        .expect("the round should change each job at most once");
+        .plan_events(&[event(2, failure(Lane::Cleanup, "boom"))])?;
         assert_eq!(
             plan.updates,
             [JobStateUpdate {
@@ -1267,16 +1258,15 @@ mod tests {
             }]
         );
         assert_eq!(plan.publications, []);
+        Ok(())
     }
 
     #[test]
-    fn two_failures_in_one_round_fail_the_tree_once() {
-        let plan = tree_with_children([2, 3])
-            .plan_events(&[
-                event(2, failure(Lane::Regular, "first")),
-                event(3, failure(Lane::Regular, "second")),
-            ])
-            .expect("two failures in one round should change each job at most once");
+    fn two_failures_in_one_round_fail_the_tree_once() -> anyhow::Result<()> {
+        let plan = tree_with_children([2, 3]).plan_events(&[
+            event(2, failure(Lane::Regular, "first")),
+            event(3, failure(Lane::Regular, "second")),
+        ])?;
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
@@ -1301,16 +1291,16 @@ mod tests {
                 (3, JobState::Cancelled),
             ]
         );
+        Ok(())
     }
 
     #[test]
-    fn a_failure_after_a_siblings_success_in_one_round_fails_the_tree_without_a_conflict() {
-        let plan = tree_with_children([2, 3])
-            .plan_events(&[
-                event(2, registration(Vec::new())),
-                event(3, failure(Lane::Regular, "boom")),
-            ])
-            .expect("a success and a failure in one round should change each job at most once");
+    fn a_failure_after_a_siblings_success_in_one_round_fails_the_tree_without_a_conflict()
+    -> anyhow::Result<()> {
+        let plan = tree_with_children([2, 3]).plan_events(&[
+            event(2, registration(Vec::new())),
+            event(3, failure(Lane::Regular, "boom")),
+        ])?;
         assert_eq!(
             plan.updates
                 .iter()
@@ -1322,16 +1312,16 @@ mod tests {
                 (ROOT_ID.get(), JobState::Failed),
             ]
         );
+        Ok(())
     }
 
     #[test]
-    fn a_cancel_and_a_failure_in_one_round_apply_whichever_is_planned_first() {
-        let plan = tree_with_children([2, 3])
-            .plan_events(&[
-                root_event(TreeEventKind::CancelRoot),
-                event(2, failure(Lane::Regular, "boom")),
-            ])
-            .expect("a cancel and a failure in one round should change each job at most once");
+    fn a_cancel_and_a_failure_in_one_round_apply_whichever_is_planned_first() -> anyhow::Result<()>
+    {
+        let plan = tree_with_children([2, 3]).plan_events(&[
+            root_event(TreeEventKind::CancelRoot),
+            event(2, failure(Lane::Regular, "boom")),
+        ])?;
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
@@ -1357,12 +1347,10 @@ mod tests {
             ]
         );
 
-        let plan = tree_with_children([2, 3])
-            .plan_events(&[
-                event(2, failure(Lane::Regular, "boom")),
-                root_event(TreeEventKind::CancelRoot),
-            ])
-            .expect("a failure and a cancel in one round should change each job at most once");
+        let plan = tree_with_children([2, 3]).plan_events(&[
+            event(2, failure(Lane::Regular, "boom")),
+            root_event(TreeEventKind::CancelRoot),
+        ])?;
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
@@ -1387,6 +1375,7 @@ mod tests {
                 (3, JobState::Cancelled),
             ]
         );
+        Ok(())
     }
 
     #[test]
@@ -1595,7 +1584,8 @@ mod tests {
     }
 
     #[test]
-    fn a_success_climbs_through_every_ancestor_whose_last_active_child_succeeds() {
+    fn a_success_climbs_through_every_ancestor_whose_last_active_child_succeeds()
+    -> anyhow::Result<()> {
         const BLOCKING_CHILD: TreeNode = TreeNode {
             state: JobState::BlockingOnChildren,
             ..CHILD_NODE
@@ -1614,9 +1604,8 @@ mod tests {
             ..JobStateUpdate::new(JobId::from(3), JobState::Running, JobState::Succeeded)
         };
 
-        let plan = tree(BLOCKING_ROOT, [(2, BLOCKING_CHILD), (3, GRANDCHILD)])
-            .plan_events(&events)
-            .expect("the round should change each job at most once");
+        let plan =
+            tree(BLOCKING_ROOT, [(2, BLOCKING_CHILD), (3, GRANDCHILD)]).plan_events(&events)?;
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
@@ -1649,8 +1638,7 @@ mod tests {
             BLOCKING_ROOT,
             [(2, BLOCKING_CHILD), (3, GRANDCHILD), (4, CHILD_NODE)],
         )
-        .plan_events(&events)
-        .expect("the round should change each job at most once");
+        .plan_events(&events)?;
         assert_eq!(
             plan.updates,
             [
@@ -1667,10 +1655,11 @@ mod tests {
             plan.active_children,
             HashMap::from([(JobId::from(2), 0), (ROOT_ID, 1)])
         );
+        Ok(())
     }
 
     #[test]
-    fn a_parent_with_a_commit_task_commits_then_climbs() {
+    fn a_parent_with_a_commit_task_commits_then_climbs() -> anyhow::Result<()> {
         let blocking_root = || TreeNode {
             state: JobState::BlockingOnChildren,
             ..PLAIN_NODE
@@ -1695,8 +1684,7 @@ mod tests {
                 ),
             ],
         )
-        .plan_events(&[event(3, registration(Vec::new()))])
-        .expect("the round should change each job at most once");
+        .plan_events(&[event(3, registration(Vec::new()))])?;
         assert_eq!(
             plan.updates,
             [
@@ -1725,8 +1713,7 @@ mod tests {
                 },
             )],
         )
-        .plan_events(&[event(2, TreeEventKind::CommitDone)])
-        .expect("the round should change each job at most once");
+        .plan_events(&[event(2, TreeEventKind::CommitDone)])?;
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
@@ -1746,16 +1733,15 @@ mod tests {
         );
         assert_eq!(plan.active_children, HashMap::from([(ROOT_ID, 0)]));
         assert_eq!(plan.publications, []);
+        Ok(())
     }
 
     #[test]
-    fn two_siblings_succeeding_in_one_round_unblock_their_parent_once() {
-        let plan = tree_with_children([2, 3])
-            .plan_events(&[
-                event(2, registration(Vec::new())),
-                event(3, registration(Vec::new())),
-            ])
-            .expect("two siblings succeeding should change each job at most once");
+    fn two_siblings_succeeding_in_one_round_unblock_their_parent_once() -> anyhow::Result<()> {
+        let plan = tree_with_children([2, 3]).plan_events(&[
+            event(2, registration(Vec::new())),
+            event(3, registration(Vec::new())),
+        ])?;
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
@@ -1783,10 +1769,11 @@ mod tests {
             ]
         );
         assert_eq!(plan.active_children, HashMap::from([(ROOT_ID, 0)]));
+        Ok(())
     }
 
     #[test]
-    fn a_success_under_a_deactivated_parent_stops_the_climb() {
+    fn a_success_under_a_deactivated_parent_stops_the_climb() -> anyhow::Result<()> {
         const COMMIT_READY_CHILD: TreeNode = TreeNode {
             state: JobState::CommitReady,
             has_commit: true,
@@ -1812,9 +1799,7 @@ mod tests {
             ),
             ("a cancelled parent", cancelled_root),
         ] {
-            let plan = structure
-                .plan_events(&[event(2, TreeEventKind::CommitDone)])
-                .expect("the round should change each job at most once");
+            let plan = structure.plan_events(&[event(2, TreeEventKind::CommitDone)])?;
             assert_eq!(
                 plan.updates,
                 [JobStateUpdate::new(
@@ -1826,14 +1811,14 @@ mod tests {
             );
             assert_eq!(plan.active_children, HashMap::new(), "{description}");
         }
+        Ok(())
     }
 
     #[test]
-    fn a_success_under_a_parent_that_breaks_the_tree_invariants_is_an_internal_error() {
+    fn a_success_under_a_parent_that_breaks_the_tree_invariants_is_an_internal_error()
+    -> anyhow::Result<()> {
         let mut uncounted_child = tree_with_children([2]);
-        uncounted_child
-            .set_active_children(ROOT_ID, 0)
-            .expect("the root should be in the tree");
+        uncounted_child.set_active_children(ROOT_ID, 0)?;
         let result = uncounted_child.plan_events(&[event(2, registration(Vec::new()))]);
         assert!(
             matches!(
@@ -1862,6 +1847,7 @@ mod tests {
             ),
             "a success under a running parent gave {result:?}"
         );
+        Ok(())
     }
 
     #[test]
