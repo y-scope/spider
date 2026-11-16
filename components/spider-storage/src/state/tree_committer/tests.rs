@@ -341,6 +341,45 @@ async fn a_cancel_deactivates_every_abortable_job_of_the_tree_and_publishes_thei
 }
 
 #[tokio::test]
+async fn a_round_applies_its_changes_to_the_cache_deepest_first_and_the_root_last()
+-> anyhow::Result<()> {
+    let [first_child_id, second_child_id] =
+        [MOCK_FIRST_JOB_ID, MOCK_FIRST_JOB_ID + 1].map(JobId::from);
+    for (job_id, kind) in [
+        (ROOT_ID, TreeEventKind::CancelRoot),
+        (
+            first_child_id,
+            TreeEventKind::TerminalFailure {
+                lane: Lane::Regular,
+                message: "boom".to_owned(),
+            },
+        ),
+    ] {
+        let mut tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+        reply(tree.submit(start())).await?;
+        reply(tree.submit(registration(create_test_prepared_children(2).await))).await?;
+
+        let outcome = reply(tree.control_block.submit(TreeEvent { job_id, kind })).await;
+        assert!(
+            matches!(outcome, Ok(TreeEventOutcome::Applied(_))),
+            "an event of {job_id:?} gave {outcome:?}"
+        );
+        let mut terminated_job_ids = Vec::new();
+        while let Ok(terminated_job_id) = tree.gc_receiver.try_recv() {
+            terminated_job_ids.push(terminated_job_id);
+        }
+        assert_eq!(
+            terminated_job_ids,
+            [first_child_id, second_child_id, ROOT_ID],
+            "the order in which an event of {job_id:?} terminates the tree's jobs"
+        );
+        tree.wait_for_exit().await;
+        assert!(!tree.shutdown_handle.is_fatal());
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_payload_error_without_a_registration_poisons_the_tree() -> anyhow::Result<()> {
     let tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
     reply(tree.submit(start())).await?;

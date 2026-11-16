@@ -1,6 +1,7 @@
 //! A round of a tree's committer: its events planned, written, applied, answered and published.
 
 use std::cell::Cell;
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -86,8 +87,9 @@ impl<
         }
     }
 
-    /// Runs one round for the events of `in_flight`, in their order, and answers each event that
-    /// the round plans. `in_flight`, which [`super::CommitterContextGuard`] owns, keeps the events
+    /// Runs one round for the events of `in_flight`, in their order, applies the round's state
+    /// changes to the cache deepest job first and root last, and answers each event that the round
+    /// plans. `in_flight`, which [`super::CommitterContextGuard`] owns, keeps the events
     /// to put back at the front of the pending queue, in their order: the events that the round
     /// defers or, if the database rejects the outputs of a job or the children that the round
     /// registers (see [`fail_job_with_oversized_payload`]), every event of the round, with that
@@ -124,7 +126,8 @@ impl<
             .plan_events(in_flight.iter().map(|pending| &pending.event))?;
 
         if !updates.is_empty() {
-            let transitions: Vec<Transition> = updates.iter().map(Transition::from).collect();
+            let mut transitions: Vec<Transition> = updates.iter().map(Transition::from).collect();
+            transitions.sort_by_key(|transition| Reverse(self.jcb(transition.job_id).depth()));
             let child_ids = match self
                 .env
                 .db
