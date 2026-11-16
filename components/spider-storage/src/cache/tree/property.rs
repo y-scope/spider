@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::env::VarError;
 
 use anyhow::Context;
 use anyhow::ensure;
@@ -186,6 +187,24 @@ impl RaisedKind {
             (Lane::Regular, _) => StaleStateError::JobNoLongerRunning,
             (Lane::Commit, _) => StaleStateError::JobNoLongerCommitReady,
             (Lane::Cleanup, _) => StaleStateError::JobNoLongerCleanupReady,
+        }
+    }
+}
+
+impl From<&TreeEventKind> for RaisedKind {
+    fn from(kind: &TreeEventKind) -> Self {
+        match kind {
+            TreeEventKind::Start { .. } => Self::Start,
+            TreeEventKind::RegularTasksDone { children, .. } => Self::RegularTasksDone {
+                registers: !children.is_empty(),
+            },
+            TreeEventKind::CommitDone => Self::CommitDone,
+            TreeEventKind::CleanupDone => Self::CleanupDone,
+            TreeEventKind::TerminalFailure { lane, message } => Self::TerminalFailure {
+                lane: *lane,
+                message: message.clone(),
+            },
+            TreeEventKind::CancelRoot => Self::CancelRoot,
         }
     }
 }
@@ -886,13 +905,20 @@ impl Coverage {
                     self.applied_cancels += 1;
                     self.crowded_cancels += usize::from(planned.len() > 1);
                 }
-                (TreeEventOutcome::Applied(JobState::Succeeded), RaisedKind::CommitDone) => {
+                (TreeEventOutcome::Applied(_), RaisedKind::CommitDone) => {
                     self.skipped_commits +=
                         usize::from(model.row(events[*index].job_id).parent.is_some_and(
                             |parent_id| model.row(parent_id).state != JobState::BlockingOnChildren,
                         ));
                 }
-                _ => {}
+                (
+                    TreeEventOutcome::Applied(_),
+                    RaisedKind::Start
+                    | RaisedKind::RegularTasksDone { .. }
+                    | RaisedKind::CleanupDone
+                    | RaisedKind::TerminalFailure { .. },
+                )
+                | (TreeEventOutcome::Stale(_), _) => {}
             }
         }
         for update in &plan.updates {
@@ -1392,7 +1418,7 @@ impl Simulation {
                     .map_or_else(|| self.model.row(job_id).state, |update| update.to)
             };
             let found_state = found(event.job_id);
-            let raised_kind = raised_kind(&event.kind);
+            let raised_kind = RaisedKind::from(&event.kind);
             let expected = if self.model.structure.node(event.job_id).is_none() {
                 TreeEventOutcome::Untracked
             } else if raised_kind.acts_on(found_state) {
@@ -1567,25 +1593,6 @@ fn expected_admission(
 
 /// # Returns
 ///
-/// The kind of a [`RaisedEvent`] that `kind` is collected from.
-fn raised_kind(kind: &TreeEventKind) -> RaisedKind {
-    match kind {
-        TreeEventKind::Start { .. } => RaisedKind::Start,
-        TreeEventKind::RegularTasksDone { children, .. } => RaisedKind::RegularTasksDone {
-            registers: !children.is_empty(),
-        },
-        TreeEventKind::CommitDone => RaisedKind::CommitDone,
-        TreeEventKind::CleanupDone => RaisedKind::CleanupDone,
-        TreeEventKind::TerminalFailure { lane, message } => RaisedKind::TerminalFailure {
-            lane: *lane,
-            message: message.clone(),
-        },
-        TreeEventKind::CancelRoot => RaisedKind::CancelRoot,
-    }
-}
-
-/// # Returns
-///
 /// The number of `children` and the sum of the sizes of their submissions.
 fn child_usage(children: &[PreparedChild]) -> ChildJobUsage {
     ChildJobUsage {
@@ -1748,15 +1755,15 @@ async fn run_tree(seed: u64, raising: Raising, coverage: &mut Coverage) -> anyho
 ///
 /// * Forwards [`run_tree`]'s return values on failure, with the tree's seed.
 async fn run_trees(raising: Raising) -> anyhow::Result<Option<Coverage>> {
-    let env_value = |name: &str| {
-        std::env::var(name)
-            .ok()
-            .map(|value| {
-                value
-                    .parse::<u64>()
-                    .with_context(|| format!("`{name}` is not a u64"))
-            })
-            .transpose()
+    let env_value = |name: &str| match std::env::var(name) {
+        Ok(value) => value
+            .parse::<u64>()
+            .map(Some)
+            .with_context(|| format!("`{name}` is not a u64")),
+        Err(VarError::NotPresent) => Ok(None),
+        Err(error @ VarError::NotUnicode(_)) => {
+            Err(error).with_context(|| format!("`{name}` is not Unicode"))
+        }
     };
     if let Some(seed) = env_value("JOB_TREE_PROPERTY_SEED")? {
         run_tree(seed, raising, &mut Coverage::default())
