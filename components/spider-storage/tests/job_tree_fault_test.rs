@@ -1,4 +1,4 @@
-//! Dropped RPCs, report limits and the maximum depth, for a job alone and in a tree, on `MariaDB`.
+//! Faults of jobs, alone and in trees, on `MariaDB`.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -24,6 +24,7 @@ use spider_storage::test_hooks::HookPoint;
 use strum::EnumIter;
 use strum::IntoEnumIterator;
 
+use crate::runtime_infra::HOOK_TIMEOUT;
 use crate::runtime_infra::JobResult;
 use crate::runtime_infra::JobShape;
 use crate::runtime_infra::Lane;
@@ -67,6 +68,10 @@ impl TestTree {
     /// # Returns
     ///
     /// The started tree.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the root of a [`Placement::Leaf`] doesn't get two children.
     async fn start(env: &TestEnv, shape: JobShape, placement: Placement) -> Self {
         match placement {
             Placement::Alone => {
@@ -83,13 +88,7 @@ impl TestTree {
                     .register_children(
                         root_id,
                         &value(0x70, 0),
-                        &[
-                            shape,
-                            JobShape {
-                                with_cleanup: true,
-                                ..JobShape::ONE_TASK
-                            },
-                        ],
+                        &[shape, JobShape::ONE_TASK_WITH_CLEANUP],
                     )
                     .await[..]
                 else {
@@ -229,10 +228,9 @@ impl DropCase {
                 with_commit: true,
                 ..JobShape::ONE_TASK
             },
-            Self::AfterTcbFlipRacingCancel | Self::CleanupInCommitter => JobShape {
-                with_cleanup: true,
-                ..JobShape::ONE_TASK
-            },
+            Self::AfterTcbFlipRacingCancel | Self::CleanupInCommitter => {
+                JobShape::ONE_TASK_WITH_CLEANUP
+            }
             Self::AfterTcbFlip
             | Self::AfterTcbFlipRegistering
             | Self::BeforeSubmit
@@ -519,7 +517,7 @@ impl DropRun<'_> {
         );
         let first_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
         let second_instance_id = env.create_instance(job_id, TaskId::Index(1)).await;
-        let reports = [
+        let report_join_handles = [
             tokio::spawn(env.task_success(
                 job_id,
                 0,
@@ -536,11 +534,12 @@ impl DropRun<'_> {
             )),
         ];
         reached(&paused, 2).await;
-        for report in reports {
-            report.abort();
+        for report_join_handle in report_join_handles {
+            report_join_handle.abort();
             assert!(
-                report
+                tokio::time::timeout(HOOK_TIMEOUT, report_join_handle)
                     .await
+                    .expect("the aborted RPC's task should end within the timeout")
                     .expect_err("the dropped RPC should not complete")
                     .is_cancelled()
             );
@@ -568,16 +567,16 @@ impl DropRun<'_> {
         )
         .await;
         let num_cancel_submissions = usize::from(root_id == job_id);
-        let cancel = tokio::spawn(env.cancel(root_id));
+        let cancel_join_handle = tokio::spawn(env.cancel(root_id));
         reached(&cancel_written, 1).await;
         assert!(
-            !cancel.is_finished(),
+            !cancel_join_handle.is_finished(),
             "{}: the cancel should wait for the job's guard to apply",
             self.what
         );
         paused.release();
         assert_job_result(
-            &join(cancel).await,
+            &join(cancel_join_handle).await,
             self.tree.cancelled_root_state(JobState::CleanupReady),
             &format!("{}: the cancel", self.what),
         );
@@ -1066,13 +1065,7 @@ async fn a_report_beyond_the_maximum_depth_fails_the_whole_chain() -> anyhow::Re
         .register_children(
             root_id,
             &value(0x90, 0),
-            &[
-                JobShape::ONE_TASK,
-                JobShape {
-                    with_cleanup: true,
-                    ..JobShape::ONE_TASK
-                },
-            ],
+            &[JobShape::ONE_TASK, JobShape::ONE_TASK_WITH_CLEANUP],
         )
         .await[..]
     else {
@@ -1292,9 +1285,12 @@ async fn race_reports(
     };
     match race {
         ReservationRace::Free => {
-            let first = tokio::spawn(report(0));
-            let second = tokio::spawn(report(1));
-            let results = [join(first).await, join(second).await];
+            let first_join_handle = tokio::spawn(report(0));
+            let second_join_handle = tokio::spawn(report(1));
+            let results = [
+                join(first_join_handle).await,
+                join(second_join_handle).await,
+            ];
             let loser = if max_num_retry == 0 {
                 let losers: Vec<usize> = (0..2)
                     .filter(|index| matches!(results[*index], Ok(JobState::Failed)))
@@ -1317,24 +1313,24 @@ async fn race_reports(
                 HookPoint::CommitterRoundAfterDbWrite,
                 HookFilter::job(job_id),
             );
-            let first = tokio::spawn(report(0));
+            let first_join_handle = tokio::spawn(report(0));
             reached(&paused, 1).await;
-            let second = tokio::spawn(report(1));
+            let second_join_handle = tokio::spawn(report(1));
             let second = if max_num_retry == 0 {
                 reached(&failure_written, 1).await;
                 assert!(
-                    !second.is_finished(),
+                    !second_join_handle.is_finished(),
                     "{what}: the failure should wait for the job's guard to apply"
                 );
                 assert_eq!(env.row_state(job_id).await, JobState::Failed);
                 paused.release();
-                join(second).await
+                join(second_join_handle).await
             } else {
-                let second = join(second).await;
+                let second = join(second_join_handle).await;
                 paused.release();
                 second
             };
-            let first = join(first).await;
+            let first = join(first_join_handle).await;
             assert_eq!(failure_written.hits(), usize::from(max_num_retry == 0));
             (0, [first, second])
         }
@@ -1409,11 +1405,13 @@ async fn drop_rpc_at<OutputType: std::fmt::Debug + Send + 'static>(
     paused: &ArmedHook,
     rpc: impl Future<Output = OutputType> + Send + 'static,
 ) {
-    let task = tokio::spawn(rpc);
+    let rpc_join_handle = tokio::spawn(rpc);
     reached(paused, 1).await;
-    task.abort();
+    rpc_join_handle.abort();
     assert!(
-        task.await
+        tokio::time::timeout(HOOK_TIMEOUT, rpc_join_handle)
+            .await
+            .expect("the aborted RPC's task should end within the timeout")
             .expect_err("the dropped RPC should not complete")
             .is_cancelled()
     );

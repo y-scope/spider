@@ -60,6 +60,14 @@ pub const HOOK_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a test waits for published work to arrive on a lane.
 pub const PUBLICATION_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long a test waits for an RPC that waits on a tree's committer. A test may hold such an RPC
+/// paused over several of its steps, so this is well above [`HOOK_TIMEOUT`].
+const RPC_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// How long an armed [`CommitSnapshot`] waits for its round's write. A test may arm it several
+/// steps before the write, so this is well above [`HOOK_TIMEOUT`].
+const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// The runtime type that [`TestEnv`] runs.
 pub type TestRuntime =
     Runtime<InboundQueueSenderHandle, MariaDbStorageConnector, TaskInstancePoolHandle>;
@@ -453,7 +461,8 @@ impl TestEnv {
     /// # Returns
     ///
     /// A future that reports the success of the task instance `task_instance_id` of the task
-    /// `task_index` of `job_id`, whose only output is `value`, with `children`, and that forwards
+    /// `task_index` of `job_id`, whose only output is `value`, with `children`, that panics if it
+    /// isn't answered within [`RPC_TIMEOUT`], and that forwards
     /// [`ServiceState::succeed_task_instance`]'s return values.
     pub fn task_success(
         &self,
@@ -466,24 +475,23 @@ impl TestEnv {
         let service = self.service.clone();
         let serialized_outputs = serialized_output(value);
         async move {
-            service
-                .succeed_task_instance(
-                    service.session_id(),
-                    job_id,
-                    task_instance_id,
-                    task_index,
-                    serialized_outputs,
-                    children,
-                )
-                .await
+            bounded_rpc(service.succeed_task_instance(
+                service.session_id(),
+                job_id,
+                task_instance_id,
+                task_index,
+                serialized_outputs,
+                children,
+            ))
+            .await
         }
     }
 
     /// # Returns
     ///
     /// A future that reports the failure of the task instance `task_instance_id` of `task_id` of
-    /// `job_id` with `message`, and that forwards [`ServiceState::fail_task_instance`]'s return
-    /// values.
+    /// `job_id` with `message`, that panics if it isn't answered within [`RPC_TIMEOUT`], and that
+    /// forwards [`ServiceState::fail_task_instance`]'s return values.
     pub fn task_failure(
         &self,
         job_id: JobId,
@@ -494,22 +502,22 @@ impl TestEnv {
         let service = self.service.clone();
         let message = message.to_owned();
         async move {
-            service
-                .fail_task_instance(
-                    service.session_id(),
-                    job_id,
-                    task_instance_id,
-                    task_id,
-                    message,
-                )
-                .await
+            bounded_rpc(service.fail_task_instance(
+                service.session_id(),
+                job_id,
+                task_instance_id,
+                task_id,
+                message,
+            ))
+            .await
         }
     }
 
     /// # Returns
     ///
     /// A future that reports the success of the instance `task_instance_id` of `job_id`'s commit
-    /// task, and that forwards [`ServiceState::succeed_commit_task_instance`]'s return values.
+    /// task, that panics if it isn't answered within [`RPC_TIMEOUT`], and that forwards
+    /// [`ServiceState::succeed_commit_task_instance`]'s return values.
     pub fn commit_success(
         &self,
         job_id: JobId,
@@ -517,16 +525,20 @@ impl TestEnv {
     ) -> impl Future<Output = JobResult> + Send + use<> {
         let service = self.service.clone();
         async move {
-            service
-                .succeed_commit_task_instance(service.session_id(), job_id, task_instance_id)
-                .await
+            bounded_rpc(service.succeed_commit_task_instance(
+                service.session_id(),
+                job_id,
+                task_instance_id,
+            ))
+            .await
         }
     }
 
     /// # Returns
     ///
     /// A future that reports the success of the instance `task_instance_id` of `job_id`'s cleanup
-    /// task, and that forwards [`ServiceState::succeed_cleanup_task_instance`]'s return values.
+    /// task, that panics if it isn't answered within [`RPC_TIMEOUT`], and that forwards
+    /// [`ServiceState::succeed_cleanup_task_instance`]'s return values.
     pub fn cleanup_success(
         &self,
         job_id: JobId,
@@ -534,19 +546,22 @@ impl TestEnv {
     ) -> impl Future<Output = JobResult> + Send + use<> {
         let service = self.service.clone();
         async move {
-            service
-                .succeed_cleanup_task_instance(service.session_id(), job_id, task_instance_id)
-                .await
+            bounded_rpc(service.succeed_cleanup_task_instance(
+                service.session_id(),
+                job_id,
+                task_instance_id,
+            ))
+            .await
         }
     }
 
     /// # Returns
     ///
-    /// A future that cancels `job_id`, and that forwards [`ServiceState::cancel_job`]'s return
-    /// values.
+    /// A future that cancels `job_id`, that panics if it isn't answered within [`RPC_TIMEOUT`], and
+    /// that forwards [`ServiceState::cancel_job`]'s return values.
     pub fn cancel(&self, job_id: JobId) -> impl Future<Output = JobResult> + Send + use<> {
         let service = self.service.clone();
-        async move { service.cancel_job(job_id).await }
+        async move { bounded_rpc(service.cancel_job(job_id)).await }
     }
 
     /// Registers and starts a root job of `shape`, and drains its ready tasks.
@@ -559,14 +574,27 @@ impl TestEnv {
     ///
     /// Panics if the start fails.
     pub async fn start_root(&self, shape: JobShape) -> JobId {
-        let (graph, inputs) = shape.build();
-        let job_id = self.register_job(&graph, &inputs).await;
-        self.service
-            .start_job(job_id)
-            .await
-            .expect("the job should start");
+        let job_id = self.start_root_without_draining(shape).await;
         self.drain_lane(Lane::Task, &shape.ready_tasks(job_id))
             .await;
+        job_id
+    }
+
+    /// Registers and starts a root job of `shape`, leaving its ready tasks in the task lane.
+    ///
+    /// # Returns
+    ///
+    /// The job ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the start fails or isn't answered within [`RPC_TIMEOUT`].
+    pub async fn start_root_without_draining(&self, shape: JobShape) -> JobId {
+        let (graph, inputs) = shape.build();
+        let job_id = self.register_job(&graph, &inputs).await;
+        bounded_rpc(self.service.start_job(job_id))
+            .await
+            .expect("the job should start");
         job_id
     }
 
@@ -586,6 +614,28 @@ impl TestEnv {
         value: &[u8],
         shapes: &[JobShape],
     ) -> Vec<JobId> {
+        let child_ids = self
+            .register_children_without_draining(parent_id, value, shapes)
+            .await;
+        self.drain_ready_tasks(&child_ids, shapes).await;
+        child_ids
+    }
+
+    /// Like [`Self::register_children`], leaving the children's ready tasks in the task lane.
+    ///
+    /// # Returns
+    ///
+    /// The IDs of the registered children, by ascending ID, which is the order of `shapes`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the report fails, or if it doesn't block the parent on one child per shape.
+    pub async fn register_children_without_draining(
+        &self,
+        parent_id: JobId,
+        value: &[u8],
+        shapes: &[JobShape],
+    ) -> Vec<JobId> {
         let task_instance_id = self.create_instance(parent_id, TaskId::Index(0)).await;
         let children = shapes.iter().map(|shape| shape.child()).collect();
         assert_eq!(
@@ -596,13 +646,23 @@ impl TestEnv {
         );
         let child_ids = self.children_of(parent_id).await;
         assert_eq!(child_ids.len(), shapes.len());
-        let ready_tasks: Vec<_> = child_ids
+        child_ids
+    }
+
+    /// Drains the ready tasks of `job_ids`, the jobs of the shapes `shapes`, in order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `job_ids` and `shapes` differ in length, or forwards [`Self::drain_lane`]'s
+    /// panics.
+    pub async fn drain_ready_tasks(&self, job_ids: &[JobId], shapes: &[JobShape]) {
+        assert_eq!(job_ids.len(), shapes.len(), "one shape per job");
+        let ready_tasks: Vec<_> = job_ids
             .iter()
             .zip(shapes)
-            .flat_map(|(child_id, shape)| shape.ready_tasks(*child_id))
+            .flat_map(|(job_id, shape)| shape.ready_tasks(*job_id))
             .collect();
         self.drain_lane(Lane::Task, &ready_tasks).await;
-        child_ids
     }
 
     /// Runs a new instance of the task `task_index` of `job_id` to success with the output `value`.
@@ -649,8 +709,7 @@ impl TestEnv {
     pub async fn run_cleanup(&self, job_id: JobId) {
         let task_instance_id = self.create_instance(job_id, TaskId::Cleanup).await;
         assert_eq!(
-            self.service
-                .succeed_cleanup_task_instance(self.service.session_id(), job_id, task_instance_id)
+            self.cleanup_success(job_id, task_instance_id)
                 .await
                 .expect("the cleanup report should succeed"),
             JobState::Cancelled,
@@ -885,6 +944,10 @@ impl TestEnv {
     }
 
     /// Asserts that no lane holds an entry.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the assertion fails.
     pub async fn assert_lanes_empty(&self) {
         for lane in [Lane::Task, Lane::Commit, Lane::Cleanup] {
             assert_eq!(
@@ -897,6 +960,10 @@ impl TestEnv {
 
     /// Asserts that `job_id` is not in the job cache: an instance creation for its task 0 finds no
     /// job.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the assertion fails.
     pub async fn assert_not_cached(&self, job_id: JobId, what: &str) {
         let instance = self
             .service
@@ -1119,6 +1186,10 @@ impl TestEnv {
 
     /// Asserts that the rows of the tree rooted at `root_id` are exactly the jobs of `expected`, in
     /// their states.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the assertion fails.
     pub async fn assert_tree_rows(
         &self,
         root_id: JobId,
@@ -1221,6 +1292,11 @@ impl JobShape {
         with_cleanup: false,
         max_num_instances: 1,
         max_num_retry: 0,
+    };
+    /// A job like [`Self::ONE_TASK`], with a cleanup task.
+    pub const ONE_TASK_WITH_CLEANUP: Self = Self {
+        with_cleanup: true,
+        ..Self::ONE_TASK
     };
 
     /// Builds a job of this shape.
@@ -1386,6 +1462,10 @@ impl TreeProbes {
     }
 
     /// Asserts the number of rounds of the tree and the number of database writes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the assertion fails.
     pub fn assert_rounds(&self, num_rounds: usize, num_writes: usize, what: &str) {
         assert_eq!(
             self.rounds.hits(),
@@ -1401,6 +1481,10 @@ impl TreeProbes {
 
     /// Asserts, for each job of `expected`, the number of rounds that have written a transition of
     /// it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the assertion fails or the probes don't observe a job of `expected`.
     pub fn assert_transitions(&self, expected: &HashMap<JobId, usize>, what: &str) {
         for (job_id, num_transitions) in expected {
             assert_eq!(
@@ -1421,8 +1505,8 @@ impl TreeProbes {
 /// * `SecondType` - The output type of the second RPC.
 pub struct Race<FirstType, SecondType> {
     paused: ArmedHook,
-    first: JoinHandle<FirstType>,
-    second: JoinHandle<SecondType>,
+    first_join_handle: JoinHandle<FirstType>,
+    second_join_handle: JoinHandle<SecondType>,
 }
 
 impl<FirstType: Send + 'static, SecondType: Send + 'static> Race<FirstType, SecondType> {
@@ -1447,18 +1531,18 @@ impl<FirstType: Send + 'static, SecondType: Send + 'static> Race<FirstType, Seco
         second_job_id: JobId,
     ) -> Self {
         let paused = env.pause(point, filter);
-        let first = tokio::spawn(first);
+        let first_join_handle = tokio::spawn(first);
         reached(&paused, 1).await;
         let submitted = env.observe(
             HookPoint::JobEventAfterSubmit,
             HookFilter::job(second_job_id),
         );
-        let second = tokio::spawn(second);
+        let second_join_handle = tokio::spawn(second);
         reached(&submitted, 1).await;
         Self {
             paused,
-            first,
-            second,
+            first_join_handle,
+            second_join_handle,
         }
     }
 
@@ -1479,15 +1563,15 @@ impl<FirstType: Send + 'static, SecondType: Send + 'static> Race<FirstType, Seco
     ) -> Self {
         let submitted = env.observe(HookPoint::JobEventAfterSubmit, HookFilter::job(job_id));
         let paused = env.pause(point, filter);
-        let first = tokio::spawn(first);
+        let first_join_handle = tokio::spawn(first);
         reached(&paused, 1).await;
         reached(&submitted, 1).await;
-        let second = tokio::spawn(second);
+        let second_join_handle = tokio::spawn(second);
         reached(&submitted, 2).await;
         Self {
             paused,
-            first,
-            second,
+            first_join_handle,
+            second_join_handle,
         }
     }
 
@@ -1505,8 +1589,8 @@ impl<FirstType: Send + 'static, SecondType: Send + 'static> Race<FirstType, Seco
     /// Panics if the paused hook fired more than once.
     pub async fn finish(self) -> (FirstType, SecondType) {
         self.paused.release();
-        let first = join(self.first).await;
-        let second = join(self.second).await;
+        let first = join(self.first_join_handle).await;
+        let second = join(self.second_join_handle).await;
         assert_eq!(self.paused.hits(), 1);
         (first, second)
     }
@@ -1515,7 +1599,7 @@ impl<FirstType: Send + 'static, SecondType: Send + 'static> Race<FirstType, Seco
 /// The rows of a tree at the database write of one of its rounds, read while the round is paused
 /// after its write.
 pub struct CommitSnapshot {
-    reader: JoinHandle<HashMap<JobId, JobState>>,
+    reader_join_handle: JoinHandle<HashMap<JobId, JobState>>,
 }
 
 impl CommitSnapshot {
@@ -1537,20 +1621,23 @@ impl CommitSnapshot {
             paused.release();
         }
         let pool = env.pool.clone();
-        let reader = tokio::spawn(async move {
-            reached(&paused, nth).await;
+        let reader_join_handle = tokio::spawn(async move {
+            paused
+                .reached(nth, SNAPSHOT_TIMEOUT)
+                .await
+                .expect("the snapshot's round should write within the timeout");
             let rows = tree_rows(&pool, root_id).await;
             paused.release();
             rows
         });
-        Self { reader }
+        Self { reader_join_handle }
     }
 
     /// # Returns
     ///
     /// The states of the rows of the tree at the write, by job.
     pub async fn rows(self) -> HashMap<JobId, JobState> {
-        join(self.reader).await
+        join(self.reader_join_handle).await
     }
 }
 
@@ -1735,14 +1822,37 @@ pub async fn reached(hook: &ArmedHook, num_hits: usize) {
 /// # Panics
 ///
 /// Panics if the task doesn't finish within [`HOOK_TIMEOUT`], or if it panics.
-pub async fn join<OutputType>(mut handle: JoinHandle<OutputType>) -> OutputType {
-    tokio::time::timeout(HOOK_TIMEOUT, &mut handle)
+pub async fn join<OutputType>(mut join_handle: JoinHandle<OutputType>) -> OutputType {
+    tokio::time::timeout(HOOK_TIMEOUT, &mut join_handle)
         .await
         .expect("the spawned task should finish within the timeout")
         .expect("the spawned task should not panic")
 }
 
+/// Awaits `rpc`, an RPC that waits on a tree's committer.
+///
+/// # Type Parameters
+///
+/// * `OutputType` - The output type of `rpc`.
+///
+/// # Returns
+///
+/// The output of `rpc`.
+///
+/// # Panics
+///
+/// Panics if `rpc` doesn't finish within [`RPC_TIMEOUT`].
+async fn bounded_rpc<OutputType>(rpc: impl Future<Output = OutputType>) -> OutputType {
+    tokio::time::timeout(RPC_TIMEOUT, rpc)
+        .await
+        .expect("the RPC should be answered within the timeout")
+}
+
 /// Asserts that `result` is the job state `expected`.
+///
+/// # Panics
+///
+/// Panics if the assertion fails.
 pub fn assert_job_result(result: &JobResult, expected: JobState, what: &str) {
     assert!(
         matches!(result, Ok(state) if *state == expected),
@@ -1755,6 +1865,10 @@ pub fn assert_job_result(result: &JobResult, expected: JobState, what: &str) {
 /// # Type Parameters
 ///
 /// * `ValueType` - The type of `result`'s success value.
+///
+/// # Panics
+///
+/// Panics if the assertion fails.
 pub fn assert_stale<ValueType: std::fmt::Debug>(
     result: &Result<ValueType, StorageServerError>,
     expected: &StaleStateError,

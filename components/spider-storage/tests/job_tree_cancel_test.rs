@@ -160,6 +160,10 @@ impl RegistrationTree {
     /// # Returns
     ///
     /// The tree.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the root doesn't get two children.
     async fn start(env: &TestEnv, registrar: Registrar, cleanups: Cleanups) -> Self {
         let all = cleanups == Cleanups::All;
         let root_id = env.start_root(shape_with_cleanup(all)).await;
@@ -279,6 +283,10 @@ impl TwoRegistrationTree {
     /// # Returns
     ///
     /// The tree.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the root doesn't get two children.
     async fn start(env: &TestEnv, cleanups: Cleanups) -> Self {
         let all = cleanups == Cleanups::All;
         let root_has_cleanup = cleanups != Cleanups::None;
@@ -422,6 +430,10 @@ impl CommitTree {
     /// # Returns
     ///
     /// The tree.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `P` doesn't get one child, or if `C` doesn't succeed.
     async fn start(env: &TestEnv, has_cleanup: bool, with_uncle: bool) -> Self {
         let shape = shape_with_cleanup(has_cleanup);
         let root_id = env.start_root(shape).await;
@@ -928,9 +940,8 @@ impl TestEnv {
             num_root_writes_before_cancel,
         );
 
-        let (report, cancelled) = self
-            .race_registration(&tree, race, task_instance_id, &what)
-            .await;
+        let (report, cancelled) =
+            Box::pin(self.race_registration(&tree, race, task_instance_id, &what)).await;
 
         assert_job_result(
             &cancelled,
@@ -1071,11 +1082,11 @@ impl TestEnv {
                     HookPoint::TaskSuccessBeforeOutputsCommit,
                     HookFilter::job(registrar_id),
                 );
-                let report = tokio::spawn(report);
+                let report_join_handle = tokio::spawn(report);
                 reached(&held, 1).await;
                 let cancelled = cancelled.await;
                 held.release();
-                (join(report).await, cancelled)
+                (join(report_join_handle).await, cancelled)
             }
             RegistrationRace::AfterCancelReply => {
                 let cancelled = cancelled.await;
@@ -1131,9 +1142,9 @@ impl TestEnv {
             HookPoint::CommitterRoundAfterDbWrite,
             HookFilter::job(tree.root_id),
         );
-        let report = tokio::spawn(report);
+        let report_join_handle = tokio::spawn(report);
         reached(&held, 1).await;
-        let cancelled = tokio::spawn(cancelled);
+        let cancel_join_handle = tokio::spawn(cancelled);
         reached(&written, 1).await;
         // The cancel's apply needs the registering job's write lock, against which the paused phase
         // A holds a read guard. A read of that job's cached state would queue behind the waiting
@@ -1141,11 +1152,14 @@ impl TestEnv {
         self.assert_tree_rows(tree.root_id, &tree.cancelled(), what)
             .await;
         assert!(
-            !cancelled.is_finished(),
+            !cancel_join_handle.is_finished(),
             "{what}: the cancel should wait for the paused phase A"
         );
         held.release();
-        (join(report).await, join(cancelled).await)
+        (
+            join(report_join_handle).await,
+            join(cancel_join_handle).await,
+        )
     }
 
     /// Asserts the state of `tree` while the cancel's round is paused between its database write
@@ -1449,7 +1463,7 @@ impl TestEnv {
                 )),
             ),
         };
-        let first = tokio::spawn(tree.registration(self, first_id, first_instance_id));
+        let first_join_handle = tokio::spawn(tree.registration(self, first_id, first_instance_id));
         if let Some(received) = &received {
             reached(received, 1).await;
         } else if let Some(written) = &written {
@@ -1457,7 +1471,8 @@ impl TestEnv {
         }
         let second_submitted =
             self.observe(HookPoint::JobEventAfterSubmit, HookFilter::job(second_id));
-        let second = tokio::spawn(tree.registration(self, second_id, second_instance_id));
+        let second_join_handle =
+            tokio::spawn(tree.registration(self, second_id, second_instance_id));
         reached(&second_submitted, 1).await;
         if let (Some(received), Some(written)) = (&received, &written) {
             received.release();
@@ -1465,14 +1480,18 @@ impl TestEnv {
         }
         let cancel_submitted =
             self.observe(HookPoint::JobEventAfterSubmit, HookFilter::job(root_id));
-        let cancelled = tokio::spawn(self.cancel(root_id));
+        let cancel_join_handle = tokio::spawn(self.cancel(root_id));
         reached(&cancel_submitted, 1).await;
         if let Some(written) = &written {
             written.release();
         } else if let Some(received) = &received {
             received.release();
         }
-        (join(first).await, join(second).await, join(cancelled).await)
+        (
+            join(first_join_handle).await,
+            join(second_join_handle).await,
+            join(cancel_join_handle).await,
+        )
     }
 
     /// Races the cancel of a commit race's tree, with a cleanup task on its jobs if `has_cleanup`
@@ -1930,8 +1949,7 @@ async fn a_root_cancel_racing_a_registration_never_leaves_a_live_child() -> anyh
         (Registrar::Root, Cleanups::All),
     ] {
         for race in RegistrationRace::iter() {
-            env.assert_cancel_races_registration(registrar, cleanups, race)
-                .await?;
+            Box::pin(env.assert_cancel_races_registration(registrar, cleanups, race)).await?;
         }
     }
     env.assert_lanes_empty().await;

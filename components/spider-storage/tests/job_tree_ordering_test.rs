@@ -1,5 +1,4 @@
-//! The order in which a tree's committer plans the events of a round, and a scheduler that never
-//! polls the inbound-queue lanes, on `MariaDB`.
+//! Event ordering in a tree's committer, on `MariaDB`.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -8,7 +7,6 @@ use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 use spider_core::types::id::TaskId;
 use spider_core::types::id::TaskInstanceId;
-use spider_storage::cache::error::CacheError;
 use spider_storage::cache::error::StaleStateError;
 use spider_storage::limits::MAX_CHILDREN_PER_JOB;
 use spider_storage::limits::MAX_EVENTS_PER_ROUND;
@@ -36,12 +34,6 @@ const FAILURE: &str = "sibling failure";
 /// How long a step of a test that nobody polls the lanes for may take before the test counts it as
 /// stalled.
 const STALL_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// A job of one task with a cleanup task.
-const WITH_CLEANUP: JobShape = JobShape {
-    with_cleanup: true,
-    ..JobShape::ONE_TASK
-};
 
 /// The event that a test fast-forwards past a backlog of completions.
 #[derive(Debug, Clone, Copy)]
@@ -145,9 +137,15 @@ async fn a_scheduler_that_never_polls_the_lanes_stalls_no_tree() -> anyhow::Resu
 
     let env = TestEnv::start_keeping_task_instances().await;
     let num_filler_cleanups = publish_filler_cleanups(&env).await?;
-    let root_id = start_root_without_polling(&env, WITH_CLEANUP).await;
+    let root_id = env
+        .start_root_without_draining(JobShape::ONE_TASK_WITH_CLEANUP)
+        .await;
     let child_ids = without_stalling(
-        register_children_without_polling(&env, root_id, WITH_CLEANUP, NUM_CHILDREN),
+        env.register_children_without_draining(
+            root_id,
+            &value(0x63, 0),
+            &vec![JobShape::ONE_TASK_WITH_CLEANUP; NUM_CHILDREN],
+        ),
         "the registration",
     )
     .await;
@@ -155,7 +153,7 @@ async fn a_scheduler_that_never_polls_the_lanes_stalls_no_tree() -> anyhow::Resu
         HookPoint::CreateInstanceBeforePoolSend,
         HookFilter::default(),
     );
-    let creations: Vec<JoinHandle<Result<_, StorageServerError>>> = child_ids
+    let creation_join_handles: Vec<JoinHandle<Result<_, StorageServerError>>> = child_ids
         .iter()
         .map(|child_id| {
             let service = env.service.clone();
@@ -179,14 +177,11 @@ async fn a_scheduler_that_never_polls_the_lanes_stalls_no_tree() -> anyhow::Resu
         JobState::CleanupReady,
         "the cancel",
     );
-    for creation in creations {
-        let created = join(creation).await;
+    for creation_join_handle in creation_join_handles {
+        let created = join(creation_join_handle).await;
         assert!(
-            matches!(
-                created,
-                Ok(_) | Err(StorageServerError::Cache(CacheError::StaleState(_)))
-            ),
-            "an instance creation should succeed or find its job cancelled, got {created:?}"
+            created.is_ok(),
+            "an instance creation past its state check should succeed, got {created:?}"
         );
     }
 
@@ -231,9 +226,9 @@ impl BacklogTree {
     ///
     /// The started tree.
     async fn start(env: &TestEnv, num_queued: usize) -> Self {
-        let root_id = env.start_root(WITH_CLEANUP).await;
+        let root_id = env.start_root(JobShape::ONE_TASK_WITH_CLEANUP).await;
         let mut shapes = vec![JobShape::ONE_TASK; num_queued + 2];
-        shapes.push(WITH_CLEANUP);
+        shapes.push(JobShape::ONE_TASK_WITH_CLEANUP);
         let mut child_ids = env
             .register_children(root_id, &value(0x60, 0), &shapes)
             .await;
@@ -296,7 +291,7 @@ async fn assert_fast_forwarded_past_a_full_backlog(
         HookPoint::CommitterRoundAfterDbWrite,
         HookFilter::job(tree.held_id),
     );
-    let held_completion = tokio::spawn(env.task_success(
+    let held_completion_join_handle = tokio::spawn(env.task_success(
         tree.held_id,
         0,
         tree.task_instance_ids[&tree.held_id],
@@ -306,7 +301,7 @@ async fn assert_fast_forwarded_past_a_full_backlog(
     reached(&held, 1).await;
 
     let queued_submissions = env.observe(HookPoint::JobEventAfterSubmit, HookFilter::default());
-    let queued_completions: Vec<JoinHandle<JobResult>> = tree
+    let queued_completion_join_handles: Vec<JoinHandle<JobResult>> = tree
         .queued_ids
         .iter()
         .enumerate()
@@ -330,7 +325,7 @@ async fn assert_fast_forwarded_past_a_full_backlog(
         HookPoint::JobEventAfterSubmit,
         HookFilter::job(fast_forwarded_job_id),
     );
-    let fast_forwarded_report = match fast_forwarded {
+    let fast_forwarded_join_handle = match fast_forwarded {
         FastForwarded::Cancel => tokio::spawn(env.cancel(root_id)),
         FastForwarded::Failure => tokio::spawn(env.task_failure(
             tree.failing_id,
@@ -352,25 +347,25 @@ async fn assert_fast_forwarded_past_a_full_backlog(
     fast_forwarded_round.release();
     reached(&next_receive, 1).await;
     assert_eq!(
-        wait_until_answered(&queued_completions, MAX_EVENTS_PER_ROUND - 1).await?,
+        wait_until_answered(&queued_completion_join_handles, MAX_EVENTS_PER_ROUND - 1).await?,
         MAX_EVENTS_PER_ROUND - 1,
         "the round after the held one should plan a round's worth of the queued completions"
     );
     next_receive.release();
 
     assert_job_result(
-        &join(held_completion).await,
+        &join(held_completion_join_handle).await,
         JobState::Succeeded,
         "the held completion",
     );
     assert_job_result(
-        &join(fast_forwarded_report).await,
+        &join(fast_forwarded_join_handle).await,
         fast_forwarded_state,
         "the fast-forwarded event",
     );
-    for queued_completion in queued_completions {
+    for queued_completion_join_handle in queued_completion_join_handles {
         assert_stale(
-            &join(queued_completion).await,
+            &join(queued_completion_join_handle).await,
             &StaleStateError::JobAlreadyTerminated(JobState::Cancelled),
             "a queued completion",
         );
@@ -416,7 +411,8 @@ async fn assert_backlog_tree_finishes(
     env.assert_lanes_empty().await;
 }
 
-/// Waits until at least `num_answered` of `completions` are answered.
+/// Waits until at least `num_answered` of the completions of `completion_join_handles` are
+/// answered.
 ///
 /// # Returns
 ///
@@ -429,13 +425,13 @@ async fn assert_backlog_tree_finishes(
 /// * Forwards [`tokio::time::timeout`]'s return values on failure, if fewer than `num_answered`
 ///   completions are answered within [`HOOK_TIMEOUT`].
 async fn wait_until_answered(
-    completions: &[JoinHandle<JobResult>],
+    completion_join_handles: &[JoinHandle<JobResult>],
     num_answered: usize,
 ) -> anyhow::Result<usize> {
     let count_answered = || {
-        completions
+        completion_join_handles
             .iter()
-            .filter(|completion| completion.is_finished())
+            .filter(|completion_join_handle| completion_join_handle.is_finished())
             .count()
     };
     tokio::time::timeout(HOOK_TIMEOUT, async {
@@ -464,9 +460,15 @@ async fn wait_until_answered(
 async fn publish_filler_cleanups(env: &TestEnv) -> anyhow::Result<usize> {
     const NUM_DEAD_INSTANCES: usize = 8;
 
-    let filler_root_id = start_root_without_polling(env, WITH_CLEANUP).await;
+    let filler_root_id = env
+        .start_root_without_draining(JobShape::ONE_TASK_WITH_CLEANUP)
+        .await;
     let filler_child_ids = without_stalling(
-        register_children_without_polling(env, filler_root_id, WITH_CLEANUP, MAX_CHILDREN_PER_JOB),
+        env.register_children_without_draining(
+            filler_root_id,
+            &value(0x63, 0),
+            &vec![JobShape::ONE_TASK_WITH_CLEANUP; MAX_CHILDREN_PER_JOB],
+        ),
         "the filler tree's registration",
     )
     .await;
@@ -507,59 +509,6 @@ async fn drain_cleanup_lane(env: &TestEnv) -> usize {
         }
         num_entries += entries.len();
     }
-}
-
-/// Registers and starts a root job of `shape` without polling its ready tasks.
-///
-/// # Returns
-///
-/// The job ID.
-///
-/// # Panics
-///
-/// Panics if the start fails.
-async fn start_root_without_polling(env: &TestEnv, shape: JobShape) -> JobId {
-    let (graph, inputs) = shape.build();
-    let job_id = env.register_job(&graph, &inputs).await;
-    env.service
-        .start_job(job_id)
-        .await
-        .expect("the job should start");
-    job_id
-}
-
-/// Runs a new instance of task 0 of `parent_id` to success with `num_children` children of
-/// `shape`, without polling their ready tasks.
-///
-/// # Returns
-///
-/// The IDs of the registered children, by ascending ID.
-///
-/// # Panics
-///
-/// Panics if the report fails, or if it doesn't block the parent on `num_children` children.
-async fn register_children_without_polling(
-    env: &TestEnv,
-    parent_id: JobId,
-    shape: JobShape,
-    num_children: usize,
-) -> Vec<JobId> {
-    let task_instance_id = env.create_instance(parent_id, TaskId::Index(0)).await;
-    assert_job_result(
-        &env.task_success(
-            parent_id,
-            0,
-            task_instance_id,
-            &value(0x63, 0),
-            (0..num_children).map(|_| shape.child()).collect(),
-        )
-        .await,
-        JobState::BlockingOnChildren,
-        "the registering report",
-    );
-    let child_ids = env.children_of(parent_id).await;
-    assert_eq!(child_ids.len(), num_children);
-    child_ids
 }
 
 /// Awaits `future`, which must not wait for anybody to poll an inbound-queue lane.

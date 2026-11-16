@@ -315,13 +315,7 @@ impl TwoFailureTree {
                     .register_children(
                         middle_id,
                         &value(0xa1, 0),
-                        &[
-                            two_tasks,
-                            JobShape {
-                                with_cleanup: true,
-                                ..JobShape::ONE_TASK
-                            },
-                        ],
+                        &[two_tasks, JobShape::ONE_TASK_WITH_CLEANUP],
                     )
                     .await[..]
                 else {
@@ -572,14 +566,14 @@ impl TestEnv {
         what: &str,
     ) -> Vec<JobResult> {
         let num_reports = reports.len();
-        let mut handles = Vec::with_capacity(num_reports);
+        let mut report_join_handles = Vec::with_capacity(num_reports);
         match rounds {
             SiblingRounds::One => {
                 let paused = self.pause(
                     HookPoint::CommitterBeforeReceive,
                     HookFilter::job(tree.root_id),
                 );
-                handles.push(tokio::spawn(reports.remove(0)));
+                report_join_handles.push(tokio::spawn(reports.remove(0)));
                 reached(&paused, 1).await;
                 let submissions: Vec<_> = tree.child_ids[1..]
                     .iter()
@@ -587,7 +581,7 @@ impl TestEnv {
                         self.observe(HookPoint::JobEventAfterSubmit, HookFilter::job(*child_id))
                     })
                     .collect();
-                handles.extend(reports.into_iter().map(tokio::spawn));
+                report_join_handles.extend(reports.into_iter().map(tokio::spawn));
                 for submission in &submissions {
                     reached(submission, 1).await;
                 }
@@ -607,11 +601,13 @@ impl TestEnv {
                 }
                 return results;
             }
-            SiblingRounds::Free => handles.extend(reports.into_iter().map(tokio::spawn)),
+            SiblingRounds::Free => {
+                report_join_handles.extend(reports.into_iter().map(tokio::spawn));
+            }
         }
         let mut results = Vec::with_capacity(num_reports);
-        for handle in handles {
-            results.push(join(handle).await);
+        for report_join_handle in report_join_handles {
+            results.push(join(report_join_handle).await);
         }
         results
     }
@@ -775,7 +771,7 @@ impl TestEnv {
         let submissions = self.observe(HookPoint::JobEventAfterSubmit, HookFilter::job(job_id));
         let probes = TreeProbes::arm(self, root_id, &[root_id, job_id]);
 
-        let handles: Vec<_> = reports.into_iter().map(tokio::spawn).collect();
+        let report_join_handles: Vec<_> = reports.into_iter().map(tokio::spawn).collect();
         reached(&flips, num_tasks).await;
         assert_eq!(
             submissions.hits(),
@@ -787,8 +783,8 @@ impl TestEnv {
             flips.release();
         }
         let mut results = Vec::with_capacity(num_tasks);
-        for handle in handles {
-            results.push(join(handle).await?);
+        for report_join_handle in report_join_handles {
+            results.push(join(report_join_handle).await?);
         }
         let mut expected_results = vec![JobState::Running; num_tasks - 1];
         expected_results.push(JobState::Succeeded);
@@ -1323,7 +1319,7 @@ impl TestEnv {
             }
         };
         let paused = self.pause(point, HookFilter::job(case.job_id));
-        let success = tokio::spawn(success);
+        let success_join_handle = tokio::spawn(success);
         reached(&paused, 1).await;
         if matches!(window, StragglerWindow::InFlight) {
             assert_eq!(
@@ -1346,7 +1342,7 @@ impl TestEnv {
             .await
             .expect("the straggler should be answered while the success is paused");
         paused.release();
-        (join(success).await, failure)
+        (join(success_join_handle).await, failure)
     }
 
     /// Runs the rest of `case`'s tree to success and asserts the job's outputs: `winner_value`

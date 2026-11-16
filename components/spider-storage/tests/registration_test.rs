@@ -20,7 +20,6 @@ use spider_storage::test_hooks::HookPoint;
 
 use crate::runtime_infra::ChildRow;
 use crate::runtime_infra::JobShape;
-use crate::runtime_infra::Lane;
 use crate::runtime_infra::TestEnv;
 use crate::runtime_infra::assert_job_result;
 use crate::runtime_infra::assert_stale;
@@ -37,18 +36,12 @@ use crate::task_graph_builder::compress_task_graph;
 const MIB: usize = 1024 * 1024;
 
 impl TestEnv {
-    /// Drains the ready tasks of `child_ids`, the children of the job shapes `child_shapes`.
-    async fn drain_children_ready_tasks(&self, child_ids: &[JobId], child_shapes: &[JobShape]) {
-        let ready_tasks: Vec<_> = child_ids
-            .iter()
-            .zip(child_shapes)
-            .flat_map(|(child_id, shape)| shape.ready_tasks(*child_id))
-            .collect();
-        self.drain_lane(Lane::Task, &ready_tasks).await;
-    }
-
     /// Runs a new instance of every task of `job_id`, a job of `shape`, to success in task order,
     /// and asserts that only the last report succeeds the job.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a task's report fails or the assertion fails.
     async fn run_all_tasks(&self, job_id: JobId, shape: JobShape) {
         for task_index in 0..shape.num_tasks {
             let expected_state = if task_index + 1 == shape.num_tasks {
@@ -67,6 +60,10 @@ impl TestEnv {
 
     /// Asserts that each of the five external job RPCs answers that `unknown_id`, a job that the
     /// database doesn't hold, isn't found.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an RPC answers otherwise.
     async fn assert_job_rpcs_answer_unknown_job(&self, unknown_id: JobId) {
         let start = self.service.start_job(unknown_id).await;
         assert!(
@@ -261,8 +258,7 @@ async fn a_registered_parent_commits_after_its_children_succeed() -> anyhow::Res
     );
     env.assert_states(&expected_states, "after the registration")
         .await;
-    env.drain_children_ready_tasks(&child_ids, &child_shapes)
-        .await;
+    env.drain_ready_tasks(&child_ids, &child_shapes).await;
 
     for (position, (child_id, shape)) in child_ids.iter().zip(&child_shapes).enumerate() {
         env.run_all_tasks(*child_id, *shape).await;
@@ -354,8 +350,7 @@ async fn sibling_tasks_register_the_union_of_their_children_in_task_order() -> a
             .collect::<Vec<_>>()
     );
     let child_ids: Vec<JobId> = rows.iter().map(|row| row.id).collect();
-    env.drain_children_ready_tasks(&child_ids, &child_shapes)
-        .await;
+    env.drain_ready_tasks(&child_ids, &child_shapes).await;
     for (child_id, shape) in child_ids.iter().zip(&child_shapes) {
         env.run_all_tasks(*child_id, *shape).await;
     }
@@ -596,8 +591,7 @@ async fn a_duplicate_report_with_children_stores_nothing() -> anyhow::Result<()>
         vec![child_shape.child().compressed_serialized_task_graph]
     );
     let child_id = rows[0].id;
-    env.drain_children_ready_tasks(&[child_id], &[child_shape])
-        .await;
+    env.drain_ready_tasks(&[child_id], &[child_shape]).await;
     env.run_all_tasks(child_id, child_shape).await;
     env.assert_states(
         &HashMap::from([
@@ -628,7 +622,7 @@ async fn external_job_rpcs_accept_only_roots() -> anyhow::Result<()> {
         HookPoint::CommitterRoundAfterDbWrite,
         HookFilter::job(root_id),
     );
-    let report = tokio::spawn(env.task_success(
+    let report_join_handle = tokio::spawn(env.task_success(
         root_id,
         0,
         task_instance_id,
@@ -646,7 +640,7 @@ async fn external_job_rpcs_accept_only_roots() -> anyhow::Result<()> {
     assert!(!env.is_fatal());
     registration_write.release();
     assert_job_result(
-        &join(report).await,
+        &join(report_join_handle).await,
         JobState::BlockingOnChildren,
         "the registration",
     );
