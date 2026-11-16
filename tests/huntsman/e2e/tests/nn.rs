@@ -25,14 +25,13 @@ async fn test_nn() -> anyhow::Result<()> {
 }
 
 /// Runs batches of concurrent neural-network jobs, validating each job's outputs against the
-/// in-process simulation.
+/// in-process simulation. Every job runs, even if others fail.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
-/// * [`anyhow::Error`] if a neural-network job task panics.
-/// * Forwards [`run_neural_network_job`]'s return values on failure.
+/// * [`anyhow::Error`] if any neural-network job fails or its task panics, listing every failure.
 ///
 /// # Panics
 ///
@@ -44,6 +43,7 @@ async fn run_neural_network_job_batches(resource_group_id: &'static str) -> anyh
     /// Number of concurrent neural-network jobs in each batch.
     const NUM_JOBS_PER_BATCH: usize = 8;
 
+    let mut failures = Vec::new();
     for batch_index in 0..NUM_BATCHES {
         /// Each step creates two jobs: one with `shared_first_layer_inputs` enabled and one with it
         /// disabled. Keep this constant in sync with the inner loop implementation.
@@ -74,10 +74,22 @@ async fn run_neural_network_job_batches(resource_group_id: &'static str) -> anyh
             });
         }
         while let Some(result) = jobs.join_next().await {
-            result.context("neural-network job task panicked")??;
+            if let Err(e) = result
+                .context("neural-network job task panicked")
+                .and_then(|job_result| job_result)
+            {
+                failures.push(format!("{e:#}"));
+            }
         }
     }
 
+    if !failures.is_empty() {
+        bail!(
+            "{} neural-network job(s) failed:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
     Ok(())
 }
 
