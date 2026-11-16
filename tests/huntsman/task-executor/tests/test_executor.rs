@@ -17,7 +17,7 @@ use test_utils::execute_request;
 /// Asserts that `outcome` is a task [`TdlError::ExecutionError`] whose message contains `needle`.
 fn assert_task_execution_error(outcome: ExecutorOutcome, needle: &str) {
     match outcome {
-        ExecutorOutcome::Success { outputs } => {
+        ExecutorOutcome::Success { outputs, .. } => {
             panic!("expected Failure, got Success with {} bytes", outputs.len());
         }
         ExecutorOutcome::Failure { error } => {
@@ -44,7 +44,11 @@ async fn fibonacci_returns_correct_value() {
         .await;
     let Response::Result { outcome, .. } = handle.recv().await;
     match outcome {
-        ExecutorOutcome::Success { outputs } => {
+        ExecutorOutcome::Success { outputs, children } => {
+            assert_eq!(
+                children,
+                [] as [spider_core::job_submission::CompressedJobSubmission; 0]
+            );
             let got: u64 = decode_single_output(&outputs);
             // Fib(10) = 55
             assert_eq!(got, 55);
@@ -67,7 +71,7 @@ async fn always_fail_reports_task_error() {
         .await;
     let Response::Result { outcome, .. } = handle.recv().await;
     match outcome {
-        ExecutorOutcome::Success { outputs } => {
+        ExecutorOutcome::Success { outputs, .. } => {
             panic!("expected Failure, got Success with {} bytes", outputs.len());
         }
         ExecutorOutcome::Failure { error } => {

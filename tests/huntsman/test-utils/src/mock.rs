@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use dashmap::DashSet;
+use spider_core::job_submission::CompressedJobSubmission;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -34,6 +35,7 @@ use spider_execution_manager::client::SchedulerError;
 use spider_execution_manager::client::SchedulerResponse;
 use spider_execution_manager::client::StorageClient;
 use spider_execution_manager::client::StorageResponseError;
+use spider_execution_manager::client::TaskSuccessPayload;
 use tokio::sync::Notify;
 
 /// Mock [`SchedulerClient`].
@@ -177,6 +179,7 @@ pub struct SuccessReport {
     pub em_id: ExecutionManagerId,
     pub session_id: SessionId,
     pub serialized_outputs: Option<Vec<u8>>,
+    pub children: Vec<CompressedJobSubmission>,
 }
 
 /// Captured arguments of one `report_task_failure` call.
@@ -325,8 +328,12 @@ impl StorageClient for MockStorage {
         task_instance_id: TaskInstanceId,
         em_id: ExecutionManagerId,
         session_id: SessionId,
-        serialized_outputs: Option<Vec<u8>>,
+        payload: TaskSuccessPayload,
     ) -> Result<(), StorageResponseError> {
+        let TaskSuccessPayload {
+            serialized_outputs,
+            children,
+        } = payload;
         lock(&self.inner.success_reports).push(SuccessReport {
             job_id,
             task_id,
@@ -334,6 +341,7 @@ impl StorageClient for MockStorage {
             em_id,
             session_id,
             serialized_outputs,
+            children,
         });
         self.inner.notify.notify_waiters();
         lock(&self.inner.success_responses)
