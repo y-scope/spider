@@ -110,27 +110,38 @@ impl TestEnv {
         );
     }
 
-    /// Asserts that each of the five external job RPCs rejects the child job `child_id` as a bad
-    /// request.
-    async fn assert_job_rpcs_reject_child(&self, child_id: JobId, what: &str) {
+    /// Asserts that each of the five external job RPCs rejects `child_id`, a child job of
+    /// `parent_id`, as a bad request that names the child and its parent.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an RPC answers otherwise.
+    async fn assert_job_rpcs_reject_child(&self, child_id: JobId, parent_id: JobId, what: &str) {
+        let expected_message =
+            format!("job {child_id} is a child job of job {parent_id}, not a root job");
         assert_bad_request(
             &self.service.start_job(child_id).await,
+            &expected_message,
             &format!("{what}: the start"),
         );
         assert_bad_request(
             &self.service.cancel_job(child_id).await,
+            &expected_message,
             &format!("{what}: the cancel"),
         );
         assert_bad_request(
             &self.service.get_job_state(child_id).await,
+            &expected_message,
             &format!("{what}: the state"),
         );
         assert_bad_request(
             &self.service.get_job_outputs(child_id).await,
+            &expected_message,
             &format!("{what}: the outputs"),
         );
         assert_bad_request(
             &self.service.get_job_error(child_id).await,
+            &expected_message,
             &format!("{what}: the error"),
         );
     }
@@ -179,6 +190,9 @@ async fn a_report_with_children_blocks_its_job_and_inserts_them() -> anyhow::Res
     }
     assert!(!env.is_fatal());
     env.poll_first_task_of_each(&child_ids).await;
+    for child_id in &child_ids {
+        env.create_instance(*child_id, TaskId::Index(0)).await;
+    }
     env.finish().await;
     Ok(())
 }
@@ -218,6 +232,7 @@ async fn a_registered_parent_commits_after_its_children_succeed() -> anyhow::Res
         Some(task_outputs([&parent_value]))
     );
     let rows = env.child_rows(parent_id).await;
+    assert_eq!(rows.len(), child_shapes.len());
     let child_ids: Vec<JobId> = rows.iter().map(|row| row.id).collect();
     assert_eq!(
         rows,
@@ -626,7 +641,7 @@ async fn external_job_rpcs_accept_only_roots() -> anyhow::Result<()> {
     };
     env.assert_not_cached(child_id, "the child before its registration is applied")
         .await;
-    env.assert_job_rpcs_reject_child(child_id, "an uncached child")
+    env.assert_job_rpcs_reject_child(child_id, root_id, "an uncached child")
         .await;
     assert!(!env.is_fatal());
     registration_write.release();
@@ -636,7 +651,7 @@ async fn external_job_rpcs_accept_only_roots() -> anyhow::Result<()> {
         "the registration",
     );
 
-    env.assert_job_rpcs_reject_child(child_id, "a cached child")
+    env.assert_job_rpcs_reject_child(child_id, root_id, "a cached child")
         .await;
     env.assert_states(
         &HashMap::from([
@@ -658,7 +673,7 @@ async fn external_job_rpcs_accept_only_roots() -> anyhow::Result<()> {
         env.service.get_job_outputs(root_id).await?,
         task_outputs([&root_value])
     );
-    env.assert_job_rpcs_reject_child(child_id, "a succeeded child")
+    env.assert_job_rpcs_reject_child(child_id, root_id, "a succeeded child")
         .await;
 
     env.assert_job_rpcs_answer_unknown_job(JobId::from(u64::MAX))
@@ -687,17 +702,25 @@ fn chain_child(num_tasks: usize) -> CompressedJobSubmission {
     }
 }
 
-/// Asserts that `result` is a [`StorageServerError::BadRequest`].
+/// Asserts that `result` is a [`StorageServerError::BadRequest`] of `expected_message`.
 ///
 /// # Type Parameters
 ///
 /// * `ValueType` - The type of `result`'s success value.
+///
+/// # Panics
+///
+/// Panics if the assertion fails.
 fn assert_bad_request<ValueType: std::fmt::Debug>(
     result: &Result<ValueType, StorageServerError>,
+    expected_message: &str,
     what: &str,
 ) {
     assert!(
-        matches!(result, Err(StorageServerError::BadRequest(_))),
-        "{what}: expected a bad request, got {result:?}"
+        matches!(
+            result,
+            Err(StorageServerError::BadRequest(message)) if message == expected_message
+        ),
+        "{what}: expected a bad request of {expected_message:?}, got {result:?}"
     );
 }
