@@ -31,8 +31,8 @@ pub struct Plan {
     /// The ready work to publish after the updates are applied.
     pub publications: Vec<Publication>,
 
-    /// The new number of active children of each job whose active children the plan succeeds, by
-    /// job.
+    /// The new number of active children of each parent whose children's successes the plan
+    /// counts, by parent.
     pub active_children: HashMap<JobId, usize>,
 
     /// The outcome of each event of the round, in the round's order.
@@ -370,6 +370,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     ///
     /// * Forwards [`Self::blocking_parent`]'s return values on failure.
     /// * Forwards [`Self::blocking_ancestors`]'s return values on failure.
+    /// * Forwards [`Self::abort_rest`]'s return values on failure.
     fn fail_and_abort(
         &self,
         job_id: JobId,
@@ -393,7 +394,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
             ));
         }
         failed_job_ids.push(job_id);
-        self.abort_rest(&mut event_plan, &failed_job_ids);
+        self.abort_rest(&mut event_plan, &failed_job_ids)?;
         Ok(event_plan)
     }
 
@@ -444,12 +445,13 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     /// Returns an error if:
     ///
     /// * [`InternalError::NonRootCancelled`] if `root_id` is not the tree's root.
+    /// * Forwards [`Self::abort_rest`]'s return values on failure.
     fn cancel_root(&self, root_id: JobId, root: &TreeNode) -> Result<EventPlan, InternalError> {
         if root_id != self.structure.root_id() {
             return Err(InternalError::NonRootCancelled(root_id));
         }
         let mut event_plan = EventPlan::deactivate(root_id, root);
-        self.abort_rest(&mut event_plan, &[root_id]);
+        self.abort_rest(&mut event_plan, &[root_id])?;
         Ok(event_plan)
     }
 
@@ -457,17 +459,29 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     /// [`TreeNode::is_abortable`]) other than the jobs of `excluded_job_ids` to its abort target
     /// (see [`TreeNode::abort_target`]), in ascending ID order, each with its cleanup task
     /// published if that is [`JobState::CleanupReady`].
-    fn abort_rest(&self, event_plan: &mut EventPlan, excluded_job_ids: &[JobId]) {
-        let abortable_jobs = self
-            .structure
-            .sorted_job_ids()
-            .into_iter()
-            .filter(|job_id| !excluded_job_ids.contains(job_id))
-            .filter_map(|job_id| Some((job_id, self.node(job_id)?)))
-            .filter(|(_, node)| node.is_abortable());
-        for (job_id, node) in abortable_jobs {
-            event_plan.absorb_changes(EventPlan::deactivate(job_id, &node));
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::JobNotFound`] if a job of the tree's structure is not in the overlay.
+    fn abort_rest(
+        &self,
+        event_plan: &mut EventPlan,
+        excluded_job_ids: &[JobId],
+    ) -> Result<(), InternalError> {
+        for job_id in self.structure.sorted_job_ids() {
+            if excluded_job_ids.contains(&job_id) {
+                continue;
+            }
+            let node = self
+                .node(job_id)
+                .ok_or(InternalError::JobNotFound(job_id))?;
+            if node.is_abortable() {
+                event_plan.absorb_changes(EventPlan::deactivate(job_id, &node));
+            }
         }
+        Ok(())
     }
 
     /// Plans the effect of the success of the tree's job `job_id` on its ancestors into
@@ -519,18 +533,21 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
 
     /// # Returns
     ///
-    /// The ID and the node of the parent of the tree's active job `job_id` on success, or [`None`]
-    /// if the job is the root or its parent no longer blocks on its children: a cancel or a failure
-    /// moved the parent to [`JobState::CleanupReady`] or to a terminal state other than
-    /// [`JobState::Succeeded`].
+    /// On success, [`None`] if the tree's active job `job_id` is the root or its parent no longer
+    /// blocks on its children: a cancel or a failure moved the parent to [`JobState::CleanupReady`]
+    /// or to a terminal state other than [`JobState::Succeeded`]. A parent that is no longer in the
+    /// tree is terminal and taken to be deactivated. Otherwise, a tuple containing:
+    ///
+    /// * The ID of the parent.
+    /// * The parent's node.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * [`InternalError::JobNotFound`] if `job_id` is not in the tree.
-    /// * [`InternalError::UnexpectedParentState`] if the parent is in any other state than
-    ///   [`JobState::BlockingOnChildren`].
+    /// * [`InternalError::UnexpectedParentState`] if the parent is [`JobState::Ready`],
+    ///   [`JobState::Running`], [`JobState::CommitReady`] or [`JobState::Succeeded`].
     fn blocking_parent(&self, job_id: JobId) -> Result<Option<(JobId, TreeNode)>, InternalError> {
         let Some(parent_id) = self
             .node(job_id)
