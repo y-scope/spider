@@ -189,6 +189,70 @@ async fn the_last_reporter_registers_the_children_that_its_jobs_tasks_prepared()
 }
 
 #[tokio::test]
+async fn a_registration_blocks_the_parent_until_every_child_succeeds() -> anyhow::Result<()> {
+    let mut tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
+    tree.jcb.start().await?;
+    let execution_context = tree
+        .jcb
+        .create_task_instance(TaskId::Index(0), ExecutionManagerId::random())
+        .await?;
+    let state = tree
+        .jcb
+        .succeed_task_instance(
+            execution_context.task_instance_id,
+            0,
+            vec![vec![1]],
+            create_test_prepared_children(2).await,
+        )
+        .await?;
+    assert_eq!(state, JobState::BlockingOnChildren);
+    let mut child_ids: Vec<JobId> = tree.db.parents.iter().map(|entry| *entry.key()).collect();
+    child_ids.sort_unstable_by_key(JobId::get);
+
+    for (index, child_id) in child_ids.iter().enumerate() {
+        let child = tree
+            .job_cache
+            .get(*child_id)
+            .await
+            .expect("a registered child should be cached");
+        let execution_context = child
+            .create_task_instance(TaskId::Index(0), ExecutionManagerId::random())
+            .await?;
+        let state = child
+            .succeed_task_instance(
+                execution_context.task_instance_id,
+                0,
+                vec![vec![2]],
+                Vec::new(),
+            )
+            .await?;
+        assert_eq!(state, JobState::Succeeded);
+        let expected_root_state = if index + 1 < child_ids.len() {
+            JobState::BlockingOnChildren
+        } else {
+            JobState::Succeeded
+        };
+        assert_eq!(tree.jcb.state().await, expected_root_state);
+        assert_eq!(
+            tree.db.states.get(&ROOT_ID).map(|state| *state),
+            Some(expected_root_state)
+        );
+    }
+    let mut terminated_job_ids = Vec::new();
+    while let Ok(job_id) = tree.gc_receiver.try_recv() {
+        terminated_job_ids.push(job_id);
+    }
+    assert_eq!(terminated_job_ids, [child_ids[0], child_ids[1], ROOT_ID]);
+    assert_eq!(
+        tree.db.outputs.get(&ROOT_ID).map(|outputs| outputs.clone()),
+        Some(vec![vec![1]])
+    );
+    tree.wait_for_exit().await;
+    assert!(!tree.shutdown_handle.is_fatal());
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_payload_error_without_a_registration_poisons_the_tree() -> anyhow::Result<()> {
     let tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
     reply(tree.submit(start())).await?;
