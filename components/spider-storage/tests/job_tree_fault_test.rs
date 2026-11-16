@@ -941,7 +941,24 @@ async fn a_dropped_rpc_never_strands_its_job() -> anyhow::Result<()> {
                     TestTree::register_alone(&env, case.shape()).await
                 }
                 (DropCase::StartInCommitter, Placement::Leaf) => continue,
-                _ => TestTree::start(&env, case.shape(), placement).await,
+                (
+                    DropCase::AfterTcbFlip
+                    | DropCase::AfterTcbFlipRegistering
+                    | DropCase::AfterTcbFlipWhileSiblingTaskReports
+                    | DropCase::AfterTcbFlipBothTasks
+                    | DropCase::AfterTcbFlipRacingCancel
+                    | DropCase::BeforeSubmit
+                    | DropCase::BeforeSuccessorLock
+                    | DropCase::InCommitterBeforeReceive
+                    | DropCase::InCommitterAfterDbWrite
+                    | DropCase::FailureInCommitter
+                    | DropCase::CommitInCommitter
+                    | DropCase::CleanupInCommitter
+                    | DropCase::CancelInCommitter
+                    | DropCase::CreateInstance
+                    | DropCase::CreateInstanceForDeadExecutionManager,
+                    Placement::Alone | Placement::Leaf,
+                ) => TestTree::start(&env, case.shape(), placement).await,
             };
             let run = DropRun {
                 env: &env,

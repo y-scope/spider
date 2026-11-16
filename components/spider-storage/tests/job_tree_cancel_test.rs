@@ -718,12 +718,18 @@ impl TestEnv {
         let expected_stale = match race {
             RootCommitRace::SameRoundCommitFirst
             | RootCommitRace::SameRoundCancelFirst
-            | RootCommitRace::CancelInFlight
-                if !has_cleanup =>
-            {
-                StaleStateError::JobAlreadyTerminated(JobState::Cancelled)
+            | RootCommitRace::CancelInFlight => {
+                if has_cleanup {
+                    StaleStateError::JobNoLongerCommitReady
+                } else {
+                    StaleStateError::JobAlreadyTerminated(JobState::Cancelled)
+                }
             }
-            _ => StaleStateError::JobNoLongerCommitReady,
+            RootCommitRace::CancelThenLateCommit
+            | RootCommitRace::CancelThenLateCommitFailure
+            | RootCommitRace::CancelThenNewInstance
+            | RootCommitRace::CommitInFlight
+            | RootCommitRace::AfterCommitReply => StaleStateError::JobNoLongerCommitReady,
         };
         assert_stale(&commit, &expected_stale, &format!("{what}: the commit"));
         self.assert_job_state(job_id, cancelled_state).await;
@@ -1527,8 +1533,17 @@ impl TestEnv {
             CommitRace::SameRoundCommitFirst
             | CommitRace::SameRoundCancelFirst
             | CommitRace::SameRoundCommitFailure => 1,
-            CommitRace::CommitInFlight | CommitRace::AfterCommitReply if !with_uncle => 1,
-            _ => 2,
+            CommitRace::CommitInFlight | CommitRace::AfterCommitReply => {
+                if with_uncle {
+                    2
+                } else {
+                    1
+                }
+            }
+            CommitRace::CancelThenCommit
+            | CommitRace::CancelThenNewInstanceCommit
+            | CommitRace::CancelThenCommitFailure
+            | CommitRace::CancelInFlight => 2,
         };
         probes.assert_rounds(num_rounds, num_rounds, &what);
         let mut transitions =
@@ -1540,8 +1555,11 @@ impl TestEnv {
                 CommitRace::SameRoundCommitFirst
                 | CommitRace::SameRoundCancelFirst
                 | CommitRace::SameRoundCommitFailure => parent_final_state,
-                race if race.is_commit_first() => JobState::Succeeded,
-                _ => JobState::CommitReady,
+                CommitRace::CommitInFlight | CommitRace::AfterCommitReply => JobState::Succeeded,
+                CommitRace::CancelThenCommit
+                | CommitRace::CancelThenNewInstanceCommit
+                | CommitRace::CancelThenCommitFailure
+                | CommitRace::CancelInFlight => JobState::CommitReady,
             };
             assert_eq!(
                 snapshot.rows().await,
@@ -1781,12 +1799,16 @@ impl TestEnv {
         let num_rounds = match race {
             FailureRace::CancelInFlight
             | FailureRace::FailureInFlight
-            | FailureRace::AfterFailureReply
-                if outlives =>
-            {
-                2
+            | FailureRace::AfterFailureReply => {
+                if outlives {
+                    2
+                } else {
+                    1
+                }
             }
-            _ => 1,
+            FailureRace::SameRoundFailureFirst
+            | FailureRace::SameRoundCancelFirst
+            | FailureRace::AfterCancelReply => 1,
         };
         probes.assert_rounds(num_rounds, 1, &what);
         probes.assert_transitions(&job_ids.iter().map(|job_id| (*job_id, 1)).collect(), &what);
