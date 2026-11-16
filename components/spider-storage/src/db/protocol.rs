@@ -202,7 +202,7 @@ pub trait ExternalJobOrchestration {
     ///
     /// # Returns
     ///
-    /// A pair on success, containing:
+    /// A tuple on success, containing:
     ///
     /// * The state of the job.
     /// * The ID of the job's parent, or [`None`] if the job is a root.

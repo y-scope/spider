@@ -200,10 +200,6 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
     /// # Returns
     ///
     /// The tasks that wait for the events' replies, in the order of `kinds`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the committer does not wake for the first event within 5 seconds.
     #[cfg(feature = "test-hooks")]
     pub(super) async fn submit_in_one_round(
         &self,
