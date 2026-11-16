@@ -58,7 +58,6 @@ impl MariaDbStorageConnector {
     pub async fn connect(config: &DatabaseConfig) -> Result<Self, DbError> {
         const SET_WAIT_TIMEOUT_QUERY: &str =
             formatcp!("SET SESSION wait_timeout = {SESSION_WAIT_TIMEOUT_SEC};");
-        const SELECT_MAX_ALLOWED_PACKET_QUERY: &str = "SELECT @@max_allowed_packet;";
         const BUMP_SESSION_ID_QUERY: &str = formatcp!(
             "INSERT INTO `{table}` () VALUES ();",
             table = SESSIONS_TABLE_NAME,
@@ -136,6 +135,9 @@ impl SessionManagement for MariaDbStorageConnector {
 }
 
 impl DbStorage for MariaDbStorageConnector {}
+
+/// The query that reads the database's `max_allowed_packet`.
+const SELECT_MAX_ALLOWED_PACKET_QUERY: &str = "SELECT @@max_allowed_packet;";
 
 /// The number of seconds that a database session may idle before the server closes it, which must
 /// stay above twice [`UNPINGED_CONNECTION_MAX_LIFETIME_SEC`].
