@@ -7,9 +7,12 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use bincode::Options;
 use bytes::Bytes;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
+use spider_core::job_submission::CompressedJobSubmission;
+use spider_core::job_submission::MAX_TASK_INSTANCE_MESSAGE_SIZE;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -68,18 +71,57 @@ pub struct ExecuteRequest {
 pub enum Outcome {
     /// Task ran to completion. `outputs` is the wire-format
     /// [`spider_core::types::io::TaskOutputsSerializer`] buffer ready to forward to storage as
-    /// `serialized_outputs`. `elapsed_us` is the in-FFI duration measured by the executor.
-    Success { outputs: Vec<u8>, elapsed_us: u64 },
+    /// `serialized_outputs`. `children` retains compressed job submissions in submission order.
+    /// `elapsed_us` is the in-FFI duration measured by the executor.
+    Success {
+        outputs: Vec<u8>,
+        children: Vec<CompressedJobSubmission>,
+        elapsed_us: u64,
+    },
 
     /// Task ran to completion but returned an error. `error` is the msgpack-encoded
     /// [`spider_task_executor::ExecutorError`].
     InTaskFailure { error: Vec<u8>, elapsed_us: u64 },
+
+    /// The executor returned a malformed or oversized response.
+    InvalidResponse { message: String },
 
     /// `hard_timeout` elapsed before the executor replied. The pool has `SIGKILL`-ed the process.
     Timeout { hard_timeout: Duration },
 
     /// The executor process exited (or closed stdout) before replying.
     ExecutorCrash { exit_status: Option<i32> },
+}
+
+impl Outcome {
+    /// Decodes one bounded executor response, retaining serialized payloads verbatim.
+    ///
+    /// # Returns
+    ///
+    /// The reported outcome, or [`Self::InvalidResponse`] if the frame is malformed or too large.
+    fn decode_response(bytes: &[u8]) -> Self {
+        match bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_limit(MAX_TASK_INSTANCE_MESSAGE_SIZE as u64)
+            .reject_trailing_bytes()
+            .deserialize::<Response>(bytes)
+        {
+            Ok(Response::Result {
+                outcome,
+                elapsed_us,
+            }) => match outcome {
+                ExecutorOutcome::Success { outputs, children } => Self::Success {
+                    outputs,
+                    children,
+                    elapsed_us,
+                },
+                ExecutorOutcome::Failure { error } => Self::InTaskFailure { error, elapsed_us },
+            },
+            Err(error) => Self::InvalidResponse {
+                message: error.to_string(),
+            },
+        }
+    }
 }
 
 /// Internal failure of the pool itself, distinct from a task-execution [`Outcome`]. These indicate
@@ -155,8 +197,8 @@ impl ProcessPool {
     ///
     /// Locks the handle so concurrent callers queue. Once inside, the request is bincode-framed
     /// onto the child's stdin and the parent races a deadline against the response frame. On
-    /// timeout or crash the process is killed and respawned before the call returns; subsequent
-    /// calls see a fresh executor.
+    /// timeout, crash, or an invalid response, the process is killed and respawned before the call
+    /// returns; subsequent calls see a fresh executor.
     ///
     /// # Returns
     ///
@@ -189,14 +231,16 @@ impl ProcessPool {
 
         if matches!(
             outcome,
-            Outcome::Timeout { .. } | Outcome::ExecutorCrash { .. }
+            Outcome::Timeout { .. }
+                | Outcome::ExecutorCrash { .. }
+                | Outcome::InvalidResponse { .. }
         ) {
             // Dropping the handle will automatically kill the child process.
             drop(handle_guard.take());
             let new_handle = self.spawn_executor().inspect_err(|err| {
                 tracing::error!(
                     err = ? err,
-                    "Failed to respawn the executor process after a crash or timeout."
+                    "Failed to respawn the executor process after an unsuccessful response."
                 );
             })?;
             tracing::info!(
@@ -284,7 +328,12 @@ impl ProcessPool {
             executor_id,
             child,
             requests: FramedWrite::new(stdin, LengthDelimitedCodec::new()),
-            responses: FramedRead::new(stdout, LengthDelimitedCodec::new()),
+            responses: FramedRead::new(
+                stdout,
+                LengthDelimitedCodec::builder()
+                    .max_frame_length(MAX_TASK_INSTANCE_MESSAGE_SIZE)
+                    .new_codec(),
+            ),
         })
     }
 }
@@ -307,8 +356,8 @@ impl ExecutorHandle {
     ///
     /// * [`Outcome::Success`] or [`Outcome::InTaskFailure`] from a well-formed reply.
     /// * [`Outcome::Timeout`] if `hard_timeout` fires.
-    /// * [`Outcome::ExecutorCrash`] on any write/read/decode failure (which all imply the child is
-    ///   no longer usable).
+    /// * [`Outcome::InvalidResponse`] on malformed or oversized responses.
+    /// * [`Outcome::ExecutorCrash`] on other write/read failures.
     ///
     /// # Panics
     ///
@@ -331,31 +380,18 @@ impl ExecutorHandle {
         tokio::select! {
             biased;
             frame = self.responses.next() => match frame {
-                Some(Ok(bytes)) => match bincode::deserialize::<Response>(&bytes) {
-                    Ok(Response::Result { outcome, elapsed_us }) => match outcome {
-                        ExecutorOutcome::Success { outputs } => {
-                            Outcome::Success { outputs, elapsed_us }
-                        }
-                        ExecutorOutcome::Failure { error } => {
-                            Outcome::InTaskFailure { error, elapsed_us }
-                        }
-                    },
-                    Err(err) => {
-                        tracing::error!(
-                            executor_id = self.executor_id,
-                            err = ? err,
-                            "Failed to decode executor's response. Considered as crashed."
-                        );
-                        Outcome::ExecutorCrash { exit_status: self.poll_exit_code() }
-                    }
-                },
+                Some(Ok(bytes)) => Outcome::decode_response(&bytes),
                 Some(Err(err)) => {
                     tracing::error!(
                         executor_id = self.executor_id,
                         err = ? err,
                         "Failed to receive executor's response."
                     );
-                    Outcome::ExecutorCrash { exit_status: self.poll_exit_code() }
+                    if err.kind() == std::io::ErrorKind::InvalidData {
+                        Outcome::InvalidResponse { message: err.to_string() }
+                    } else {
+                        Outcome::ExecutorCrash { exit_status: self.poll_exit_code() }
+                    }
                 }
                 None => Outcome::ExecutorCrash { exit_status: self.poll_exit_code() },
             },
@@ -558,6 +594,90 @@ mod tests {
             },
             serialized_task_io,
         }
+    }
+
+    #[test]
+    fn decode_response_preserves_outputs_children_and_elapsed_time() -> anyhow::Result<()> {
+        let outputs = vec![0, 255, 128, 7];
+        let children = vec![
+            CompressedJobSubmission {
+                compressed_serialized_task_graph: vec![0, 255, 10],
+                compressed_serialized_job_inputs: vec![128, 3],
+            },
+            CompressedJobSubmission {
+                compressed_serialized_task_graph: vec![4, 0],
+                compressed_serialized_job_inputs: vec![255, 5, 6],
+            },
+        ];
+        for children in [Vec::new(), children] {
+            let response = Response::Result {
+                outcome: ExecutorOutcome::Success {
+                    outputs: outputs.clone(),
+                    children: children.clone(),
+                },
+                elapsed_us: 91,
+            };
+            let Outcome::Success {
+                outputs: actual_outputs,
+                children: actual_children,
+                elapsed_us,
+            } = Outcome::decode_response(&bincode::serialize(&response)?)
+            else {
+                panic!("valid success response must decode as success");
+            };
+            assert_eq!(actual_outputs, outputs);
+            assert_eq!(actual_children, children);
+            assert_eq!(elapsed_us, 91);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn decode_response_preserves_task_failures() -> anyhow::Result<()> {
+        let error = vec![0, 128, 255];
+        let response = Response::Result {
+            outcome: ExecutorOutcome::Failure {
+                error: error.clone(),
+            },
+            elapsed_us: 73,
+        };
+        let Outcome::InTaskFailure {
+            error: actual_error,
+            elapsed_us,
+        } = Outcome::decode_response(&bincode::serialize(&response)?)
+        else {
+            panic!("failure response must decode as an in-task failure");
+        };
+        assert_eq!(actual_error, error);
+        assert_eq!(elapsed_us, 73);
+        Ok(())
+    }
+
+    #[test]
+    fn decode_response_rejects_malformed_truncated_and_trailing_bytes() -> anyhow::Result<()> {
+        let response = Response::Result {
+            outcome: ExecutorOutcome::Success {
+                outputs: vec![1, 2, 3],
+                children: Vec::new(),
+            },
+            elapsed_us: 5,
+        };
+        let bytes = bincode::serialize(&response)?;
+        for truncated_len in 0..bytes.len() {
+            assert!(matches!(
+                Outcome::decode_response(&bytes[..truncated_len]),
+                Outcome::InvalidResponse { .. }
+            ));
+        }
+        let mut trailing = bytes;
+        trailing.push(0);
+        for malformed in [trailing, vec![255; 32]] {
+            assert!(matches!(
+                Outcome::decode_response(&malformed),
+                Outcome::InvalidResponse { .. }
+            ));
+        }
+        Ok(())
     }
 
     #[test]

@@ -6,6 +6,11 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use spider_core::job_submission::CompressedJobSubmission;
+use spider_core::job_submission::MAX_CHILD_SIZE;
+use spider_core::job_submission::MAX_CHILDREN_PER_JOB;
+use spider_core::job_submission::MAX_REPORT_CHILDREN_SIZE;
+use spider_core::job_submission::MAX_REPORT_OUTPUTS_SIZE;
 use spider_core::session::SessionTracker;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
@@ -16,6 +21,7 @@ use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::ExecutionContext;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_core::types::scheduler::TaskAssignmentRecord;
+use spider_utils::wire::WireFrameBuilder;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
@@ -27,6 +33,7 @@ use crate::client::SchedulerClient;
 use crate::client::SchedulerResponse;
 use crate::client::StorageClient;
 use crate::client::StorageResponseError;
+use crate::client::TaskSuccessPayload;
 use crate::executor_log_collection::{self};
 use crate::liveness::LivenessHandle;
 use crate::liveness::{self};
@@ -532,8 +539,9 @@ struct ReportTarget {
 
 /// A task outcome prepared for transmission to storage. Splits the storage API's two reporting
 /// endpoints (success / failure) and carries their payloads.
+#[derive(Debug)]
 enum Report {
-    Success(Option<Vec<u8>>),
+    Success(TaskSuccessPayload),
     Failure(String),
 }
 
@@ -545,15 +553,28 @@ impl Report {
         match outcome {
             Outcome::Success {
                 outputs,
+                children,
                 elapsed_us,
             } => {
+                if let Err(report) = validate_success(target.task, &outputs, &children) {
+                    tracing::warn!(
+                        job_id = ? target.job,
+                        task_id = ? target.task,
+                        report = ? report,
+                        "Task returned an invalid success payload."
+                    );
+                    return report;
+                }
                 tracing::info!(
                     job_id = ? target.job,
                     task_id = ? target.task,
                     elapsed_us,
                     "Task completed successfully."
                 );
-                Self::Success(Some(outputs))
+                Self::Success(TaskSuccessPayload {
+                    serialized_outputs: matches!(target.task, TaskId::Index(_)).then_some(outputs),
+                    children,
+                })
             }
             Outcome::InTaskFailure { error, elapsed_us } => {
                 tracing::info!(
@@ -566,6 +587,9 @@ impl Report {
                     "in-task failure: {}",
                     String::from_utf8_lossy(&error)
                 ))
+            }
+            Outcome::InvalidResponse { message } => {
+                Self::Failure(format!("invalid executor response: {message}"))
             }
             Outcome::Timeout { hard_timeout } => {
                 tracing::warn!(
@@ -616,9 +640,9 @@ impl Report {
             session,
         } = target;
         match self {
-            Self::Success(outputs) => {
+            Self::Success(payload) => {
                 storage_client
-                    .report_task_success(job, task, task_instance_id, em, session, outputs)
+                    .report_task_success(job, task, task_instance_id, em, session, payload)
                     .await
             }
             Self::Failure(message) => {
@@ -654,4 +678,75 @@ async fn report_outcome<StorageClientType: StorageClient + 'static>(
                 "Failed to report task outcome to storage. Dropping the report."
             );
         });
+}
+
+/// Validates a task's success payload against output framing and child-submission limits.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`Report::Failure`] if:
+///   * A commit or cleanup task submits children.
+///   * [`WireFrameBuilder::unframe_payload_slices`] fails or leaves trailing output bytes.
+///   * The output payloads exceed [`MAX_REPORT_OUTPUTS_SIZE`].
+///   * The number of children exceeds [`MAX_CHILDREN_PER_JOB`].
+///   * A child has an empty compressed graph or inputs buffer.
+///   * A child exceeds [`MAX_CHILD_SIZE`].
+///   * The children together exceed [`MAX_REPORT_CHILDREN_SIZE`].
+fn validate_success(
+    task: TaskId,
+    outputs: &[u8],
+    children: &[CompressedJobSubmission],
+) -> Result<(), Report> {
+    if !matches!(task, TaskId::Index(_)) && !children.is_empty() {
+        return Err(Report::Failure(
+            "invalid success payload: termination tasks cannot submit child jobs".to_owned(),
+        ));
+    }
+    let (payloads, remaining) =
+        WireFrameBuilder::unframe_payload_slices(outputs).map_err(|error| {
+            Report::Failure(format!(
+                "invalid success payload: invalid output framing: {error}"
+            ))
+        })?;
+    if !remaining.is_empty() {
+        return Err(Report::Failure(
+            "invalid success payload: trailing bytes after task outputs".to_owned(),
+        ));
+    }
+    let outputs_size: u64 = payloads.iter().map(|payload| payload.len() as u64).sum();
+    if outputs_size > MAX_REPORT_OUTPUTS_SIZE {
+        return Err(Report::Failure(format!(
+            "invalid success payload: task outputs exceed {MAX_REPORT_OUTPUTS_SIZE} bytes"
+        )));
+    }
+    if children.len() > MAX_CHILDREN_PER_JOB {
+        return Err(Report::Failure(format!(
+            "invalid success payload: child count exceeds {MAX_CHILDREN_PER_JOB}"
+        )));
+    }
+    let mut children_size = 0u64;
+    for child in children {
+        if child.compressed_serialized_task_graph.is_empty()
+            || child.compressed_serialized_job_inputs.is_empty()
+        {
+            return Err(Report::Failure(
+                "invalid success payload: child job has an empty compressed graph or inputs"
+                    .to_owned(),
+            ));
+        }
+        if child.size() > MAX_CHILD_SIZE {
+            return Err(Report::Failure(format!(
+                "invalid success payload: child job exceeds {MAX_CHILD_SIZE} bytes"
+            )));
+        }
+        children_size += child.size();
+    }
+    if children_size > MAX_REPORT_CHILDREN_SIZE {
+        return Err(Report::Failure(format!(
+            "invalid success payload: child jobs exceed {MAX_REPORT_CHILDREN_SIZE} bytes"
+        )));
+    }
+    Ok(())
 }

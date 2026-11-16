@@ -21,3 +21,4 @@ pub use scheduler::SchedulerError;
 pub use spider_core::types::scheduler::SchedulerResponse;
 pub use storage::StorageClient;
 pub use storage::StorageResponseError;
+pub use storage::TaskSuccessPayload;
