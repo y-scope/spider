@@ -95,6 +95,21 @@ pub enum RoundOutcome {
     Deferred,
 }
 
+impl RoundOutcome {
+    /// # Returns
+    ///
+    /// Whether the round registers the children that the event carries.
+    #[must_use]
+    pub const fn registers_children(&self) -> bool {
+        match self {
+            Self::Planned {
+                registers_children, ..
+            } => *registers_children,
+            Self::Deferred => false,
+        }
+    }
+}
+
 /// Ready work that a plan makes available once its updates are applied.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Publication {
