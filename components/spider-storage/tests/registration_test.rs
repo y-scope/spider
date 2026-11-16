@@ -9,6 +9,7 @@ use spider_core::types::id::TaskId;
 use spider_core::types::io::TaskGraphInputBuilder;
 use spider_storage::cache::error::CacheError;
 use spider_storage::cache::error::StaleStateError;
+use spider_storage::db::DbError;
 use spider_storage::job_submission::CompressedJobSubmission;
 use spider_storage::limits::MAX_CHILDREN_PER_JOB;
 use spider_storage::limits::MAX_DEPTH;
@@ -17,14 +18,131 @@ use spider_storage::limits::MAX_REPORT_CHILDREN_SIZE;
 use spider_storage::limits::MAX_REPORT_OUTPUTS_SIZE;
 use spider_storage::state::StorageServerError;
 use spider_storage::state::error::ReportRejection;
+use spider_storage::test_hooks::HookAction;
+use spider_storage::test_hooks::HookCount;
+use spider_storage::test_hooks::HookFilter;
+use spider_storage::test_hooks::HookPoint;
 
 use crate::runtime_infra::ChildRow;
+use crate::runtime_infra::HOOK_TIMEOUT;
 use crate::runtime_infra::TestEnv;
 use crate::runtime_infra::build_chain_task_graph;
 use crate::task_graph_builder::compress_job_inputs;
 use crate::task_graph_builder::compress_task_graph;
 
 const MIB: usize = 1024 * 1024;
+
+impl TestEnv {
+    /// Asserts that each of the five external job RPCs answers that `unknown_id`, a job that the
+    /// database doesn't hold, isn't found.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an RPC answers otherwise.
+    async fn assert_job_rpcs_answer_unknown_job(&self, unknown_id: JobId) {
+        let start = self.service.start_job(unknown_id).await;
+        assert!(
+            matches!(
+                start,
+                Err(StorageServerError::Db(DbError::JobNotFound(job_id))) if job_id == unknown_id
+            ),
+            "the start of an unknown job gave {start:?}"
+        );
+        let cancel = self.service.cancel_job(unknown_id).await;
+        assert!(
+            matches!(
+                cancel,
+                Err(StorageServerError::JobNotFound(job_id)) if job_id == unknown_id
+            ),
+            "the cancel of an unknown job gave {cancel:?}"
+        );
+        let state = self.service.get_job_state(unknown_id).await;
+        assert!(
+            matches!(
+                state,
+                Err(StorageServerError::Db(DbError::JobNotFound(job_id))) if job_id == unknown_id
+            ),
+            "the state of an unknown job gave {state:?}"
+        );
+        let outputs = self.service.get_job_outputs(unknown_id).await;
+        assert!(
+            matches!(
+                outputs,
+                Err(StorageServerError::Db(DbError::JobNotFound(job_id))) if job_id == unknown_id
+            ),
+            "the outputs of an unknown job gave {outputs:?}"
+        );
+        let error = self.service.get_job_error(unknown_id).await;
+        assert!(
+            matches!(
+                error,
+                Err(StorageServerError::Db(DbError::JobNotFound(job_id))) if job_id == unknown_id
+            ),
+            "the error of an unknown job gave {error:?}"
+        );
+    }
+
+    /// Asserts that each of the five external job RPCs rejects `child_id`, a child job of
+    /// `parent_id`, as a bad request that names the child and its parent.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an RPC answers otherwise.
+    async fn assert_job_rpcs_reject_child(&self, child_id: JobId, parent_id: JobId, what: &str) {
+        let expected_message =
+            format!("job {child_id} is a child job of job {parent_id}, not a root job");
+        assert_bad_request(
+            &self.service.start_job(child_id).await,
+            &expected_message,
+            &format!("{what}: the start"),
+        );
+        assert_bad_request(
+            &self.service.cancel_job(child_id).await,
+            &expected_message,
+            &format!("{what}: the cancel"),
+        );
+        assert_bad_request(
+            &self.service.get_job_state(child_id).await,
+            &expected_message,
+            &format!("{what}: the state"),
+        );
+        assert_bad_request(
+            &self.service.get_job_outputs(child_id).await,
+            &expected_message,
+            &format!("{what}: the outputs"),
+        );
+        assert_bad_request(
+            &self.service.get_job_error(child_id).await,
+            &expected_message,
+            &format!("{what}: the error"),
+        );
+    }
+
+    /// Asserts that `job_id` is not in the job cache: an instance creation for its task 0 finds no
+    /// job.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the assertion fails.
+    async fn assert_not_cached(&self, job_id: JobId, what: &str) {
+        let instance = self
+            .service
+            .create_task_instance(
+                self.service.session_id(),
+                job_id,
+                TaskId::Index(0),
+                self.execution_manager_id,
+            )
+            .await;
+        assert!(
+            matches!(
+                instance,
+                Err(StorageServerError::JobNotFound(not_found_id)) if not_found_id == job_id
+            ),
+            "{what}: job {job_id} should not be cached, got {instance:?}"
+        );
+    }
+}
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
@@ -385,6 +503,73 @@ async fn a_report_at_the_maximum_depth_with_children_fails_its_task() -> anyhow:
     Ok(())
 }
 
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn external_job_rpcs_accept_only_roots() -> anyhow::Result<()> {
+    let env = TestEnv::start().await;
+    let root_id = env.start_chain_job(1, 1).await;
+    let task_instance_id = env.create_instance(root_id, TaskId::Index(0)).await;
+    let registration_write = env.hooks.arm(
+        HookPoint::CommitterRoundAfterDbWrite,
+        HookFilter::job(root_id),
+        HookAction::Pause,
+        HookCount::Once,
+    );
+    let (report, child_id) = tokio::join!(
+        env.report_success(
+            root_id,
+            0,
+            task_instance_id,
+            vec![1u8; 4],
+            vec![chain_child(1)]
+        ),
+        async {
+            registration_write
+                .reached(1, HOOK_TIMEOUT)
+                .await
+                .expect("the registration should reach the committer's hook");
+            let rows = env.child_rows(root_id).await;
+            let [ChildRow { id: child_id, .. }] = rows[..] else {
+                panic!("the registration should insert one child, got {rows:?}");
+            };
+            env.assert_not_cached(child_id, "the child before its registration is applied")
+                .await;
+            env.assert_job_rpcs_reject_child(child_id, root_id, "an uncached child")
+                .await;
+            assert!(!env.is_fatal());
+            registration_write.release();
+            child_id
+        }
+    );
+    assert_eq!(report?, JobState::BlockingOnChildren);
+
+    env.assert_job_rpcs_reject_child(child_id, root_id, "a cached child")
+        .await;
+    env.assert_job_state(root_id, JobState::BlockingOnChildren)
+        .await;
+    assert_eq!(env.row_state(child_id).await, JobState::Running);
+    let child_task_instance_id = env.create_instance(child_id, TaskId::Index(0)).await;
+    assert_eq!(
+        env.report_success(
+            child_id,
+            0,
+            child_task_instance_id,
+            vec![2u8; 4],
+            Vec::new()
+        )
+        .await?,
+        JobState::Succeeded
+    );
+    env.assert_job_rpcs_reject_child(child_id, root_id, "a succeeded child")
+        .await;
+
+    env.assert_job_rpcs_answer_unknown_job(JobId::from(u64::MAX))
+        .await;
+    assert!(!env.is_fatal());
+    env.finish().await;
+    Ok(())
+}
+
 /// # Returns
 ///
 /// A child job of [`build_chain_task_graph`] of `num_tasks` tasks under the default execution
@@ -447,4 +632,27 @@ fn incompressible(size: usize) -> Vec<u8> {
             xorshift_state.to_le_bytes()[0]
         })
         .collect()
+}
+
+/// Asserts that `result` is a [`StorageServerError::BadRequest`] of `expected_message`.
+///
+/// # Type Parameters
+///
+/// * `ValueType` - The type of `result`'s success value.
+///
+/// # Panics
+///
+/// Panics if the assertion fails.
+fn assert_bad_request<ValueType: std::fmt::Debug>(
+    result: &Result<ValueType, StorageServerError>,
+    expected_message: &str,
+    what: &str,
+) {
+    assert!(
+        matches!(
+            result,
+            Err(StorageServerError::BadRequest(message)) if message == expected_message
+        ),
+        "{what}: expected a bad request of {expected_message:?}, got {result:?}"
+    );
 }
