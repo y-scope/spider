@@ -11,7 +11,9 @@ use crate::db::DbError;
 use crate::db::JobStateUpdate;
 use crate::db::TreeTransition;
 use crate::db::mariadb::MariaDbStorageConnector;
+use crate::db::mariadb::SELECT_MAX_ALLOWED_PACKET_QUERY;
 use crate::db::mariadb::fence::FencePredicate;
+use crate::db::mariadb::mysql_error::is_connection_loss;
 use crate::db::mariadb::mysql_error::is_payload_rejection;
 use crate::db::mariadb::schema::JOBS_TABLE_NAME;
 use crate::db::mariadb::schema::STORAGE_FENCE_TABLE_NAME;
@@ -30,7 +32,8 @@ impl MariaDbStorageConnector {
     /// Returns an error if:
     ///
     /// * [`DbError::PayloadRejected`] if the database rejects a child insertion's payload as too
-    ///   large.
+    ///   large, or if the connection breaks during a child insertion whose payload exceeds the
+    ///   database's current `max_allowed_packet`.
     /// * Forwards [`UpdateStatement::group`]'s return values on failure.
     /// * Forwards [`chunk_child_insertions`]'s return values on failure.
     /// * Forwards [`Self::apply_single_row_update_in_statement`]'s return values on failure.
@@ -72,17 +75,51 @@ impl MariaDbStorageConnector {
         }
         let mut child_ids = Vec::with_capacity(transition.child_insertions.len());
         for chunk in insert_chunks {
-            child_ids.extend(
-                insert_child_job_rows(&mut tx, chunk)
-                    .await
-                    .map_err(|e| match e {
-                        DbError::Sql(e) if is_payload_rejection(&e) => DbError::PayloadRejected(e),
-                        e => e,
-                    })?,
-            );
+            match insert_child_job_rows(&mut tx, chunk).await {
+                Ok(chunk_child_ids) => child_ids.extend(chunk_child_ids),
+                Err(e) => {
+                    drop(tx);
+                    return Err(self.classify_child_insertion_failure(chunk, e).await);
+                }
+            }
         }
         tx.commit().await?;
         Ok(child_ids)
+    }
+
+    /// Classifies `error`, the failure of inserting `chunk`, as a payload rejection or not. If the
+    /// connection broke, this re-reads the database's `max_allowed_packet` on another pooled
+    /// connection to decide whether the database rejected `chunk` as too large.
+    ///
+    /// # Returns
+    ///
+    /// * [`DbError::PayloadRejected`] wrapping `error`'s [`sqlx::Error`] if:
+    ///   * The database rejected `chunk`'s payload as too large.
+    ///   * The connection broke and `chunk`'s payload exceeds the re-read `max_allowed_packet`.
+    /// * `error` unchanged otherwise, including if re-reading `max_allowed_packet` fails.
+    async fn classify_child_insertion_failure(
+        &self,
+        chunk: &[ChildJobInsertion<'_>],
+        error: DbError,
+    ) -> DbError {
+        let DbError::Sql(error) = error else {
+            return error;
+        };
+        if is_payload_rejection(&error) {
+            return DbError::PayloadRejected(error);
+        }
+        if !is_connection_loss(&error) {
+            return DbError::Sql(error);
+        }
+        match sqlx::query_scalar::<_, u64>(SELECT_MAX_ALLOWED_PACKET_QUERY)
+            .fetch_one(&self.pool)
+            .await
+        {
+            Ok(max_allowed_packet) if exceeds_max_allowed_packet(chunk, max_allowed_packet) => {
+                DbError::PayloadRejected(error)
+            }
+            _ => DbError::Sql(error),
+        }
     }
 
     /// Writes `statement`, a guarded update of one row, as one autocommit statement with the fence
@@ -554,6 +591,17 @@ fn chunk_by_rows_and_payload<RowType, RowPayloadType: Fn(&RowType) -> u64>(
     chunks
 }
 
+/// # Returns
+///
+/// Whether the child job `INSERT` of `chunk` exceeds what a database whose `max_allowed_packet` is
+/// `max_allowed_packet` accepts, that is, whether the sum of the insertions'
+/// [`ChildJobInsertion::payload_size`] exceeds `max_allowed_packet` less
+/// [`MAX_STATEMENT_OVERHEAD`].
+fn exceeds_max_allowed_packet(chunk: &[ChildJobInsertion<'_>], max_allowed_packet: u64) -> bool {
+    let payload: u64 = chunk.iter().map(ChildJobInsertion::payload_size).sum();
+    payload > max_allowed_packet.saturating_sub(MAX_STATEMENT_OVERHEAD)
+}
+
 /// Inserts `chunk` as child jobs in [`JobState::Running`] with one multi-row `INSERT ...
 /// RETURNING`.
 ///
@@ -617,9 +665,11 @@ mod tests {
     use spider_core::types::io::SerializedTaskOutputs;
 
     use super::IN_LIST_MAX_IDS;
+    use super::MAX_STATEMENT_OVERHEAD;
     use super::UpdateStatement;
     use super::chunk_by_rows_and_payload;
     use super::chunk_child_insertions;
+    use super::exceeds_max_allowed_packet;
     use crate::db::ChildJobInsertion;
     use crate::db::DbError;
     use crate::db::ExternalJobOrchestration;
@@ -850,6 +900,37 @@ mod tests {
             "a child that fits the row payload may exceed the batching target"
         );
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_chunk_exceeds_the_max_allowed_packet_by_its_total_payload_and_the_overhead() {
+        let child = create_test_prepared_child(0).await;
+        let size = child.submission().size();
+        let chunk: Vec<_> = (1..=2)
+            .map(|parent_id| ChildJobInsertion {
+                parent_id: JobId::from(parent_id),
+                root_id: JobId::from(1),
+                resource_group_id: ResourceGroupId::random(),
+                compressed_job_submission: child.submission(),
+            })
+            .collect();
+
+        assert!(!exceeds_max_allowed_packet(
+            &chunk,
+            2 * size + MAX_STATEMENT_OVERHEAD
+        ));
+        assert!(exceeds_max_allowed_packet(
+            &chunk,
+            2 * size + MAX_STATEMENT_OVERHEAD - 1
+        ));
+        assert!(
+            exceeds_max_allowed_packet(&chunk, size + MAX_STATEMENT_OVERHEAD),
+            "the chunk's insertions should count together"
+        );
+        assert!(
+            exceeds_max_allowed_packet(&chunk[..1], MAX_STATEMENT_OVERHEAD - 1),
+            "a packet smaller than the overhead should fit no insertion"
+        );
     }
 
     #[tokio::test]
