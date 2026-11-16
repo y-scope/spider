@@ -65,9 +65,13 @@ async fn a_report_with_children_blocks_its_job_and_inserts_them() -> anyhow::Res
             .collect::<Vec<_>>()
     );
     for child_id in &child_ids {
-        env.assert_job_state(*child_id, JobState::Running).await;
+        assert_eq!(env.row_state(*child_id).await, JobState::Running);
     }
+    assert!(!env.is_fatal());
     env.poll_first_task_of_each(&child_ids).await;
+    for child_id in &child_ids {
+        env.create_instance(*child_id, TaskId::Index(0)).await;
+    }
     env.finish().await;
     Ok(())
 }
@@ -364,15 +368,18 @@ async fn a_report_at_the_maximum_depth_with_children_fails_its_task() -> anyhow:
         .await?,
         JobState::Failed
     );
-    env.assert_job_state(job_id, JobState::Failed).await;
+    assert_eq!(env.row_state(job_id).await, JobState::Failed);
     assert_eq!(
-        env.service.get_job_error(job_id).await?,
-        ReportRejection::TooDeep {
-            depth: MAX_DEPTH + 1,
-            limit: MAX_DEPTH,
-        }
-        .to_string()
+        env.row_error(job_id).await,
+        Some(
+            ReportRejection::TooDeep {
+                depth: MAX_DEPTH + 1,
+                limit: MAX_DEPTH,
+            }
+            .to_string()
+        )
     );
+    assert!(!env.is_fatal());
     assert_eq!(env.child_rows(job_id).await, Vec::new());
     env.finish().await;
     Ok(())
