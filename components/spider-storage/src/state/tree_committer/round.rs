@@ -148,7 +148,7 @@ impl<
                 self.apply_to_cache(transition).await?;
             }
             let publications_of_registered_child_jobs = self
-                .insert_registered_children_into_tree(in_flight, &registrations, child_ids)
+                .insert_registered_children_into_tree(in_flight, &registrations, &child_ids)
                 .await?;
             publications.extend(publications_of_registered_child_jobs);
         }
@@ -262,8 +262,9 @@ impl<
 
     /// Inserts the children that `registrations` register, which the round has inserted into the
     /// database under the IDs `child_ids`, in the order of [`Self::child_insertions`], into the
-    /// in-memory tree, one registration at a time (see
-    /// [`Self::insert_registered_child_set_into_tree`]).
+    /// in-memory tree: takes each registration's children out of its registering event of
+    /// `in_flight`, inserts them into the structure (see [`Self::insert_child_set_into_structure`])
+    /// and adds them to the committer and the job cache.
     ///
     /// # Returns
     ///
@@ -275,12 +276,17 @@ impl<
     ///
     /// * [`CacheError`] converted from [`DbError::CorruptedDbState`] if the number of `child_ids`
     ///   differs from the number of registered children.
-    /// * Forwards [`Self::insert_registered_child_set_into_tree`]'s return values on failure.
+    /// * [`CacheError`] converted from [`InternalError::RegistrationMismatch`] if a registration
+    ///   registers more children than `child_ids` has left.
+    /// * Forwards [`take_registered_children`]'s return values on failure.
+    /// * Forwards [`Self::insert_child_set_into_structure`]'s return values on failure.
+    /// * Forwards [`JobCache::insert_many`](crate::state::JobCache::insert_many)'s return values on
+    ///   failure.
     async fn insert_registered_children_into_tree(
         &mut self,
         in_flight: &mut [Pending],
         registrations: &[PlannedRegistration],
-        child_ids: Vec<JobId>,
+        child_ids: &[JobId],
     ) -> Result<Vec<Publication>, CacheError> {
         let num_children = num_registered_children(registrations);
         if child_ids.len() != num_children {
@@ -291,29 +297,36 @@ impl<
             ))
             .into());
         }
-        let mut child_ids = child_ids.into_iter();
+        let mut jcbs = Vec::with_capacity(num_children);
         let mut publications = Vec::with_capacity(num_children);
+        let mut remaining_child_ids = child_ids;
         for registration in registrations {
-            let child_set_ids = child_ids
-                .by_ref()
-                .take(registration.children.count)
-                .collect();
-            let publications_of_registered_child_set = self
-                .insert_registered_child_set_into_tree(in_flight, registration, child_set_ids)
-                .await?;
-            publications.extend(publications_of_registered_child_set);
+            let (child_set_ids, rest) = remaining_child_ids
+                .split_at_checked(registration.children.count)
+                .ok_or(InternalError::RegistrationMismatch(registration.parent_id))?;
+            remaining_child_ids = rest;
+            let prepared_children = take_registered_children(in_flight, registration)?;
+            self.insert_child_set_into_structure(
+                registration.parent_id,
+                child_set_ids,
+                prepared_children,
+                &mut jcbs,
+                &mut publications,
+            )
+            .await?;
         }
+        self.env.job_cache.insert_many(jcbs.clone()).await?;
+        self.jcbs
+            .extend(jcbs.into_iter().map(|jcb| (jcb.id(), jcb)));
         Ok(publications)
     }
 
-    /// Inserts the children that `registration` registers, which the round has inserted into the
-    /// database under the IDs `child_ids`, in order, into the in-memory tree: builds each child's
-    /// control block and adds the children to the structure, the committer and the job cache. Takes
-    /// the children out of the registering event of `in_flight`.
+    /// Inserts `prepared_children`, the children of `parent_id` that the round has inserted into
+    /// the database under the IDs `child_ids`, in order, into the structure: builds each child's
+    /// control block and appends it to `jcbs`, and appends the publication of each child's ready
+    /// tasks to `publications`, in the order of `child_ids`.
     ///
-    /// # Returns
-    ///
-    /// The publication of each child's ready tasks, in the order of `child_ids`, on success.
+    /// `child_ids` and `prepared_children` must have the same length.
     ///
     /// # Errors
     ///
@@ -321,23 +334,21 @@ impl<
     ///
     /// * [`CacheError`] converted from [`InternalError::TaskGraphCorrupted`] if a registered child
     ///   has no ready task.
-    /// * Forwards [`take_registered_children`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::get_ready_task_indices`]'s return values on failure.
     /// * Forwards [`TreeStructure::insert_children`]'s return values on failure.
-    /// * Forwards [`JobCache::insert_many`](crate::state::JobCache::insert_many)'s return values on
-    ///   failure.
-    async fn insert_registered_child_set_into_tree(
+    async fn insert_child_set_into_structure(
         &mut self,
-        in_flight: &mut [Pending],
-        registration: &PlannedRegistration,
-        child_ids: Vec<JobId>,
-    ) -> Result<Vec<Publication>, CacheError> {
-        let prepared_children = take_registered_children(in_flight, registration)?;
-        let parent = self.jcb(registration.parent_id).clone();
+        parent_id: JobId,
+        child_ids: &[JobId],
+        prepared_children: Vec<PreparedChild>,
+        jcbs: &mut Vec<
+            SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
+        >,
+        publications: &mut Vec<Publication>,
+    ) -> Result<(), CacheError> {
+        let parent = self.jcb(parent_id).clone();
         let mut nodes = Vec::with_capacity(child_ids.len());
-        let mut jcbs = Vec::with_capacity(child_ids.len());
-        let mut publications = Vec::with_capacity(child_ids.len());
-        for (child_id, prepared_child) in child_ids.into_iter().zip(prepared_children) {
+        for (&child_id, prepared_child) in child_ids.iter().zip(prepared_children) {
             let jcb =
                 SharedJobControlBlock::from_prepared_child(child_id, &parent, prepared_child).await;
             let task_indices = jcb.get_ready_task_indices().await?;
@@ -354,12 +365,8 @@ impl<
                 task_indices,
             });
         }
-        self.structure
-            .insert_children(registration.parent_id, nodes)?;
-        self.env.job_cache.insert_many(jcbs.clone()).await?;
-        self.jcbs
-            .extend(jcbs.into_iter().map(|jcb| (jcb.id(), jcb)));
-        Ok(publications)
+        self.structure.insert_children(parent_id, nodes)?;
+        Ok(())
     }
 
     /// Sends `publication` to its lane of the inbound queue, for the resource group that owns its
