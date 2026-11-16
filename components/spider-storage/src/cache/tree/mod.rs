@@ -9,6 +9,8 @@
 mod control_block;
 mod event;
 mod planner;
+#[cfg(test)]
+mod property;
 mod structure;
 #[cfg(test)]
 mod test_utils;

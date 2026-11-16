@@ -1,30 +1,148 @@
 //! Child-job registration through the storage service on `MariaDB`.
 
+use std::collections::HashMap;
 use std::iter;
 
 use spider_core::job::JobState;
 use spider_core::task::ExecutionPolicy;
 use spider_core::types::id::JobId;
 use spider_core::types::id::TaskId;
-use spider_core::types::io::TaskGraphInputBuilder;
 use spider_storage::cache::error::CacheError;
 use spider_storage::cache::error::StaleStateError;
+use spider_storage::db::DbError;
 use spider_storage::job_submission::CompressedJobSubmission;
 use spider_storage::limits::MAX_CHILDREN_PER_JOB;
-use spider_storage::limits::MAX_DEPTH;
 use spider_storage::limits::MAX_JOB_CHILDREN_SIZE;
-use spider_storage::limits::MAX_REPORT_CHILDREN_SIZE;
-use spider_storage::limits::MAX_REPORT_OUTPUTS_SIZE;
 use spider_storage::state::StorageServerError;
 use spider_storage::state::error::ReportRejection;
+use spider_storage::test_hooks::HookFilter;
+use spider_storage::test_hooks::HookPoint;
 
 use crate::runtime_infra::ChildRow;
+use crate::runtime_infra::JobShape;
 use crate::runtime_infra::TestEnv;
+use crate::runtime_infra::assert_job_result;
+use crate::runtime_infra::assert_stale;
 use crate::runtime_infra::build_chain_task_graph;
+use crate::runtime_infra::join;
+use crate::runtime_infra::large_child;
+use crate::runtime_infra::reached;
+use crate::runtime_infra::task_outputs;
+use crate::runtime_infra::undecodable_child;
+use crate::runtime_infra::value;
 use crate::task_graph_builder::compress_job_inputs;
 use crate::task_graph_builder::compress_task_graph;
 
 const MIB: usize = 1024 * 1024;
+
+impl TestEnv {
+    /// Runs a new instance of every task of `job_id`, a job of `shape`, to success in task order,
+    /// and asserts that only the last report succeeds the job.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a task's report fails or the assertion fails.
+    async fn run_all_tasks(&self, job_id: JobId, shape: JobShape) {
+        for task_index in 0..shape.num_tasks {
+            let expected_state = if task_index + 1 == shape.num_tasks {
+                JobState::Succeeded
+            } else {
+                JobState::Running
+            };
+            assert_eq!(
+                self.run_task(job_id, task_index, &value(0x21, task_index))
+                    .await,
+                expected_state,
+                "task {task_index} of job {job_id}"
+            );
+        }
+    }
+
+    /// Asserts that each of the five external job RPCs answers that `unknown_id`, a job that the
+    /// database doesn't hold, isn't found.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an RPC answers otherwise.
+    async fn assert_job_rpcs_answer_unknown_job(&self, unknown_id: JobId) {
+        let start = self.service.start_job(unknown_id).await;
+        assert!(
+            matches!(
+                start,
+                Err(StorageServerError::Db(DbError::JobNotFound(job_id))) if job_id == unknown_id
+            ),
+            "the start of an unknown job gave {start:?}"
+        );
+        let cancel = self.service.cancel_job(unknown_id).await;
+        assert!(
+            matches!(
+                cancel,
+                Err(StorageServerError::JobNotFound(job_id)) if job_id == unknown_id
+            ),
+            "the cancel of an unknown job gave {cancel:?}"
+        );
+        let state = self.service.get_job_state(unknown_id).await;
+        assert!(
+            matches!(
+                state,
+                Err(StorageServerError::Db(DbError::JobNotFound(job_id))) if job_id == unknown_id
+            ),
+            "the state of an unknown job gave {state:?}"
+        );
+        let outputs = self.service.get_job_outputs(unknown_id).await;
+        assert!(
+            matches!(
+                outputs,
+                Err(StorageServerError::Db(DbError::JobNotFound(job_id))) if job_id == unknown_id
+            ),
+            "the outputs of an unknown job gave {outputs:?}"
+        );
+        let error = self.service.get_job_error(unknown_id).await;
+        assert!(
+            matches!(
+                error,
+                Err(StorageServerError::Db(DbError::JobNotFound(job_id))) if job_id == unknown_id
+            ),
+            "the error of an unknown job gave {error:?}"
+        );
+    }
+
+    /// Asserts that each of the five external job RPCs rejects `child_id`, a child job of
+    /// `parent_id`, as a bad request that names the child and its parent.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an RPC answers otherwise.
+    async fn assert_job_rpcs_reject_child(&self, child_id: JobId, parent_id: JobId, what: &str) {
+        let expected_message =
+            format!("job {child_id} is a child job of job {parent_id}, not a root job");
+        assert_bad_request(
+            &self.service.start_job(child_id).await,
+            &expected_message,
+            &format!("{what}: the start"),
+        );
+        assert_bad_request(
+            &self.service.cancel_job(child_id).await,
+            &expected_message,
+            &format!("{what}: the cancel"),
+        );
+        assert_bad_request(
+            &self.service.get_job_state(child_id).await,
+            &expected_message,
+            &format!("{what}: the state"),
+        );
+        assert_bad_request(
+            &self.service.get_job_outputs(child_id).await,
+            &expected_message,
+            &format!("{what}: the outputs"),
+        );
+        assert_bad_request(
+            &self.service.get_job_error(child_id).await,
+            &expected_message,
+            &format!("{what}: the error"),
+        );
+    }
+}
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
@@ -65,114 +183,191 @@ async fn a_report_with_children_blocks_its_job_and_inserts_them() -> anyhow::Res
             .collect::<Vec<_>>()
     );
     for child_id in &child_ids {
-        env.assert_job_state(*child_id, JobState::Running).await;
+        assert_eq!(env.row_state(*child_id).await, JobState::Running);
     }
+    assert!(!env.is_fatal());
     env.poll_first_task_of_each(&child_ids).await;
+    for child_id in &child_ids {
+        env.create_instance(*child_id, TaskId::Index(0)).await;
+    }
     env.finish().await;
     Ok(())
 }
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn a_report_over_a_limit_fails_its_task() -> anyhow::Result<()> {
-    struct Case {
-        output_size: usize,
-        children: fn() -> Vec<CompressedJobSubmission>,
-        error_prefix: String,
-    }
-
-    let output_limit = usize::try_from(MAX_REPORT_OUTPUTS_SIZE)?;
-    let cases = [
-        Case {
-            output_size: 4,
-            children: || {
-                iter::repeat_with(|| chain_child(1))
-                    .take(MAX_CHILDREN_PER_JOB + 1)
-                    .collect()
-            },
-            error_prefix: ReportRejection::JobChildrenTooLarge {
-                count: MAX_CHILDREN_PER_JOB + 1,
-                size: (MAX_CHILDREN_PER_JOB + 1) as u64 * chain_child(1).size(),
-                count_limit: MAX_CHILDREN_PER_JOB,
-                size_limit: MAX_JOB_CHILDREN_SIZE,
-            }
-            .to_string(),
-        },
-        Case {
-            output_size: 4,
-            children: || vec![chain_child(1), undecodable_child(4 * MIB + 1)],
-            error_prefix: format!("child job 1 of {} bytes exceeds the limit of ", 4 * MIB + 1),
-        },
-        Case {
-            output_size: 4,
-            children: || {
-                iter::repeat_with(|| undecodable_child(3 * MIB + MIB / 2))
-                    .take(5)
-                    .collect()
-            },
-            error_prefix: ReportRejection::ChildrenTooLarge {
-                size: 5 * (3 * MIB + MIB / 2) as u64,
-                limit: MAX_REPORT_CHILDREN_SIZE,
-            }
-            .to_string(),
-        },
-        Case {
-            output_size: 4,
-            children: || vec![undecodable_child(16)],
-            error_prefix: "child job 0 is invalid: ".to_owned(),
-        },
-        Case {
-            output_size: output_limit + 1,
-            children: Vec::new,
-            error_prefix: "task outputs of ".to_owned(),
-        },
-    ];
-
+async fn a_registered_parent_commits_after_its_children_succeed() -> anyhow::Result<()> {
     let env = TestEnv::start().await;
-    for case in cases {
-        for max_num_retry in [0, 1] {
-            let (graph, inputs) = build_chain_task_graph(
-                1,
-                ExecutionPolicy {
-                    max_num_retry,
-                    ..ExecutionPolicy::default()
-                },
-            );
-            let job_id = env.start_job(&graph, &inputs).await;
-            for attempt in 0..=max_num_retry {
-                if attempt > 0 {
-                    assert_eq!(env.poll_ready_tasks(job_id, 1).await, vec![0]);
-                }
-                let expected_state = if attempt == max_num_retry {
-                    JobState::Failed
-                } else {
-                    JobState::Running
-                };
-                let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
-                assert_eq!(
-                    env.report_success(
-                        job_id,
-                        0,
-                        task_instance_id,
-                        vec![0u8; case.output_size],
-                        (case.children)()
-                    )
-                    .await?,
-                    expected_state,
-                    "case `{}`, attempt {attempt}",
-                    case.error_prefix
-                );
-            }
-            env.assert_job_state(job_id, JobState::Failed).await;
-            let error = env.service.get_job_error(job_id).await?;
-            assert!(
-                error.starts_with(&case.error_prefix),
-                "case `{}`: unexpected error `{error}`",
-                case.error_prefix
-            );
-            assert_eq!(env.child_rows(job_id).await, Vec::new());
-        }
+    let parent_id = env
+        .start_root(JobShape {
+            with_commit: true,
+            ..JobShape::ONE_TASK
+        })
+        .await;
+    let parent_value = value(0x20, 0);
+    let child_shapes: Vec<_> = (1..=3)
+        .map(|num_tasks| JobShape {
+            num_tasks,
+            ..JobShape::ONE_TASK
+        })
+        .collect();
+
+    let task_instance_id = env.create_instance(parent_id, TaskId::Index(0)).await;
+    assert_eq!(
+        env.task_success(
+            parent_id,
+            0,
+            task_instance_id,
+            &parent_value,
+            child_shapes.iter().map(|shape| shape.child()).collect()
+        )
+        .await?,
+        JobState::BlockingOnChildren
+    );
+    assert_eq!(
+        env.row_outputs(parent_id).await,
+        Some(task_outputs([&parent_value]))
+    );
+    let rows = env.child_rows(parent_id).await;
+    assert_eq!(rows.len(), child_shapes.len());
+    let child_ids: Vec<JobId> = rows.iter().map(|row| row.id).collect();
+    assert_eq!(
+        rows,
+        child_ids
+            .iter()
+            .zip(&child_shapes)
+            .map(|(child_id, shape)| ChildRow {
+                id: *child_id,
+                parent_id: Some(parent_id),
+                root_id: Some(parent_id),
+                state: JobState::Running,
+                compressed_serialized_task_graph: shape.child().compressed_serialized_task_graph,
+            })
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        child_ids
+            .iter()
+            .all(|child_id| child_id.get() > parent_id.get())
+    );
+    let mut expected_states = HashMap::from([(parent_id, JobState::BlockingOnChildren)]);
+    expected_states.extend(
+        child_ids
+            .iter()
+            .map(|child_id| (*child_id, JobState::Running)),
+    );
+    env.assert_states(&expected_states, "after the registration")
+        .await;
+    env.drain_ready_tasks(&child_ids, &child_shapes).await;
+
+    for (position, (child_id, shape)) in child_ids.iter().zip(&child_shapes).enumerate() {
+        env.run_all_tasks(*child_id, *shape).await;
+        let parent_state = if position + 1 == child_ids.len() {
+            JobState::CommitReady
+        } else {
+            JobState::BlockingOnChildren
+        };
+        env.assert_states(
+            &HashMap::from([(*child_id, JobState::Succeeded), (parent_id, parent_state)]),
+            &format!("after child {position}"),
+        )
+        .await;
     }
+    let (commit_instance_id, commit_inputs) = env.commit_instance(parent_id).await;
+    assert_eq!(commit_inputs, task_outputs([&parent_value]));
+    assert_eq!(
+        env.commit_success(parent_id, commit_instance_id).await?,
+        JobState::Succeeded
+    );
+    env.assert_states(
+        &HashMap::from([(parent_id, JobState::Succeeded)]),
+        "after the commit",
+    )
+    .await;
+    assert_eq!(
+        env.service.get_job_outputs(parent_id).await?,
+        task_outputs([&parent_value])
+    );
+    env.assert_quiescent(parent_id).await;
+    env.assert_lanes_empty().await;
+    env.finish().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn sibling_tasks_register_the_union_of_their_children_in_task_order() -> anyhow::Result<()> {
+    let env = TestEnv::start().await;
+    let parent_id = env
+        .start_root(JobShape {
+            num_tasks: 2,
+            ..JobShape::ONE_TASK
+        })
+        .await;
+    let first_task_instance_id = env.create_instance(parent_id, TaskId::Index(0)).await;
+    let second_task_instance_id = env.create_instance(parent_id, TaskId::Index(1)).await;
+    let child_shapes: Vec<_> = (1..=3)
+        .map(|num_tasks| JobShape {
+            num_tasks,
+            ..JobShape::ONE_TASK
+        })
+        .collect();
+
+    assert_eq!(
+        env.task_success(
+            parent_id,
+            1,
+            second_task_instance_id,
+            &value(0x30, 1),
+            vec![child_shapes[2].child()]
+        )
+        .await?,
+        JobState::Running
+    );
+    assert_eq!(env.child_rows(parent_id).await, Vec::new());
+    assert_eq!(
+        env.task_success(
+            parent_id,
+            0,
+            first_task_instance_id,
+            &value(0x30, 0),
+            child_shapes[..2]
+                .iter()
+                .map(|shape| shape.child())
+                .collect()
+        )
+        .await?,
+        JobState::BlockingOnChildren
+    );
+    let rows = env.child_rows(parent_id).await;
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.compressed_serialized_task_graph.clone())
+            .collect::<Vec<_>>(),
+        child_shapes
+            .iter()
+            .map(|shape| shape.child().compressed_serialized_task_graph)
+            .collect::<Vec<_>>()
+    );
+    let child_ids: Vec<JobId> = rows.iter().map(|row| row.id).collect();
+    env.drain_ready_tasks(&child_ids, &child_shapes).await;
+    for (child_id, shape) in child_ids.iter().zip(&child_shapes) {
+        env.run_all_tasks(*child_id, *shape).await;
+    }
+    let mut expected_states = HashMap::from([(parent_id, JobState::Succeeded)]);
+    expected_states.extend(
+        child_ids
+            .iter()
+            .map(|child_id| (*child_id, JobState::Succeeded)),
+    );
+    env.assert_states(&expected_states, "after the children")
+        .await;
+    assert_eq!(
+        env.service.get_job_outputs(parent_id).await?,
+        task_outputs([&value(0x30, 0), &value(0x30, 1)])
+    );
+    env.assert_quiescent(parent_id).await;
+    env.assert_lanes_empty().await;
     env.finish().await;
     Ok(())
 }
@@ -330,50 +525,155 @@ async fn rejected_reports_revert_their_children_usage_reservation() -> anyhow::R
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn a_report_at_the_maximum_depth_with_children_fails_its_task() -> anyhow::Result<()> {
+async fn a_duplicate_report_with_children_stores_nothing() -> anyhow::Result<()> {
     let env = TestEnv::start().await;
-    let mut job_id = env.start_chain_job(1, 1).await;
-    for _ in 0..MAX_DEPTH {
-        let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
-        assert_eq!(
-            env.report_success(
-                job_id,
-                0,
-                task_instance_id,
-                vec![0u8; 4],
-                vec![chain_child(1)]
-            )
-            .await?,
-            JobState::BlockingOnChildren
-        );
-        let rows = env.child_rows(job_id).await;
-        assert_eq!(rows.len(), 1);
-        job_id = rows[0].id;
-        env.poll_first_task_of_each(&[job_id]).await;
-    }
-
-    let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
+    let parent_id = env
+        .start_root(JobShape {
+            num_tasks: 2,
+            ..JobShape::ONE_TASK
+        })
+        .await;
+    let child_shape = JobShape::ONE_TASK;
+    let duplicate_child_shapes: Vec<_> = (2..=3)
+        .map(|num_tasks| JobShape {
+            num_tasks,
+            ..JobShape::ONE_TASK
+        })
+        .collect();
+    let first_task_instance_id = env.create_instance(parent_id, TaskId::Index(0)).await;
     assert_eq!(
-        env.report_success(
-            job_id,
+        env.task_success(
+            parent_id,
             0,
-            task_instance_id,
-            vec![0u8; 4],
-            vec![chain_child(1)]
+            first_task_instance_id,
+            &value(0x40, 0),
+            vec![child_shape.child()]
         )
         .await?,
-        JobState::Failed
+        JobState::Running
     );
-    env.assert_job_state(job_id, JobState::Failed).await;
+
+    let duplicate_result = env
+        .task_success(
+            parent_id,
+            0,
+            first_task_instance_id,
+            &value(0x41, 0),
+            duplicate_child_shapes
+                .iter()
+                .map(|shape| shape.child())
+                .collect(),
+        )
+        .await;
+    assert_stale(
+        &duplicate_result,
+        &StaleStateError::InvalidTaskInstanceId,
+        "the duplicate report",
+    );
+    assert_eq!(env.child_rows(parent_id).await, Vec::new());
+    let second_task_instance_id = env.create_instance(parent_id, TaskId::Index(1)).await;
     assert_eq!(
-        env.service.get_job_error(job_id).await?,
-        ReportRejection::TooDeep {
-            depth: MAX_DEPTH + 1,
-            limit: MAX_DEPTH,
-        }
-        .to_string()
+        env.task_success(
+            parent_id,
+            1,
+            second_task_instance_id,
+            &value(0x40, 1),
+            Vec::new()
+        )
+        .await?,
+        JobState::BlockingOnChildren
     );
-    assert_eq!(env.child_rows(job_id).await, Vec::new());
+    let rows = env.child_rows(parent_id).await;
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.compressed_serialized_task_graph.clone())
+            .collect::<Vec<_>>(),
+        vec![child_shape.child().compressed_serialized_task_graph]
+    );
+    let child_id = rows[0].id;
+    env.drain_ready_tasks(&[child_id], &[child_shape]).await;
+    env.run_all_tasks(child_id, child_shape).await;
+    env.assert_states(
+        &HashMap::from([
+            (parent_id, JobState::Succeeded),
+            (child_id, JobState::Succeeded),
+        ]),
+        "after the child",
+    )
+    .await;
+    assert_eq!(
+        env.service.get_job_outputs(parent_id).await?,
+        task_outputs([&value(0x40, 0), &value(0x40, 1)])
+    );
+    env.assert_quiescent(parent_id).await;
+    env.assert_lanes_empty().await;
+    env.finish().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn external_job_rpcs_accept_only_roots() -> anyhow::Result<()> {
+    let env = TestEnv::start().await;
+    let root_id = env.start_root(JobShape::ONE_TASK).await;
+    let root_value = value(0x10, 0);
+    let task_instance_id = env.create_instance(root_id, TaskId::Index(0)).await;
+    let registration_write = env.pause(
+        HookPoint::CommitterRoundAfterDbWrite,
+        HookFilter::job(root_id),
+    );
+    let report_join_handle = tokio::spawn(env.task_success(
+        root_id,
+        0,
+        task_instance_id,
+        &root_value,
+        vec![JobShape::ONE_TASK.child()],
+    ));
+    reached(&registration_write, 1).await;
+    let [child_id] = env.children_of(root_id).await[..] else {
+        panic!("the registration should insert one child");
+    };
+    env.assert_not_cached(child_id, "the child before its registration is applied")
+        .await;
+    env.assert_job_rpcs_reject_child(child_id, root_id, "an uncached child")
+        .await;
+    assert!(!env.is_fatal());
+    registration_write.release();
+    assert_job_result(
+        &join(report_join_handle).await,
+        JobState::BlockingOnChildren,
+        "the registration",
+    );
+
+    env.assert_job_rpcs_reject_child(child_id, root_id, "a cached child")
+        .await;
+    env.assert_states(
+        &HashMap::from([
+            (root_id, JobState::BlockingOnChildren),
+            (child_id, JobState::Running),
+        ]),
+        "after the registration",
+    )
+    .await;
+    assert_eq!(
+        env.run_task(child_id, 0, &value(0x11, 0)).await,
+        JobState::Succeeded
+    );
+    assert_eq!(
+        env.service.get_job_state(root_id).await?,
+        JobState::Succeeded
+    );
+    assert_eq!(
+        env.service.get_job_outputs(root_id).await?,
+        task_outputs([&root_value])
+    );
+    env.assert_job_rpcs_reject_child(child_id, root_id, "a succeeded child")
+        .await;
+
+    env.assert_job_rpcs_answer_unknown_job(JobId::from(u64::MAX))
+        .await;
+    assert!(!env.is_fatal());
+    env.assert_quiescent(root_id).await;
     env.finish().await;
     Ok(())
 }
@@ -396,48 +696,25 @@ fn chain_child(num_tasks: usize) -> CompressedJobSubmission {
     }
 }
 
-/// # Returns
+/// Asserts that `result` is a [`StorageServerError::BadRequest`] of `expected_message`.
 ///
-/// A valid one-task child job whose only input is `input_size` incompressible bytes.
+/// # Type Parameters
+///
+/// * `ValueType` - The type of `result`'s success value.
 ///
 /// # Panics
 ///
-/// Panics if the job fails to build or to compress.
-fn large_child(input_size: usize) -> CompressedJobSubmission {
-    let (graph, _) = build_chain_task_graph(1, ExecutionPolicy::default());
-    let mut inputs = TaskGraphInputBuilder::new();
-    inputs
-        .append_task_input(&incompressible(input_size))
-        .expect("task input appending should succeed");
-    CompressedJobSubmission {
-        compressed_serialized_task_graph: compress_task_graph(&graph)
-            .expect("task graph compression should succeed"),
-        compressed_serialized_job_inputs: compress_job_inputs(&inputs.build())
-            .expect("input compression should succeed"),
-    }
-}
-
-/// # Returns
-///
-/// A child job of `size` bytes that fails to decode.
-fn undecodable_child(size: usize) -> CompressedJobSubmission {
-    CompressedJobSubmission {
-        compressed_serialized_task_graph: vec![0u8; size],
-        compressed_serialized_job_inputs: Vec::new(),
-    }
-}
-
-/// # Returns
-///
-/// `size` pseudo-random bytes.
-fn incompressible(size: usize) -> Vec<u8> {
-    let mut xorshift_state = 0x9e37_79b9_7f4a_7c15_u64;
-    (0..size)
-        .map(|_| {
-            xorshift_state ^= xorshift_state << 13;
-            xorshift_state ^= xorshift_state >> 7;
-            xorshift_state ^= xorshift_state << 17;
-            xorshift_state.to_le_bytes()[0]
-        })
-        .collect()
+/// Panics if the assertion fails.
+fn assert_bad_request<ValueType: std::fmt::Debug>(
+    result: &Result<ValueType, StorageServerError>,
+    expected_message: &str,
+    what: &str,
+) {
+    assert!(
+        matches!(
+            result,
+            Err(StorageServerError::BadRequest(message)) if message == expected_message
+        ),
+        "{what}: expected a bad request of {expected_message:?}, got {result:?}"
+    );
 }
