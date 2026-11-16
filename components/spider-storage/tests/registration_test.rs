@@ -24,6 +24,7 @@ use spider_storage::test_hooks::HookPoint;
 
 use crate::runtime_infra::ChildRow;
 use crate::runtime_infra::JobShape;
+use crate::runtime_infra::Lane;
 use crate::runtime_infra::TestEnv;
 use crate::runtime_infra::assert_job_result;
 use crate::runtime_infra::build_chain_task_graph;
@@ -37,6 +38,34 @@ use crate::task_graph_builder::compress_task_graph;
 const MIB: usize = 1024 * 1024;
 
 impl TestEnv {
+    /// Drains the ready tasks of `child_ids`, the children of the job shapes `child_shapes`.
+    async fn drain_children_ready_tasks(&self, child_ids: &[JobId], child_shapes: &[JobShape]) {
+        let ready_tasks: Vec<_> = child_ids
+            .iter()
+            .zip(child_shapes)
+            .flat_map(|(child_id, shape)| shape.ready_tasks(*child_id))
+            .collect();
+        self.drain_lane(Lane::Task, &ready_tasks).await;
+    }
+
+    /// Runs a new instance of every task of `job_id`, a job of `shape`, to success in task order,
+    /// and asserts that only the last report succeeds the job.
+    async fn run_all_tasks(&self, job_id: JobId, shape: JobShape) {
+        for task_index in 0..shape.num_tasks {
+            let expected_state = if task_index + 1 == shape.num_tasks {
+                JobState::Succeeded
+            } else {
+                JobState::Running
+            };
+            assert_eq!(
+                self.run_task(job_id, task_index, &value(0x21, task_index))
+                    .await,
+                expected_state,
+                "task {task_index} of job {job_id}"
+            );
+        }
+    }
+
     /// Asserts that each of the five external job RPCs answers that `unknown_id`, a job that the
     /// database doesn't hold, isn't found.
     async fn assert_job_rpcs_answer_unknown_job(&self, unknown_id: JobId) {
@@ -151,6 +180,185 @@ async fn a_report_with_children_blocks_its_job_and_inserts_them() -> anyhow::Res
     }
     assert!(!env.is_fatal());
     env.poll_first_task_of_each(&child_ids).await;
+    env.finish().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn a_registered_parent_commits_after_its_children_succeed() -> anyhow::Result<()> {
+    let env = TestEnv::start().await;
+    let parent_id = env
+        .start_root(JobShape {
+            with_commit: true,
+            ..JobShape::ONE_TASK
+        })
+        .await;
+    let parent_value = value(0x20, 0);
+    let child_shapes: Vec<_> = (1..=3)
+        .map(|num_tasks| JobShape {
+            num_tasks,
+            ..JobShape::ONE_TASK
+        })
+        .collect();
+
+    let task_instance_id = env.create_instance(parent_id, TaskId::Index(0)).await;
+    assert_eq!(
+        env.task_success(
+            parent_id,
+            0,
+            task_instance_id,
+            &parent_value,
+            child_shapes.iter().map(|shape| shape.child()).collect()
+        )
+        .await?,
+        JobState::BlockingOnChildren
+    );
+    assert_eq!(
+        env.row_outputs(parent_id).await,
+        Some(task_outputs([&parent_value]))
+    );
+    let rows = env.child_rows(parent_id).await;
+    let child_ids: Vec<JobId> = rows.iter().map(|row| row.id).collect();
+    assert_eq!(
+        rows,
+        child_ids
+            .iter()
+            .zip(&child_shapes)
+            .map(|(child_id, shape)| ChildRow {
+                id: *child_id,
+                parent_id: Some(parent_id),
+                root_id: Some(parent_id),
+                state: JobState::Running,
+                compressed_serialized_task_graph: shape.child().compressed_serialized_task_graph,
+            })
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        child_ids
+            .iter()
+            .all(|child_id| child_id.get() > parent_id.get())
+    );
+    let mut expected_states = HashMap::from([(parent_id, JobState::BlockingOnChildren)]);
+    expected_states.extend(
+        child_ids
+            .iter()
+            .map(|child_id| (*child_id, JobState::Running)),
+    );
+    env.assert_states(&expected_states, "after the registration")
+        .await;
+    env.drain_children_ready_tasks(&child_ids, &child_shapes)
+        .await;
+
+    for (position, (child_id, shape)) in child_ids.iter().zip(&child_shapes).enumerate() {
+        env.run_all_tasks(*child_id, *shape).await;
+        let parent_state = if position + 1 == child_ids.len() {
+            JobState::CommitReady
+        } else {
+            JobState::BlockingOnChildren
+        };
+        env.assert_states(
+            &HashMap::from([(*child_id, JobState::Succeeded), (parent_id, parent_state)]),
+            &format!("after child {position}"),
+        )
+        .await;
+    }
+    let (commit_instance_id, commit_inputs) = env.commit_instance(parent_id).await;
+    assert_eq!(commit_inputs, task_outputs([&parent_value]));
+    assert_eq!(
+        env.commit_success(parent_id, commit_instance_id).await?,
+        JobState::Succeeded
+    );
+    env.assert_states(
+        &HashMap::from([(parent_id, JobState::Succeeded)]),
+        "after the commit",
+    )
+    .await;
+    assert_eq!(
+        env.service.get_job_outputs(parent_id).await?,
+        task_outputs([&parent_value])
+    );
+    env.assert_quiescent(parent_id).await;
+    env.assert_lanes_empty().await;
+    env.finish().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn sibling_tasks_register_the_union_of_their_children_in_task_order() -> anyhow::Result<()> {
+    let env = TestEnv::start().await;
+    let parent_id = env
+        .start_root(JobShape {
+            num_tasks: 2,
+            ..JobShape::ONE_TASK
+        })
+        .await;
+    let first_task_instance_id = env.create_instance(parent_id, TaskId::Index(0)).await;
+    let second_task_instance_id = env.create_instance(parent_id, TaskId::Index(1)).await;
+    let child_shapes: Vec<_> = (1..=3)
+        .map(|num_tasks| JobShape {
+            num_tasks,
+            ..JobShape::ONE_TASK
+        })
+        .collect();
+
+    assert_eq!(
+        env.task_success(
+            parent_id,
+            1,
+            second_task_instance_id,
+            &value(0x30, 1),
+            vec![child_shapes[2].child()]
+        )
+        .await?,
+        JobState::Running
+    );
+    assert_eq!(env.child_rows(parent_id).await, Vec::new());
+    assert_eq!(
+        env.task_success(
+            parent_id,
+            0,
+            first_task_instance_id,
+            &value(0x30, 0),
+            child_shapes[..2]
+                .iter()
+                .map(|shape| shape.child())
+                .collect()
+        )
+        .await?,
+        JobState::BlockingOnChildren
+    );
+    let rows = env.child_rows(parent_id).await;
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.compressed_serialized_task_graph.clone())
+            .collect::<Vec<_>>(),
+        child_shapes
+            .iter()
+            .map(|shape| shape.child().compressed_serialized_task_graph)
+            .collect::<Vec<_>>()
+    );
+    let child_ids: Vec<JobId> = rows.iter().map(|row| row.id).collect();
+    env.drain_children_ready_tasks(&child_ids, &child_shapes)
+        .await;
+    for (child_id, shape) in child_ids.iter().zip(&child_shapes) {
+        env.run_all_tasks(*child_id, *shape).await;
+    }
+    let mut expected_states = HashMap::from([(parent_id, JobState::Succeeded)]);
+    expected_states.extend(
+        child_ids
+            .iter()
+            .map(|child_id| (*child_id, JobState::Succeeded)),
+    );
+    env.assert_states(&expected_states, "after the children")
+        .await;
+    assert_eq!(
+        env.service.get_job_outputs(parent_id).await?,
+        task_outputs([&value(0x30, 0), &value(0x30, 1)])
+    );
+    env.assert_quiescent(parent_id).await;
+    env.assert_lanes_empty().await;
     env.finish().await;
     Ok(())
 }
