@@ -7,16 +7,12 @@ use spider_core::job::JobState;
 use spider_core::task::ExecutionPolicy;
 use spider_core::types::id::JobId;
 use spider_core::types::id::TaskId;
-use spider_core::types::io::TaskGraphInputBuilder;
 use spider_storage::cache::error::CacheError;
 use spider_storage::cache::error::StaleStateError;
 use spider_storage::db::DbError;
 use spider_storage::job_submission::CompressedJobSubmission;
 use spider_storage::limits::MAX_CHILDREN_PER_JOB;
-use spider_storage::limits::MAX_DEPTH;
 use spider_storage::limits::MAX_JOB_CHILDREN_SIZE;
-use spider_storage::limits::MAX_REPORT_CHILDREN_SIZE;
-use spider_storage::limits::MAX_REPORT_OUTPUTS_SIZE;
 use spider_storage::state::StorageServerError;
 use spider_storage::state::error::ReportRejection;
 use spider_storage::test_hooks::HookFilter;
@@ -30,8 +26,10 @@ use crate::runtime_infra::assert_job_result;
 use crate::runtime_infra::assert_stale;
 use crate::runtime_infra::build_chain_task_graph;
 use crate::runtime_infra::join;
+use crate::runtime_infra::large_child;
 use crate::runtime_infra::reached;
 use crate::runtime_infra::task_outputs;
+use crate::runtime_infra::undecodable_child;
 use crate::runtime_infra::value;
 use crate::task_graph_builder::compress_job_inputs;
 use crate::task_graph_builder::compress_task_graph;
@@ -366,111 +364,6 @@ async fn sibling_tasks_register_the_union_of_their_children_in_task_order() -> a
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn a_report_over_a_limit_fails_its_task() -> anyhow::Result<()> {
-    struct Case {
-        output_size: usize,
-        children: fn() -> Vec<CompressedJobSubmission>,
-        error_prefix: String,
-    }
-
-    let output_limit = usize::try_from(MAX_REPORT_OUTPUTS_SIZE)?;
-    let cases = [
-        Case {
-            output_size: 4,
-            children: || {
-                iter::repeat_with(|| chain_child(1))
-                    .take(MAX_CHILDREN_PER_JOB + 1)
-                    .collect()
-            },
-            error_prefix: ReportRejection::JobChildrenTooLarge {
-                count: MAX_CHILDREN_PER_JOB + 1,
-                size: (MAX_CHILDREN_PER_JOB + 1) as u64 * chain_child(1).size(),
-                count_limit: MAX_CHILDREN_PER_JOB,
-                size_limit: MAX_JOB_CHILDREN_SIZE,
-            }
-            .to_string(),
-        },
-        Case {
-            output_size: 4,
-            children: || vec![chain_child(1), undecodable_child(4 * MIB + 1)],
-            error_prefix: format!("child job 1 of {} bytes exceeds the limit of ", 4 * MIB + 1),
-        },
-        Case {
-            output_size: 4,
-            children: || {
-                iter::repeat_with(|| undecodable_child(3 * MIB + MIB / 2))
-                    .take(5)
-                    .collect()
-            },
-            error_prefix: ReportRejection::ChildrenTooLarge {
-                size: 5 * (3 * MIB + MIB / 2) as u64,
-                limit: MAX_REPORT_CHILDREN_SIZE,
-            }
-            .to_string(),
-        },
-        Case {
-            output_size: 4,
-            children: || vec![undecodable_child(16)],
-            error_prefix: "child job 0 is invalid: ".to_owned(),
-        },
-        Case {
-            output_size: output_limit + 1,
-            children: Vec::new,
-            error_prefix: "task outputs of ".to_owned(),
-        },
-    ];
-
-    let env = TestEnv::start().await;
-    for case in cases {
-        for max_num_retry in [0, 1] {
-            let (graph, inputs) = build_chain_task_graph(
-                1,
-                ExecutionPolicy {
-                    max_num_retry,
-                    ..ExecutionPolicy::default()
-                },
-            );
-            let job_id = env.start_job(&graph, &inputs).await;
-            for attempt in 0..=max_num_retry {
-                if attempt > 0 {
-                    assert_eq!(env.poll_ready_tasks(job_id, 1).await, vec![0]);
-                }
-                let expected_state = if attempt == max_num_retry {
-                    JobState::Failed
-                } else {
-                    JobState::Running
-                };
-                let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
-                assert_eq!(
-                    env.report_success(
-                        job_id,
-                        0,
-                        task_instance_id,
-                        vec![0u8; case.output_size],
-                        (case.children)()
-                    )
-                    .await?,
-                    expected_state,
-                    "case `{}`, attempt {attempt}",
-                    case.error_prefix
-                );
-            }
-            env.assert_job_state(job_id, JobState::Failed).await;
-            let error = env.service.get_job_error(job_id).await?;
-            assert!(
-                error.starts_with(&case.error_prefix),
-                "case `{}`: unexpected error `{error}`",
-                case.error_prefix
-            );
-            assert_eq!(env.child_rows(job_id).await, Vec::new());
-        }
-    }
-    env.finish().await;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
 async fn children_over_the_job_limits_across_reports_fail_the_task_before_decoding()
 -> anyhow::Result<()> {
     let env = TestEnv::start().await;
@@ -616,68 +509,6 @@ async fn rejected_reports_revert_their_children_usage_reservation() -> anyhow::R
     env.assert_job_state(job_id, JobState::BlockingOnChildren)
         .await;
     assert_eq!(env.child_rows(job_id).await.len(), max_children);
-    env.finish().await;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn a_report_at_the_maximum_depth_with_children_fails_its_task() -> anyhow::Result<()> {
-    let env = TestEnv::start().await;
-    let root_id = env.start_chain_job(1, 1).await;
-    let mut job_id = root_id;
-    let mut ancestor_ids = Vec::new();
-    for _ in 0..MAX_DEPTH {
-        let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
-        assert_eq!(
-            env.report_success(
-                job_id,
-                0,
-                task_instance_id,
-                vec![0u8; 4],
-                vec![chain_child(1)]
-            )
-            .await?,
-            JobState::BlockingOnChildren
-        );
-        let rows = env.child_rows(job_id).await;
-        assert_eq!(rows.len(), 1);
-        ancestor_ids.push(job_id);
-        job_id = rows[0].id;
-        env.poll_first_task_of_each(&[job_id]).await;
-    }
-
-    let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
-    assert_eq!(
-        env.report_success(
-            job_id,
-            0,
-            task_instance_id,
-            vec![0u8; 4],
-            vec![chain_child(1)]
-        )
-        .await?,
-        JobState::Failed
-    );
-    assert_eq!(env.child_rows(job_id).await, Vec::new());
-    let error = ReportRejection::TooDeep {
-        depth: MAX_DEPTH + 1,
-        limit: MAX_DEPTH,
-    }
-    .to_string();
-    let propagated_error = format!("descendant job {job_id} failed: {error}");
-    let mut expected_errors = HashMap::from([(job_id, error)]);
-    let mut expected_states = HashMap::from([(job_id, JobState::Failed)]);
-    for ancestor_id in ancestor_ids {
-        expected_errors.insert(ancestor_id, propagated_error.clone());
-        expected_states.insert(ancestor_id, JobState::Failed);
-    }
-    assert_eq!(env.tree_errors(root_id).await, expected_errors);
-    env.assert_tree_rows(root_id, &expected_states, "after the report")
-        .await;
-    env.assert_states(&expected_states, "after the report")
-        .await;
-    env.assert_lanes_empty().await;
     env.finish().await;
     Ok(())
 }
@@ -854,52 +685,6 @@ fn chain_child(num_tasks: usize) -> CompressedJobSubmission {
         compressed_serialized_job_inputs: compress_job_inputs(&inputs)
             .expect("input compression should succeed"),
     }
-}
-
-/// # Returns
-///
-/// A valid one-task child job whose only input is `input_size` incompressible bytes.
-///
-/// # Panics
-///
-/// Panics if the job fails to build or to compress.
-fn large_child(input_size: usize) -> CompressedJobSubmission {
-    let (graph, _) = build_chain_task_graph(1, ExecutionPolicy::default());
-    let mut inputs = TaskGraphInputBuilder::new();
-    inputs
-        .append_task_input(&incompressible(input_size))
-        .expect("task input appending should succeed");
-    CompressedJobSubmission {
-        compressed_serialized_task_graph: compress_task_graph(&graph)
-            .expect("task graph compression should succeed"),
-        compressed_serialized_job_inputs: compress_job_inputs(&inputs.build())
-            .expect("input compression should succeed"),
-    }
-}
-
-/// # Returns
-///
-/// A child job of `size` bytes that fails to decode.
-fn undecodable_child(size: usize) -> CompressedJobSubmission {
-    CompressedJobSubmission {
-        compressed_serialized_task_graph: vec![0u8; size],
-        compressed_serialized_job_inputs: Vec::new(),
-    }
-}
-
-/// # Returns
-///
-/// `size` pseudo-random bytes.
-fn incompressible(size: usize) -> Vec<u8> {
-    let mut xorshift_state = 0x9e37_79b9_7f4a_7c15_u64;
-    (0..size)
-        .map(|_| {
-            xorshift_state ^= xorshift_state << 13;
-            xorshift_state ^= xorshift_state >> 7;
-            xorshift_state ^= xorshift_state << 17;
-            xorshift_state.to_le_bytes()[0]
-        })
-        .collect()
 }
 
 /// Asserts that `result` is a [`StorageServerError::BadRequest`].

@@ -399,6 +399,33 @@ impl TestEnv {
             .task_instance_id
     }
 
+    /// Registers an execution manager and marks it dead in the database, so that the task instance
+    /// pool removes every instance created for it and republishes the instance's task.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the dead execution manager.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the registration or the update fails.
+    pub async fn register_dead_execution_manager(&self) -> ExecutionManagerId {
+        let execution_manager_id = self
+            .service
+            .register_execution_manager(IpAddr::from([127, 0, 0, 2]), None)
+            .await
+            .expect("execution manager registration should succeed")
+            .0;
+        let result = sqlx::query("UPDATE `execution_managers` SET `state` = ? WHERE `id` = ?;")
+            .bind("Dead")
+            .bind(execution_manager_id)
+            .execute(&self.pool)
+            .await
+            .expect("the execution manager update should succeed");
+        assert_eq!(result.rows_affected(), 1);
+        execution_manager_id
+    }
+
     /// Reports the success of the task instance `task_instance_id` of the task `task_index` of
     /// `job_id`, whose only output is `output`, with `children`.
     ///
@@ -492,6 +519,23 @@ impl TestEnv {
         async move {
             service
                 .succeed_commit_task_instance(service.session_id(), job_id, task_instance_id)
+                .await
+        }
+    }
+
+    /// # Returns
+    ///
+    /// A future that reports the success of the instance `task_instance_id` of `job_id`'s cleanup
+    /// task, and that forwards [`ServiceState::succeed_cleanup_task_instance`]'s return values.
+    pub fn cleanup_success(
+        &self,
+        job_id: JobId,
+        task_instance_id: TaskInstanceId,
+    ) -> impl Future<Output = JobResult> + Send + use<> {
+        let service = self.service.clone();
+        async move {
+            service
+                .succeed_cleanup_task_instance(service.session_id(), job_id, task_instance_id)
                 .await
         }
     }
@@ -592,20 +636,26 @@ impl TestEnv {
             .collect();
         self.drain_lane(Lane::Cleanup, &cleanup_tasks).await;
         for job_id in job_ids {
-            let task_instance_id = self.create_instance(*job_id, TaskId::Cleanup).await;
-            assert_eq!(
-                self.service
-                    .succeed_cleanup_task_instance(
-                        self.service.session_id(),
-                        *job_id,
-                        task_instance_id
-                    )
-                    .await
-                    .expect("the cleanup report should succeed"),
-                JobState::Cancelled,
-                "the cleanup of job {job_id}"
-            );
+            self.run_cleanup(*job_id).await;
         }
+    }
+
+    /// Runs a new instance of the cleanup task of `job_id` to success, without draining the
+    /// cleanup lane.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the report fails or doesn't cancel the job.
+    pub async fn run_cleanup(&self, job_id: JobId) {
+        let task_instance_id = self.create_instance(job_id, TaskId::Cleanup).await;
+        assert_eq!(
+            self.service
+                .succeed_cleanup_task_instance(self.service.session_id(), job_id, task_instance_id)
+                .await
+                .expect("the cleanup report should succeed"),
+            JobState::Cancelled,
+            "the cleanup of job {job_id}"
+        );
     }
 
     /// Drains the published commit task of `job_id` and registers an instance of it.
@@ -1147,12 +1197,14 @@ pub struct ChildRow {
     pub compressed_serialized_task_graph: Vec<u8>,
 }
 
-/// The shape of a test job of independent tasks, each taking and returning one byte-typed value,
-/// whose tasks, commit task and cleanup task each run at most `max_num_instances` instances at once
-/// and are retried at most `max_num_retry` times.
+/// The shape of a test job of tasks that each take and return one byte-typed value: independent
+/// tasks, or, if `is_chain`, a chain where every task but the first takes the previous task's
+/// output. Its tasks, commit task and cleanup task each run at most `max_num_instances` instances
+/// at once and are retried at most `max_num_retry` times.
 #[derive(Clone, Copy, Debug)]
 pub struct JobShape {
     pub num_tasks: usize,
+    pub is_chain: bool,
     pub with_commit: bool,
     pub with_cleanup: bool,
     pub max_num_instances: u32,
@@ -1164,6 +1216,7 @@ impl JobShape {
     /// and is never retried.
     pub const ONE_TASK: Self = Self {
         num_tasks: 1,
+        is_chain: false,
         with_commit: false,
         with_cleanup: false,
         max_num_instances: 1,
@@ -1204,10 +1257,12 @@ impl JobShape {
 
     /// # Returns
     ///
-    /// The task-lane entries that the start of `job_id`, a job of this shape, publishes.
+    /// The task-lane entries that the start of `job_id`, a job of this shape, publishes: every task
+    /// of independent tasks, or the first task of a chain.
     #[must_use]
     pub fn ready_tasks(self, job_id: JobId) -> Vec<(JobId, TaskId)> {
-        (0..self.num_tasks)
+        let num_ready_tasks = if self.is_chain { 1 } else { self.num_tasks };
+        (0..num_ready_tasks)
             .map(|task_index| (job_id, TaskId::Index(task_index)))
             .collect()
     }
@@ -1251,12 +1306,21 @@ impl JobShape {
                     execution_policy: execution_policy.clone(),
                     inputs: vec![bytes_type.clone()],
                     outputs: vec![bytes_type.clone()],
-                    input_sources: None,
+                    input_sources: task_index.checked_sub(1).filter(|_| self.is_chain).map(
+                        |previous_task_index| {
+                            vec![TaskInputOutputIndex {
+                                task_idx: previous_task_index,
+                                position: 0,
+                            }]
+                        },
+                    ),
                 })
                 .expect("task insertion should succeed");
-            inputs
-                .append_task_input(&[0u8; 4])
-                .expect("task input appending should succeed");
+            if !self.is_chain || task_index == 0 {
+                inputs
+                    .append_task_input(&[0u8; 4])
+                    .expect("task input appending should succeed");
+            }
         }
         (graph, inputs.build())
     }
@@ -1571,6 +1635,55 @@ pub fn value(tag: u8, index: usize) -> Vec<u8> {
     let index = u16::try_from(index).expect("test indices should fit in 16 bits");
     let [low, high] = index.to_le_bytes();
     vec![tag, low, high, 0x5a]
+}
+
+/// # Returns
+///
+/// A valid one-task child job whose only input is `input_size` incompressible bytes.
+///
+/// # Panics
+///
+/// Panics if the job fails to build or to compress.
+#[must_use]
+pub fn large_child(input_size: usize) -> CompressedJobSubmission {
+    let (graph, _) = build_chain_task_graph(1, ExecutionPolicy::default());
+    let mut inputs = TaskGraphInputBuilder::new();
+    inputs
+        .append_task_input(&incompressible(input_size))
+        .expect("task input appending should succeed");
+    CompressedJobSubmission {
+        compressed_serialized_task_graph: compress_task_graph(&graph)
+            .expect("task graph compression should succeed"),
+        compressed_serialized_job_inputs: compress_job_inputs(&inputs.build())
+            .expect("input compression should succeed"),
+    }
+}
+
+/// # Returns
+///
+/// A child job of `size` bytes that fails to decode.
+#[must_use]
+pub fn undecodable_child(size: usize) -> CompressedJobSubmission {
+    CompressedJobSubmission {
+        compressed_serialized_task_graph: vec![0u8; size],
+        compressed_serialized_job_inputs: Vec::new(),
+    }
+}
+
+/// # Returns
+///
+/// `size` pseudo-random bytes.
+#[must_use]
+pub fn incompressible(size: usize) -> Vec<u8> {
+    let mut xorshift_state = 0x9e37_79b9_7f4a_7c15_u64;
+    (0..size)
+        .map(|_| {
+            xorshift_state ^= xorshift_state << 13;
+            xorshift_state ^= xorshift_state >> 7;
+            xorshift_state ^= xorshift_state << 17;
+            xorshift_state.to_le_bytes()[0]
+        })
+        .collect()
 }
 
 /// # Returns

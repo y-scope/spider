@@ -6,11 +6,11 @@ mod scheduling_infra;
 mod task_graph_builder;
 
 mod fence_test;
-mod handler_drop_test;
 mod jcb_test;
 mod job_transition_test;
 mod job_tree_cancel_test;
 mod job_tree_completion_test;
+mod job_tree_fault_test;
 mod job_tree_ordering_test;
 mod mariadb_test;
 mod point_of_no_return_test;
