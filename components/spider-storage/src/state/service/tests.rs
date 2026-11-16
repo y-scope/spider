@@ -300,6 +300,23 @@ async fn cancel_job_returns_job_not_found_if_not_exist() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn cancel_job_forwards_a_db_error_other_than_an_unknown_job() -> anyhow::Result<()> {
+    let db = MockDbConnector::default();
+    db.injected_state_and_parent_errors
+        .lock()
+        .expect("the injected state and parent errors' mutex should not be poisoned")
+        .push_back(DbError::CorruptedDbState("corrupted".to_owned()));
+
+    let service = create_test_service_with_db(db);
+    let result = service.cancel_job(JobId::random()).await;
+    let Err(StorageServerError::Db(DbError::CorruptedDbState(message))) = &result else {
+        panic!("cancel_job of a job whose read fails gave {result:?}");
+    };
+    assert_eq!(message, "corrupted");
+    Ok(())
+}
+
+#[tokio::test]
 async fn cancel_job_returns_terminal_state_from_db_when_not_in_cache() -> anyhow::Result<()> {
     let db = MockDbConnector::default();
     let job_id = JobId::random();
@@ -625,8 +642,9 @@ async fn job_rpcs_reject_an_uncached_child_job() -> anyhow::Result<()> {
     for state in [JobState::Running, JobState::Succeeded, JobState::Failed] {
         let db = MockDbConnector::default();
         let job_id = JobId::random();
+        let parent_id = JobId::random();
         db.states.insert(job_id, state);
-        db.parents.insert(job_id, JobId::random());
+        db.parents.insert(job_id, parent_id);
         db.errors.insert(job_id, "child error".to_owned());
         db.outputs.insert(job_id, Vec::new());
 
@@ -634,6 +652,7 @@ async fn job_rpcs_reject_an_uncached_child_job() -> anyhow::Result<()> {
         assert_job_rpcs_reject_as_a_bad_request(
             &service,
             job_id,
+            parent_id,
             &format!("an uncached {state} child"),
         )
         .await;
@@ -686,7 +705,8 @@ async fn job_rpcs_reject_a_cached_child_job() -> anyhow::Result<()> {
         .await
         .expect("the registered child should be cached");
 
-    assert_job_rpcs_reject_as_a_bad_request(&service, *child_id, "a cached running child").await;
+    assert_job_rpcs_reject_as_a_bad_request(&service, *child_id, root_id, "a cached running child")
+        .await;
     assert_eq!(child.state().await, JobState::Running);
     assert_eq!(
         service.get_job_state(root_id).await?,
@@ -695,16 +715,20 @@ async fn job_rpcs_reject_a_cached_child_job() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Asserts that each of the five external job RPCs rejects `job_id` as a bad request.
+/// Asserts that each of the five external job RPCs rejects `job_id`, a child of `parent_id`, as a
+/// bad request that names the job and its parent.
 ///
 /// # Panics
 ///
-/// Panics if an RPC does not answer [`StorageServerError::BadRequest`].
+/// Panics if an RPC does not answer that [`StorageServerError::BadRequest`].
 async fn assert_job_rpcs_reject_as_a_bad_request(
     service: &TestServiceState,
     job_id: JobId,
+    parent_id: JobId,
     description: &str,
 ) {
+    let expected_message =
+        format!("job {job_id} is a child job of job {parent_id}, not a root job");
     let results = [
         ("StartJob", service.start_job(job_id).await),
         ("CancelJob", service.cancel_job(job_id).await.map(|_| ())),
@@ -723,7 +747,10 @@ async fn assert_job_rpcs_reject_as_a_bad_request(
     ];
     for (rpc, result) in results {
         assert!(
-            matches!(result, Err(StorageServerError::BadRequest(_))),
+            matches!(
+                &result,
+                Err(StorageServerError::BadRequest(message)) if *message == expected_message
+            ),
             "{rpc} of {description} gave {result:?}"
         );
     }
