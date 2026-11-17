@@ -30,8 +30,7 @@ pub struct Plan {
     /// The ready work to publish after the updates are applied.
     pub publications: Vec<Publication>,
 
-    /// The new number of active children of each parent whose children's successes the plan
-    /// counts, by parent.
+    /// The new number of active children of each parent that the round's successes decrement.
     pub active_children: HashMap<JobId, usize>,
 
     /// The outcome of each event of the round, in the round's order.
