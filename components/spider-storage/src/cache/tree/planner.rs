@@ -619,13 +619,20 @@ impl EventPlan {
         }
     }
 
-    /// Plans the effect of the success of the tree's job `job_id` on its ancestors in `overlay`
-    /// into this plan: a parent that blocks on its children counts one active child less, and once
-    /// it counts none, it moves from [`JobState::BlockingOnChildren`] to its completion target (see
-    /// [`TreeNode::completion_target`]), with its commit task published if that is
-    /// [`JobState::CommitReady`]. A parent that succeeds climbs on to its own parent. The climb
-    /// stops at the root, at a parent that still counts active children, at a parent that commits,
-    /// and at a parent that no longer blocks on its children (see [`Overlay::blocking_parent`]).
+    /// Plans how the success of the job `job_id` climbs up its ancestors, reading them from
+    /// `overlay` and adding the changes to this plan.
+    ///
+    /// For each parent on the way up:
+    ///
+    /// 1. The parent's number of active children goes down by one.
+    /// 2. If the parent still has active children, the climb stops.
+    /// 3. Otherwise, the parent leaves [`JobState::BlockingOnChildren`]:
+    ///    * With a commit task, it moves to [`JobState::CommitReady`] with the commit task
+    ///      published, and the climb stops.
+    ///    * Without one, it moves to [`JobState::Succeeded`], and the climb goes on to its parent.
+    ///
+    /// The climb also stops at the root, and at a parent that a cancel or a failure has already
+    /// moved out of [`JobState::BlockingOnChildren`] (see [`Overlay::blocking_parent`]).
     ///
     /// # Errors
     ///
