@@ -19,8 +19,8 @@ pub const MAX_REPORT_OUTPUTS_SIZE: u64 = 4 * 1024 * 1024;
 /// The maximum size of a decoded message of the task instance management service.
 pub const MAX_TASK_INSTANCE_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
 
-/// A job submission as submitted: its zstd-compressed serialized task graph and its
-/// zstd-compressed serialized job inputs, not validated yet.
+/// A job submission as submitted: its zstd-compressed serialized task graph and its zstd-compressed
+/// serialized job inputs, not validated yet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompressedJobSubmission {
     pub compressed_serialized_task_graph: Vec<u8>,
