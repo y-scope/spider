@@ -367,8 +367,8 @@ mod tests {
 
     /// # Returns
     ///
-    /// The structure of a tree whose root is `root` and whose other jobs are `jobs`, each under
-    /// the parent of its node. Each parent counts its children of `jobs` as active.
+    /// The structure of a tree whose root is `root` and whose other jobs are `jobs`, each under the
+    /// parent of its node. Each parent counts its children of `jobs` as active.
     ///
     /// # Panics
     ///

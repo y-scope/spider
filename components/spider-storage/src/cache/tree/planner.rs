@@ -343,8 +343,8 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     }
 
     /// Plans the effect of the success of the tree's job `job_id` on its ancestors into
-    /// `event_plan`: a parent that blocks on its children counts one active child less, and once
-    /// it counts none, it moves from [`JobState::BlockingOnChildren`] to its completion target (see
+    /// `event_plan`: a parent that blocks on its children counts one active child less, and once it
+    /// counts none, it moves from [`JobState::BlockingOnChildren`] to its completion target (see
     /// [`TreeNode::completion_target`]), with its commit task published if that is
     /// [`JobState::CommitReady`]. A parent that succeeds climbs on to its own parent. The climb
     /// stops at the root, at a parent that still counts active children, at a parent that commits,
