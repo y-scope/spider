@@ -223,8 +223,7 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
 
     /// # Returns
     ///
-    /// The plan of the round's planned events, with the numbers of active children that the
-    /// overlay kept.
+    /// The plan of the round's planned events, including the overlay's numbers of active children.
     pub(super) fn finish(self) -> Plan {
         Plan {
             num_active_children: self.overlay.planned_num_active_children,
