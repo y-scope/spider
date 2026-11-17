@@ -126,20 +126,12 @@ impl StorageClient for GrpcStorageClient {
             children: children.into_iter().map(Into::into).collect(),
             task_instance_id,
         };
-        if request.encoded_len() > MAX_TASK_INSTANCE_MESSAGE_SIZE {
-            return self
-                .report_task_failure(
-                    job_id,
-                    task_id,
-                    task_instance_id,
-                    em_id,
-                    session_id,
-                    format!(
-                        "invalid success payload: report exceeds {MAX_TASK_INSTANCE_MESSAGE_SIZE} \
-                         bytes"
-                    ),
-                )
-                .await;
+        let size = request.encoded_len();
+        if size > MAX_TASK_INSTANCE_MESSAGE_SIZE {
+            return Err(StorageResponseError::ReportTooLarge {
+                size: size as u64,
+                limit: MAX_TASK_INSTANCE_MESSAGE_SIZE as u64,
+            });
         }
         self.connection_pool
             .get_client()
@@ -339,26 +331,20 @@ mod tests {
             assert!(matches!(error, StorageResponseError::InvalidInput(_)));
         }
         assert_eq!(service.successes.lock().await.len(), 1);
-        assert_oversized_success_reports_failure(&client, &service).await?;
+        assert_oversized_success_is_rejected(&client, &service).await;
         drop(client);
         drop(shutdown_guard);
         server.await??;
         Ok(())
     }
 
-    /// Verifies that an oversized success request becomes a failure for the same task instance.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`GrpcStorageClient::report_task_success`]'s return values on failure.
-    async fn assert_oversized_success_reports_failure(
+    /// Verifies that an oversized success request returns an error without sending a report.
+    async fn assert_oversized_success_is_rejected(
         client: &GrpcStorageClient,
         service: &RecordingService,
-    ) -> anyhow::Result<()> {
+    ) {
         // The output buffer fits the limit, but protobuf fields make the request exceed it.
-        client
+        let error = client
             .report_task_success(
                 JobId::from(11),
                 TaskId::Index(7),
@@ -370,23 +356,18 @@ mod tests {
                     children: Vec::new(),
                 },
             )
-            .await?;
+            .await
+            .expect_err("oversized reports must be rejected locally");
+        let StorageResponseError::ReportTooLarge { size, limit } = error else {
+            panic!("expected report size error, got {error:?}");
+        };
+        assert!(size > limit);
+        assert_eq!(limit, MAX_TASK_INSTANCE_MESSAGE_SIZE as u64);
         assert_eq!(service.successes.lock().await.len(), 1);
         assert_eq!(
             *service.failures.lock().await,
-            vec![storage::ReportTaskFailureRequest {
-                job_id: 11,
-                task_id: Some(common::TaskId::from(TaskId::Index(7))),
-                task_instance_id: 13,
-                execution_manager_id: 17,
-                session_id: 19,
-                error_message: format!(
-                    "invalid success payload: report exceeds {MAX_TASK_INSTANCE_MESSAGE_SIZE} \
-                     bytes"
-                ),
-            }],
+            [] as [storage::ReportTaskFailureRequest; 0]
         );
-        Ok(())
     }
 
     #[test]

@@ -615,7 +615,7 @@ impl Report {
         }
     }
 
-    /// Consumes `self` and sends it to storage via the matching reporting endpoint.
+    /// Sends the report to storage, reporting an oversized success as a task failure instead.
     ///
     /// # Type Parameters
     ///
@@ -625,7 +625,8 @@ impl Report {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`StorageClient::report_task_success`]'s return values on failure.
+    /// * Forwards [`StorageClient::report_task_success`]'s errors other than
+    ///   [`StorageResponseError::ReportTooLarge`].
     /// * Forwards [`StorageClient::report_task_failure`]'s return values on failure.
     async fn send<StorageClientType: StorageClient>(
         self,
@@ -641,9 +642,24 @@ impl Report {
         } = target;
         match self {
             Self::Success(outcome) => {
-                storage_client
+                match storage_client
                     .report_task_success(job, task, task_instance_id, em, session, outcome)
                     .await
+                {
+                    Err(error @ StorageResponseError::ReportTooLarge { .. }) => {
+                        storage_client
+                            .report_task_failure(
+                                job,
+                                task,
+                                task_instance_id,
+                                em,
+                                session,
+                                format!("invalid success payload: {error}"),
+                            )
+                            .await
+                    }
+                    result => result,
+                }
             }
             Self::Failure(message) => {
                 storage_client

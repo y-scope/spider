@@ -14,9 +14,8 @@ use spider_core::types::io::ExecutionContext;
 
 /// Errors returned by [`StorageClient`] operations.
 ///
-/// The variants intentionally mirror the storage server's externally visible failure modes (see
-/// `spider_storage::state::error::StorageServerError`) plus a transport bucket for connection /
-/// serialization failures.
+/// Includes local request validation failures, the storage server's externally visible failure
+/// modes, and connection or serialization failures.
 #[derive(Debug, thiserror::Error)]
 pub enum StorageResponseError {
     /// The `session_id` carried with the request does not match storage's current session.
@@ -40,6 +39,10 @@ pub enum StorageResponseError {
     /// The input to the operation is invalid.
     #[error("invalid input: {0}")]
     InvalidInput(String),
+
+    /// The encoded success report exceeds the task instance management service's message limit.
+    #[error("success report of {size} bytes exceeds message limit of {limit} bytes")]
+    ReportTooLarge { size: u64, limit: u64 },
 }
 
 /// Client interface to the storage server.
@@ -98,6 +101,8 @@ pub trait StorageClient: Send + Sync {
     /// * [`StorageResponseError::Server`] if storage returned an otherwise-uncategorized error.
     /// * [`StorageResponseError::InvalidInput`] if the outcome does not match the task kind, or
     ///   storage rejects the report.
+    /// * [`StorageResponseError::ReportTooLarge`] if the encoded report exceeds the service's
+    ///   message limit. The report is not sent.
     async fn report_task_success(
         &self,
         job_id: JobId,
