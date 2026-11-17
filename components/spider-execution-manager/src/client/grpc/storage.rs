@@ -115,13 +115,7 @@ impl StorageClient for GrpcStorageClient {
             execution_manager_id: em_id.get(),
             session_id,
             serialized_outputs: serialized_outputs.unwrap_or_default(),
-            children: children
-                .into_iter()
-                .map(|child| storage::ChildJobRequest {
-                    compressed_serialized_task_graph: child.compressed_serialized_task_graph,
-                    compressed_serialized_task_graph_input: child.compressed_serialized_job_inputs,
-                })
-                .collect(),
+            children: children.into_iter().map(Into::into).collect(),
             task_instance_id,
         };
         self.connection_pool
@@ -273,17 +267,7 @@ mod tests {
             execution_manager_id: 17,
             session_id: 19,
             serialized_outputs: outputs.clone(),
-            children: children
-                .iter()
-                .map(|child| storage::ChildJobRequest {
-                    compressed_serialized_task_graph: child
-                        .compressed_serialized_task_graph
-                        .clone(),
-                    compressed_serialized_task_graph_input: child
-                        .compressed_serialized_job_inputs
-                        .clone(),
-                })
-                .collect(),
+            children: children.clone().into_iter().map(Into::into).collect(),
         };
         client
             .report_task_success(

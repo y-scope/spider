@@ -1107,7 +1107,7 @@ mod tests {
                 execution_manager_id: em_id.get(),
                 session_id: 0,
                 serialized_outputs: outputs,
-                children: vec![storage::ChildJobRequest {
+                children: vec![storage::CompressedJobSubmission {
                     compressed_serialized_task_graph: compress_task_graph(&graph),
                     compressed_serialized_task_graph_input: compress_job_inputs(
                         &create_test_task_graph_input(),

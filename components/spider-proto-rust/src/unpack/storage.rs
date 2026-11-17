@@ -3,6 +3,7 @@
 use std::net::IpAddr;
 use std::time::Duration;
 
+use spider_core::job::submission::CompressedJobSubmission;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -14,7 +15,6 @@ use spider_utils::config::Host;
 use tonic::Code;
 
 use crate::storage::AddResourceGroupRequest;
-use crate::storage::ChildJobRequest;
 use crate::storage::ExecutionManagerIdRequest;
 use crate::storage::JobIdRequest;
 use crate::storage::PollReadyTasksRequest;
@@ -97,7 +97,7 @@ impl RequestUnpack for ReportTaskSuccessRequest {
         TaskId,
         TaskInstanceId,
         Vec<u8>,
-        Vec<ChildJobRequest>,
+        Vec<CompressedJobSubmission>,
     );
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
@@ -117,7 +117,7 @@ impl RequestUnpack for ReportTaskSuccessRequest {
             task_id,
             self.task_instance_id,
             self.serialized_outputs,
-            self.children,
+            self.children.into_iter().map(Into::into).collect(),
         ))
     }
 }

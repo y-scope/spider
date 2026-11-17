@@ -103,7 +103,7 @@ pub struct TimeoutPolicy {
     pub hard_timeout_ms: u64,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ChildJobRequest {
+pub struct CompressedJobSubmission {
     #[prost(bytes = "vec", tag = "1")]
     pub compressed_serialized_task_graph: ::prost::alloc::vec::Vec<u8>,
     #[prost(bytes = "vec", tag = "2")]
@@ -124,7 +124,7 @@ pub struct ReportTaskSuccessRequest {
     #[prost(bytes = "vec", tag = "6")]
     pub serialized_outputs: ::prost::alloc::vec::Vec<u8>,
     #[prost(message, repeated, tag = "7")]
-    pub children: ::prost::alloc::vec::Vec<ChildJobRequest>,
+    pub children: ::prost::alloc::vec::Vec<CompressedJobSubmission>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ReportTaskFailureRequest {
