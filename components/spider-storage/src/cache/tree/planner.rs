@@ -75,7 +75,8 @@ impl Plan {
         }
     }
 
-    /// Adds `event_plan`, the plan of the round's next event, to this plan.
+    /// Adds `event_plan`, the plan of the round's next event, to this plan, except for its numbers
+    /// of active children: the overlay keeps them until the round's planning finishes.
     fn merge(&mut self, event_plan: EventPlan) {
         self.payload_size += event_plan.payload_size();
         if let Some(EventRegistration {
@@ -93,8 +94,6 @@ impl Plan {
             .push(RoundOutcome::Planned(event_plan.outcome));
         self.updates.extend(event_plan.updates);
         self.publications.extend(event_plan.publications);
-        self.num_active_children
-            .extend(event_plan.num_active_children);
     }
 
     /// Defers the round's next event to a later round.
@@ -224,9 +223,13 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
 
     /// # Returns
     ///
-    /// The plan of the round's planned events.
+    /// The plan of the round's planned events, with the numbers of active children that the
+    /// overlay kept.
     pub(super) fn finish(self) -> Plan {
-        self.plan
+        Plan {
+            num_active_children: self.overlay.planned_num_active_children,
+            ..self.plan
+        }
     }
 }
 
