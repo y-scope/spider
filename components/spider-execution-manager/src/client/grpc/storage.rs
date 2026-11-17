@@ -192,8 +192,8 @@ fn to_transport_error(error: impl std::fmt::Display) -> StorageResponseError {
 mod tests {
     use std::sync::Arc;
 
-    use spider_core::job_submission::CompressedJobSubmission;
-    use spider_core::job_submission::MAX_TASK_INSTANCE_MESSAGE_SIZE;
+    use spider_core::job::submission::CompressedJobSubmission;
+    use spider_core::job::submission::MAX_TASK_INSTANCE_MESSAGE_SIZE;
     use spider_proto_rust::storage::TaskInstanceManagementService;
     use spider_proto_rust::storage::TaskInstanceManagementServiceServer;
     use tokio::net::TcpListener;

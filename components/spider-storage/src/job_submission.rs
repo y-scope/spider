@@ -1,4 +1,4 @@
-pub use spider_core::job_submission::CompressedJobSubmission;
+pub use spider_core::job::submission::CompressedJobSubmission;
 use spider_core::task::TaskGraph;
 use spider_core::task::{self};
 use spider_core::types::io::TaskGraphInput;

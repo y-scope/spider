@@ -4,7 +4,7 @@
 //! instance, fetch its [`ExecutionContext`], and report success or failure.
 
 use async_trait::async_trait;
-use spider_core::job_submission::CompressedJobSubmission;
+use spider_core::job::submission::CompressedJobSubmission;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::SessionId;

@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use dashmap::DashSet;
-use spider_core::job_submission::CompressedJobSubmission;
+use spider_core::job::submission::CompressedJobSubmission;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;

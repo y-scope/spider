@@ -22,7 +22,7 @@ use anyhow::anyhow;
 use bytes::Bytes;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
-use spider_core::job_submission::MAX_TASK_INSTANCE_MESSAGE_SIZE;
+use spider_core::job::submission::MAX_TASK_INSTANCE_MESSAGE_SIZE;
 use spider_task_executor::ExecutorError;
 use spider_task_executor::TdlPackageManager;
 use spider_task_executor::protocol::ExecutorOutcome;

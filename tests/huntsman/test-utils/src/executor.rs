@@ -20,7 +20,7 @@ use std::process::Stdio;
 use bytes::Bytes;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
-use spider_core::job_submission::MAX_TASK_INSTANCE_MESSAGE_SIZE;
+use spider_core::job::submission::MAX_TASK_INSTANCE_MESSAGE_SIZE;
 use spider_core::task::TdlContext;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;

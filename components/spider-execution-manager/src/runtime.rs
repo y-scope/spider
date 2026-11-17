@@ -6,11 +6,11 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use spider_core::job_submission::CompressedJobSubmission;
-use spider_core::job_submission::MAX_CHILD_SIZE;
-use spider_core::job_submission::MAX_CHILDREN_PER_JOB;
-use spider_core::job_submission::MAX_REPORT_CHILDREN_SIZE;
-use spider_core::job_submission::MAX_REPORT_OUTPUTS_SIZE;
+use spider_core::job::submission::CompressedJobSubmission;
+use spider_core::job::submission::MAX_CHILD_SIZE;
+use spider_core::job::submission::MAX_CHILDREN_PER_JOB;
+use spider_core::job::submission::MAX_REPORT_CHILDREN_SIZE;
+use spider_core::job::submission::MAX_REPORT_OUTPUTS_SIZE;
 use spider_core::session::SessionTracker;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;

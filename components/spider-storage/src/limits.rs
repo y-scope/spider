@@ -1,9 +1,9 @@
 //! Limits that the storage service enforces.
 
-pub use spider_core::job_submission::MAX_CHILDREN_PER_JOB;
-pub use spider_core::job_submission::MAX_REPORT_CHILDREN_SIZE;
-pub use spider_core::job_submission::MAX_REPORT_OUTPUTS_SIZE;
-pub use spider_core::job_submission::MAX_TASK_INSTANCE_MESSAGE_SIZE;
+pub use spider_core::job::submission::MAX_CHILDREN_PER_JOB;
+pub use spider_core::job::submission::MAX_REPORT_CHILDREN_SIZE;
+pub use spider_core::job::submission::MAX_REPORT_OUTPUTS_SIZE;
+pub use spider_core::job::submission::MAX_TASK_INSTANCE_MESSAGE_SIZE;
 
 /// The maximum number of events that one round of a tree's committer plans.
 pub const MAX_EVENTS_PER_ROUND: usize = 256;

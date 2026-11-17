@@ -47,7 +47,7 @@ async fn fibonacci_returns_correct_value() {
         ExecutorOutcome::Success { outputs, children } => {
             assert_eq!(
                 children,
-                [] as [spider_core::job_submission::CompressedJobSubmission; 0]
+                [] as [spider_core::job::submission::CompressedJobSubmission; 0]
             );
             let got: u64 = decode_single_output(&outputs);
             // Fib(10) = 55

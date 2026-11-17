@@ -10,7 +10,7 @@
 
 use serde::Deserialize;
 use serde::Serialize;
-use spider_core::job_submission::CompressedJobSubmission;
+use spider_core::job::submission::CompressedJobSubmission;
 use spider_core::task::TdlContext;
 
 /// Request from the parent process (execution manager) to the executor.
