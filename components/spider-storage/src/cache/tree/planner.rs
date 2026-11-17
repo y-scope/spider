@@ -205,9 +205,9 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`Overlay::plan_event`]'s return values on failure.
+    /// * Forwards [`EventPlan::of`]'s return values on failure.
     pub(super) fn plan_event(&mut self, event: &TreeEvent) -> Result<Admission, InternalError> {
-        let event_plan = self.overlay.plan_event(event)?;
+        let event_plan = EventPlan::of(event, &self.overlay)?;
         let admission = self.plan.admission(&event_plan);
         match admission {
             Admission::Admitted => {
@@ -250,143 +250,6 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
             planned_states: HashMap::new(),
             planned_num_active_children: HashMap::new(),
         }
-    }
-
-    /// Plans one event against the overlay.
-    ///
-    /// # Returns
-    ///
-    /// The plan of `event` on success:
-    ///
-    /// * [`TreeEventOutcome::Untracked`] if the event's job is not in the tree.
-    /// * [`TreeEventOutcome::Stale`] if the job's state does not accept the event (see
-    ///   [`TreeEventKind::ensure_accepts`]).
-    /// * Otherwise, the event is applied:
-    ///   * [`TreeEventKind::Start`]: the root moves from [`JobState::Ready`] to
-    ///     [`JobState::Running`], and its ready tasks are published.
-    ///   * [`TreeEventKind::RegularTasksDone`] without children: the job stores its outputs and
-    ///     moves from [`JobState::Running`] to its completion target (see
-    ///     [`TreeNode::completion_target`]), with its commit task published if that is
-    ///     [`JobState::CommitReady`], or with its success climbing (see
-    ///     [`Self::climb_after_success`]) if that is [`JobState::Succeeded`].
-    ///   * [`TreeEventKind::RegularTasksDone`] with children over the limits of one job (see
-    ///     [`ChildJobUsage::is_within_job_limits`]): the job moves from [`JobState::Running`] to
-    ///     [`JobState::Failed`].
-    ///   * [`TreeEventKind::RegularTasksDone`] with other children: the job stores its outputs,
-    ///     moves from [`JobState::Running`] to [`JobState::BlockingOnChildren`] and registers its
-    ///     children.
-    ///   * [`TreeEventKind::CommitDone`]: the job moves from [`JobState::CommitReady`] to
-    ///     [`JobState::Succeeded`], and its success climbs (see [`Self::climb_after_success`]).
-    ///   * [`TreeEventKind::CleanupDone`]: the job moves from [`JobState::CleanupReady`] to
-    ///     [`JobState::Cancelled`].
-    ///   * [`TreeEventKind::TerminalFailure`]: the job moves from its lane's state to
-    ///     [`JobState::Failed`] and stores the failure's message, cut to
-    ///     [`MAX_ERROR_MESSAGE_CHARS`] characters.
-    ///   * [`TreeEventKind::CancelRoot`]: the root moves to [`JobState::Cancelled`] if it is
-    ///     [`JobState::Ready`] or has no cleanup task, otherwise to [`JobState::CleanupReady`],
-    ///     with its cleanup task published.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`Self::climb_after_success`]'s return values on failure.
-    fn plan_event(&self, event: &TreeEvent) -> Result<EventPlan, InternalError> {
-        let job_id = event.job_id;
-        let Some(node) = self.node(job_id) else {
-            return Ok(EventPlan::untracked());
-        };
-        if let Err(error) = event.kind.ensure_accepts(node.state) {
-            return Ok(EventPlan::stale(error));
-        }
-        let event_plan = match &event.kind {
-            TreeEventKind::Start { ready_task_indices } => {
-                EventPlan::start_root(job_id, ready_task_indices.clone())
-            }
-            TreeEventKind::RegularTasksDone { outputs, children } if children.is_empty() => {
-                let mut event_plan =
-                    EventPlan::complete_regular_tasks(job_id, &node, outputs.clone());
-                if node.completion_target() == JobState::Succeeded {
-                    self.climb_after_success(&mut event_plan, job_id)?;
-                }
-                event_plan
-            }
-            TreeEventKind::RegularTasksDone { outputs, children } => {
-                let children = ChildJobUsage::of(children);
-                if children.is_within_job_limits() {
-                    EventPlan::register_children(job_id, outputs.clone(), children)
-                } else {
-                    EventPlan::fail_job(
-                        job_id,
-                        node.state,
-                        &format!(
-                            "child jobs ({} of {} bytes) exceed the limits of \
-                             {MAX_CHILDREN_PER_JOB} child jobs and {MAX_JOB_CHILDREN_SIZE} bytes \
-                             per job",
-                            children.count, children.size
-                        ),
-                    )
-                }
-            }
-            TreeEventKind::CommitDone => {
-                let mut event_plan = EventPlan::complete_commit(job_id);
-                self.climb_after_success(&mut event_plan, job_id)?;
-                event_plan
-            }
-            TreeEventKind::CleanupDone => EventPlan::complete_cleanup(job_id),
-            TreeEventKind::TerminalFailure { message, .. } => {
-                EventPlan::fail_job(job_id, node.state, message)
-            }
-            TreeEventKind::CancelRoot => EventPlan::cancel_root(job_id, &node),
-        };
-        Ok(event_plan)
-    }
-
-    /// Plans the effect of the success of the tree's job `job_id` on its ancestors into
-    /// `event_plan`: a parent that blocks on its children counts one active child less, and once it
-    /// counts none, it moves from [`JobState::BlockingOnChildren`] to its completion target (see
-    /// [`TreeNode::completion_target`]), with its commit task published if that is
-    /// [`JobState::CommitReady`]. A parent that succeeds climbs on to its own parent. The climb
-    /// stops at the root, at a parent that still counts active children, at a parent that commits,
-    /// and at a parent that no longer blocks on its children (see [`Self::blocking_parent`]).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError::BlockingJobWithoutActiveChild`] if a parent that blocks on its children
-    ///   counts no active child.
-    /// * Forwards [`Self::blocking_parent`]'s return values on failure.
-    fn climb_after_success(
-        &self,
-        event_plan: &mut EventPlan,
-        job_id: JobId,
-    ) -> Result<(), InternalError> {
-        let mut succeeded_job_id = job_id;
-        while let Some((parent_id, parent)) = self.blocking_parent(succeeded_job_id)? {
-            let num_active_children = parent
-                .num_active_children
-                .checked_sub(1)
-                .ok_or(InternalError::BlockingJobWithoutActiveChild(parent_id))?;
-            event_plan
-                .num_active_children
-                .insert(parent_id, num_active_children);
-            if num_active_children > 0 {
-                return Ok(());
-            }
-            let to = parent.completion_target();
-            event_plan.updates.push(JobStateUpdate::new(
-                parent_id,
-                JobState::BlockingOnChildren,
-                to,
-            ));
-            if to == JobState::CommitReady {
-                event_plan.publications.push(Publication::Commit(parent_id));
-                return Ok(());
-            }
-            succeeded_job_id = parent_id;
-        }
-        Ok(())
     }
 
     /// # Returns
@@ -480,6 +343,97 @@ struct EventPlan {
 }
 
 impl EventPlan {
+    /// Factory function.
+    ///
+    /// Plans `event` against `overlay`.
+    ///
+    /// # Returns
+    ///
+    /// The plan of `event` on success:
+    ///
+    /// * [`TreeEventOutcome::Untracked`] if the event's job is not in the tree.
+    /// * [`TreeEventOutcome::Stale`] if the job's state does not accept the event (see
+    ///   [`TreeEventKind::ensure_accepts`]).
+    /// * Otherwise, the event is applied:
+    ///   * [`TreeEventKind::Start`]: the root moves from [`JobState::Ready`] to
+    ///     [`JobState::Running`], and its ready tasks are published.
+    ///   * [`TreeEventKind::RegularTasksDone`] without children: the job stores its outputs and
+    ///     moves from [`JobState::Running`] to its completion target (see
+    ///     [`TreeNode::completion_target`]), with its commit task published if that is
+    ///     [`JobState::CommitReady`], or with its success climbing (see
+    ///     [`Self::climb_after_success`]) if that is [`JobState::Succeeded`].
+    ///   * [`TreeEventKind::RegularTasksDone`] with children over the limits of one job (see
+    ///     [`ChildJobUsage::is_within_job_limits`]): the job moves from [`JobState::Running`] to
+    ///     [`JobState::Failed`].
+    ///   * [`TreeEventKind::RegularTasksDone`] with other children: the job stores its outputs,
+    ///     moves from [`JobState::Running`] to [`JobState::BlockingOnChildren`] and registers its
+    ///     children.
+    ///   * [`TreeEventKind::CommitDone`]: the job moves from [`JobState::CommitReady`] to
+    ///     [`JobState::Succeeded`], and its success climbs (see [`Self::climb_after_success`]).
+    ///   * [`TreeEventKind::CleanupDone`]: the job moves from [`JobState::CleanupReady`] to
+    ///     [`JobState::Cancelled`].
+    ///   * [`TreeEventKind::TerminalFailure`]: the job moves from its lane's state to
+    ///     [`JobState::Failed`] and stores the failure's message, cut to
+    ///     [`MAX_ERROR_MESSAGE_CHARS`] characters.
+    ///   * [`TreeEventKind::CancelRoot`]: the root moves to [`JobState::Cancelled`] if it is
+    ///     [`JobState::Ready`] or has no cleanup task, otherwise to [`JobState::CleanupReady`],
+    ///     with its cleanup task published.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::climb_after_success`]'s return values on failure.
+    fn of(event: &TreeEvent, overlay: &Overlay<'_>) -> Result<Self, InternalError> {
+        let job_id = event.job_id;
+        let Some(node) = overlay.node(job_id) else {
+            return Ok(Self::untracked());
+        };
+        if let Err(error) = event.kind.ensure_accepts(node.state) {
+            return Ok(Self::stale(error));
+        }
+        let event_plan = match &event.kind {
+            TreeEventKind::Start { ready_task_indices } => {
+                Self::start_root(job_id, ready_task_indices.clone())
+            }
+            TreeEventKind::RegularTasksDone { outputs, children } if children.is_empty() => {
+                let mut event_plan = Self::complete_regular_tasks(job_id, &node, outputs.clone());
+                if node.completion_target() == JobState::Succeeded {
+                    event_plan.climb_after_success(overlay, job_id)?;
+                }
+                event_plan
+            }
+            TreeEventKind::RegularTasksDone { outputs, children } => {
+                let children = ChildJobUsage::of(children);
+                if children.is_within_job_limits() {
+                    Self::register_children(job_id, outputs.clone(), children)
+                } else {
+                    Self::fail_job(
+                        job_id,
+                        node.state,
+                        &format!(
+                            "child jobs ({} of {} bytes) exceed the limits of \
+                             {MAX_CHILDREN_PER_JOB} child jobs and {MAX_JOB_CHILDREN_SIZE} bytes \
+                             per job",
+                            children.count, children.size
+                        ),
+                    )
+                }
+            }
+            TreeEventKind::CommitDone => {
+                let mut event_plan = Self::complete_commit(job_id);
+                event_plan.climb_after_success(overlay, job_id)?;
+                event_plan
+            }
+            TreeEventKind::CleanupDone => Self::complete_cleanup(job_id),
+            TreeEventKind::TerminalFailure { message, .. } => {
+                Self::fail_job(job_id, node.state, message)
+            }
+            TreeEventKind::CancelRoot => Self::cancel_root(job_id, &node),
+        };
+        Ok(event_plan)
+    }
+
     /// Factory function.
     ///
     /// # Returns
@@ -663,6 +617,52 @@ impl EventPlan {
             num_active_children: HashMap::new(),
             registration: None,
         }
+    }
+
+    /// Plans the effect of the success of the tree's job `job_id` on its ancestors in `overlay`
+    /// into this plan: a parent that blocks on its children counts one active child less, and once
+    /// it counts none, it moves from [`JobState::BlockingOnChildren`] to its completion target (see
+    /// [`TreeNode::completion_target`]), with its commit task published if that is
+    /// [`JobState::CommitReady`]. A parent that succeeds climbs on to its own parent. The climb
+    /// stops at the root, at a parent that still counts active children, at a parent that commits,
+    /// and at a parent that no longer blocks on its children (see [`Overlay::blocking_parent`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::BlockingJobWithoutActiveChild`] if a parent that blocks on its children
+    ///   counts no active child.
+    /// * Forwards [`Overlay::blocking_parent`]'s return values on failure.
+    fn climb_after_success(
+        &mut self,
+        overlay: &Overlay<'_>,
+        job_id: JobId,
+    ) -> Result<(), InternalError> {
+        let mut succeeded_job_id = job_id;
+        while let Some((parent_id, parent)) = overlay.blocking_parent(succeeded_job_id)? {
+            let num_active_children = parent
+                .num_active_children
+                .checked_sub(1)
+                .ok_or(InternalError::BlockingJobWithoutActiveChild(parent_id))?;
+            self.num_active_children
+                .insert(parent_id, num_active_children);
+            if num_active_children > 0 {
+                return Ok(());
+            }
+            let to = parent.completion_target();
+            self.updates.push(JobStateUpdate::new(
+                parent_id,
+                JobState::BlockingOnChildren,
+                to,
+            ));
+            if to == JobState::CommitReady {
+                self.publications.push(Publication::Commit(parent_id));
+                return Ok(());
+            }
+            succeeded_job_id = parent_id;
+        }
+        Ok(())
     }
 
     /// # Returns
