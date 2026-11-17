@@ -31,7 +31,7 @@ pub struct Plan {
     pub publications: Vec<Publication>,
 
     /// The new number of active children of each parent that the round's successes decrement.
-    pub active_children: HashMap<JobId, usize>,
+    pub num_active_children: HashMap<JobId, usize>,
 
     /// The outcome of each event of the round, in the round's order.
     pub outcomes: Vec<RoundOutcome>,
@@ -93,7 +93,8 @@ impl Plan {
             .push(RoundOutcome::Planned(event_plan.outcome));
         self.updates.extend(event_plan.updates);
         self.publications.extend(event_plan.publications);
-        self.active_children.extend(event_plan.active_children);
+        self.num_active_children
+            .extend(event_plan.num_active_children);
     }
 
     /// Defers the round's next event to a later round.
@@ -234,7 +235,7 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
 struct Overlay<'structure_lifetime> {
     structure: &'structure_lifetime TreeStructure,
     planned_states: HashMap<JobId, JobState>,
-    planned_active_children: HashMap<JobId, usize>,
+    planned_num_active_children: HashMap<JobId, usize>,
 }
 
 impl<'structure_lifetime> Overlay<'structure_lifetime> {
@@ -247,7 +248,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
         Self {
             structure,
             planned_states: HashMap::new(),
-            planned_active_children: HashMap::new(),
+            planned_num_active_children: HashMap::new(),
         }
     }
 
@@ -363,14 +364,14 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     ) -> Result<(), InternalError> {
         let mut succeeded_job_id = job_id;
         while let Some((parent_id, parent)) = self.blocking_parent(succeeded_job_id)? {
-            let active_children = parent
-                .active_children
+            let num_active_children = parent
+                .num_active_children
                 .checked_sub(1)
                 .ok_or(InternalError::BlockingJobWithoutActiveChild(parent_id))?;
             event_plan
-                .active_children
-                .insert(parent_id, active_children);
-            if active_children > 0 {
+                .num_active_children
+                .insert(parent_id, num_active_children);
+            if num_active_children > 0 {
                 return Ok(());
             }
             let to = parent.completion_target();
@@ -435,8 +436,8 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
         for update in &event_plan.updates {
             self.planned_states.insert(update.job_id, update.to);
         }
-        self.planned_active_children
-            .extend(&event_plan.active_children);
+        self.planned_num_active_children
+            .extend(&event_plan.num_active_children);
     }
 
     /// # Returns
@@ -451,11 +452,11 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
                 .get(&job_id)
                 .copied()
                 .unwrap_or(node.state),
-            active_children: self
-                .planned_active_children
+            num_active_children: self
+                .planned_num_active_children
                 .get(&job_id)
                 .copied()
-                .unwrap_or(node.active_children),
+                .unwrap_or(node.num_active_children),
             ..*node
         })
     }
@@ -473,7 +474,7 @@ struct EventRegistration {
 struct EventPlan {
     updates: Vec<JobStateUpdate>,
     publications: Vec<Publication>,
-    active_children: HashMap<JobId, usize>,
+    num_active_children: HashMap<JobId, usize>,
     outcome: TreeEventOutcome,
     registration: Option<EventRegistration>,
 }
@@ -616,7 +617,7 @@ impl EventPlan {
         Self {
             updates: Vec::new(),
             publications: Vec::new(),
-            active_children: HashMap::new(),
+            num_active_children: HashMap::new(),
             outcome: TreeEventOutcome::Stale(error),
             registration: None,
         }
@@ -632,7 +633,7 @@ impl EventPlan {
         Self {
             updates: Vec::new(),
             publications: Vec::new(),
-            active_children: HashMap::new(),
+            num_active_children: HashMap::new(),
             outcome: TreeEventOutcome::Untracked,
             registration: None,
         }
@@ -659,7 +660,7 @@ impl EventPlan {
             outcome: TreeEventOutcome::Applied(update.to),
             updates: vec![update],
             publications,
-            active_children: HashMap::new(),
+            num_active_children: HashMap::new(),
             registration: None,
         }
     }
@@ -724,7 +725,7 @@ mod tests {
                 parent: None,
                 has_commit: false,
                 has_cleanup: false,
-                active_children: 0,
+                num_active_children: 0,
             },
             vec![
                 vec![0; first_output_size],

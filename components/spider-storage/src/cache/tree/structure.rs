@@ -123,27 +123,27 @@ impl TreeStructure {
             .nodes
             .get_mut(&parent_id)
             .ok_or(InternalError::JobNotFound(parent_id))?;
-        parent.active_children = children.len();
+        parent.num_active_children = children.len();
         self.nodes.extend(children);
         Ok(())
     }
 
-    /// Sets the number of active children of the tree's job `job_id` to `active_children`.
+    /// Sets the number of active children of the tree's job `job_id` to `num_active_children`.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * [`InternalError::JobNotFound`] if `job_id` is not in the tree.
-    pub fn set_active_children(
+    pub fn set_num_active_children(
         &mut self,
         job_id: JobId,
-        active_children: usize,
+        num_active_children: usize,
     ) -> Result<(), InternalError> {
         self.nodes
             .get_mut(&job_id)
             .ok_or(InternalError::JobNotFound(job_id))?
-            .active_children = active_children;
+            .num_active_children = num_active_children;
         Ok(())
     }
 
@@ -186,7 +186,7 @@ impl TreeStructure {
                 }
                 _ => {}
             }
-            if node.state == JobState::BlockingOnChildren && node.active_children == 0 {
+            if node.state == JobState::BlockingOnChildren && node.num_active_children == 0 {
                 return Err(Violation::BlockingJobWithoutActiveChild(job_id));
             }
         }
@@ -228,7 +228,7 @@ pub struct TreeNode {
     pub parent: Option<JobId>,
     pub has_commit: bool,
     pub has_cleanup: bool,
-    pub active_children: usize,
+    pub num_active_children: usize,
 }
 
 impl TreeNode {
@@ -327,7 +327,7 @@ mod tests {
         parent: None,
         has_commit: false,
         has_cleanup: false,
-        active_children: 0,
+        num_active_children: 0,
     };
 
     const CHILD_NODE: TreeNode = TreeNode {
@@ -1078,7 +1078,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            plan.active_children,
+            plan.num_active_children,
             HashMap::from([(JobId::from(2), 0), (ROOT_ID, 0)])
         );
         assert_eq!(plan.publications, []);
@@ -1101,7 +1101,7 @@ mod tests {
             "the climb should stop at a parent with an active child left"
         );
         assert_eq!(
-            plan.active_children,
+            plan.num_active_children,
             HashMap::from([(JobId::from(2), 0), (ROOT_ID, 1)])
         );
         Ok(())
@@ -1149,7 +1149,10 @@ mod tests {
             ]
         );
         assert_eq!(plan.publications, [Publication::Commit(JobId::from(2))]);
-        assert_eq!(plan.active_children, HashMap::from([(JobId::from(2), 0)]));
+        assert_eq!(
+            plan.num_active_children,
+            HashMap::from([(JobId::from(2), 0)])
+        );
 
         let plan = tree(
             blocking_root(),
@@ -1180,7 +1183,7 @@ mod tests {
                 JobStateUpdate::new(ROOT_ID, JobState::BlockingOnChildren, JobState::Succeeded),
             ]
         );
-        assert_eq!(plan.active_children, HashMap::from([(ROOT_ID, 0)]));
+        assert_eq!(plan.num_active_children, HashMap::from([(ROOT_ID, 0)]));
         assert_eq!(plan.publications, []);
         Ok(())
     }
@@ -1217,7 +1220,7 @@ mod tests {
                 ),
             ]
         );
-        assert_eq!(plan.active_children, HashMap::from([(ROOT_ID, 0)]));
+        assert_eq!(plan.num_active_children, HashMap::from([(ROOT_ID, 0)]));
         Ok(())
     }
 
@@ -1258,7 +1261,7 @@ mod tests {
                 )],
                 "{description}"
             );
-            assert_eq!(plan.active_children, HashMap::new(), "{description}");
+            assert_eq!(plan.num_active_children, HashMap::new(), "{description}");
         }
         Ok(())
     }
@@ -1267,7 +1270,7 @@ mod tests {
     fn a_success_under_a_parent_that_breaks_the_tree_invariants_is_an_internal_error()
     -> anyhow::Result<()> {
         let mut uncounted_child = tree_with_children([2]);
-        uncounted_child.set_active_children(ROOT_ID, 0)?;
+        uncounted_child.set_num_active_children(ROOT_ID, 0)?;
         let result = uncounted_child.plan_events(&[event(2, registration(Vec::new()))]);
         assert!(
             matches!(
@@ -1322,7 +1325,7 @@ mod tests {
         };
         let mut structure = tree_with_children([2, 3]);
         assert_eq!(
-            structure.node(ROOT_ID).map(|node| node.active_children),
+            structure.node(ROOT_ID).map(|node| node.num_active_children),
             Some(2)
         );
         assert_eq!(
@@ -1363,7 +1366,7 @@ mod tests {
         assert_eq!(
             structure
                 .node(JobId::from(2))
-                .map(|node| node.active_children),
+                .map(|node| node.num_active_children),
             Some(0)
         );
     }
