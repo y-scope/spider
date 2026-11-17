@@ -135,7 +135,7 @@ impl TreeStructure {
     /// Returns an error if:
     ///
     /// * [`InternalError::JobNotFound`] if `job_id` is not in the tree.
-    pub fn set_num_active_children(
+    pub fn apply_num_active_children(
         &mut self,
         job_id: JobId,
         num_active_children: usize,
@@ -1270,7 +1270,7 @@ mod tests {
     fn a_success_under_a_parent_that_breaks_the_tree_invariants_is_an_internal_error()
     -> anyhow::Result<()> {
         let mut uncounted_child = tree_with_children([2]);
-        uncounted_child.set_num_active_children(ROOT_ID, 0)?;
+        uncounted_child.apply_num_active_children(ROOT_ID, 0)?;
         let result = uncounted_child.plan_events(&[event(2, registration(Vec::new()))]);
         assert!(
             matches!(

@@ -111,7 +111,7 @@ impl<
     /// * Forwards [`TreeStructure::plan_events`]'s return values on failure.
     /// * Forwards [`Self::child_insertions`]'s return values on failure.
     /// * Forwards [`fail_job_with_oversized_payload`]'s return values on failure.
-    /// * Forwards [`TreeStructure::set_num_active_children`]'s return values on failure.
+    /// * Forwards [`TreeStructure::apply_num_active_children`]'s return values on failure.
     /// * Forwards [`Self::apply_to_cache`]'s return values on failure.
     /// * Forwards [`Self::insert_registered_children_into_tree`]'s return values on failure.
     /// * Forwards [`Self::publish`]'s return values on failure.
@@ -166,7 +166,7 @@ impl<
                 .await;
             for (job_id, num_active_children) in num_active_children {
                 self.structure
-                    .set_num_active_children(job_id, num_active_children)?;
+                    .apply_num_active_children(job_id, num_active_children)?;
             }
             for transition in transitions {
                 self.apply_to_cache(transition).await?;
