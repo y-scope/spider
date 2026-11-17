@@ -589,6 +589,12 @@ impl Report {
                 ))
             }
             Outcome::InvalidResponse { message } => {
+                tracing::warn!(
+                    job_id = ? target.job,
+                    task_id = ? target.task,
+                    message = % message,
+                    "Task executor returned an invalid response."
+                );
                 Self::Failure(format!("invalid executor response: {message}"))
             }
             Outcome::Timeout { hard_timeout } => {
