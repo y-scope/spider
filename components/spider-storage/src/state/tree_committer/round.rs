@@ -136,6 +136,9 @@ impl<
 
         if !updates.is_empty() {
             let mut transitions: Vec<Transition> = updates.iter().map(Transition::from).collect();
+            // The cache applies the round's changes one job at a time, so a reader can see some
+            // jobs changed and others not yet. Applying each job after its descendants means a
+            // reader that sees a job's new state also sees the new states of the jobs below it.
             transitions.sort_by_key(|transition| Reverse(self.jcb(transition.job_id).depth()));
             let child_ids = match self
                 .env
