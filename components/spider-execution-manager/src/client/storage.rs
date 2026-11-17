@@ -4,23 +4,13 @@
 //! instance, fetch its [`ExecutionContext`], and report success or failure.
 
 use async_trait::async_trait;
-use spider_core::job::submission::CompressedJobSubmission;
+use spider_core::job::submission::TaskSuccessOutcome;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::SessionId;
 use spider_core::types::id::TaskId;
 use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::ExecutionContext;
-
-/// The serialized outputs and child submissions of a successful task execution.
-#[derive(Debug)]
-pub struct TaskSuccessPayload {
-    /// Wire-format task outputs, or `None` for a commit or cleanup task.
-    pub serialized_outputs: Option<Vec<u8>>,
-
-    /// Compressed child submissions in submission order; empty for commit and cleanup tasks.
-    pub children: Vec<CompressedJobSubmission>,
-}
 
 /// Errors returned by [`StorageClient`] operations.
 ///
@@ -95,7 +85,7 @@ pub trait StorageClient: Send + Sync {
     /// * `task_instance_id` - The task instance that produced the outcome.
     /// * `em_id` - The identity of the calling execution manager.
     /// * `session_id` - The session id captured from the scheduler assignment.
-    /// * `payload` - Serialized outputs and child submissions, forwarded verbatim to storage.
+    /// * `outcome` - The successful task outcome.
     ///
     /// # Errors
     ///
@@ -106,8 +96,8 @@ pub trait StorageClient: Send + Sync {
     /// * [`StorageResponseError::CacheStale`] if storage's job cache rejected the report.
     /// * [`StorageResponseError::Transport`] if the connection was lost or timed out.
     /// * [`StorageResponseError::Server`] if storage returned an otherwise-uncategorized error.
-    /// * [`StorageResponseError::InvalidInput`] if outputs or children are supplied for a commit or
-    ///   cleanup task, or storage rejects the report.
+    /// * [`StorageResponseError::InvalidInput`] if the outcome does not match the task kind, or
+    ///   storage rejects the report.
     async fn report_task_success(
         &self,
         job_id: JobId,
@@ -115,7 +105,7 @@ pub trait StorageClient: Send + Sync {
         task_instance_id: TaskInstanceId,
         em_id: ExecutionManagerId,
         session_id: SessionId,
-        payload: TaskSuccessPayload,
+        outcome: TaskSuccessOutcome,
     ) -> Result<(), StorageResponseError>;
 
     /// Reports failed execution of a task instance.

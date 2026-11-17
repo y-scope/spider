@@ -6,6 +6,7 @@
 use std::num::NonZeroUsize;
 
 use async_trait::async_trait;
+use spider_core::job::submission::TaskSuccessOutcome;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::SessionId;
@@ -23,7 +24,6 @@ use tonic::transport::Endpoint;
 
 use crate::client::storage::StorageClient;
 use crate::client::storage::StorageResponseError;
-use crate::client::storage::TaskSuccessPayload;
 
 /// gRPC-backed [`StorageClient`] implementation.
 #[derive(Debug, Clone)]
@@ -96,25 +96,31 @@ impl StorageClient for GrpcStorageClient {
         task_instance_id: TaskInstanceId,
         em_id: ExecutionManagerId,
         session_id: SessionId,
-        payload: TaskSuccessPayload,
+        outcome: TaskSuccessOutcome,
     ) -> Result<(), StorageResponseError> {
-        let TaskSuccessPayload {
-            serialized_outputs,
-            children,
-        } = payload;
-        if !matches!(task_id, TaskId::Index(_))
-            && (serialized_outputs.is_some() || !children.is_empty())
-        {
-            return Err(StorageResponseError::InvalidInput(
-                "termination tasks cannot report outputs or child jobs".to_owned(),
-            ));
-        }
+        let (serialized_outputs, children) = match (task_id, outcome) {
+            (
+                TaskId::Index(_),
+                TaskSuccessOutcome::Regular {
+                    serialized_outputs,
+                    children,
+                },
+            ) => (serialized_outputs, children),
+            (TaskId::Commit | TaskId::Cleanup, TaskSuccessOutcome::Finalizing) => {
+                (Vec::new(), Vec::new())
+            }
+            _ => {
+                return Err(StorageResponseError::InvalidInput(
+                    "success outcome does not match task kind".to_owned(),
+                ));
+            }
+        };
         let request = storage::ReportTaskSuccessRequest {
             job_id: job_id.get(),
             task_id: Some(common::TaskId::from(task_id)),
             execution_manager_id: em_id.get(),
             session_id,
-            serialized_outputs: serialized_outputs.unwrap_or_default(),
+            serialized_outputs,
             children: children.into_iter().map(Into::into).collect(),
             task_instance_id,
         };
@@ -276,35 +282,43 @@ mod tests {
                 expected.task_instance_id,
                 ExecutionManagerId::from(expected.execution_manager_id),
                 expected.session_id,
-                TaskSuccessPayload {
-                    serialized_outputs: Some(outputs.clone()),
+                TaskSuccessOutcome::Regular {
+                    serialized_outputs: outputs.clone(),
                     children: children.clone(),
                 },
             )
             .await?;
         assert_eq!(*service.successes.lock().await, vec![expected]);
 
-        for task_id in [TaskId::Commit, TaskId::Cleanup] {
-            for (outputs, children) in [
-                (Some(outputs.clone()), Vec::new()),
-                (None, children.clone()),
-            ] {
-                let error = client
-                    .report_task_success(
-                        JobId::from(11),
-                        task_id,
-                        13,
-                        ExecutionManagerId::from(17),
-                        19,
-                        TaskSuccessPayload {
-                            serialized_outputs: outputs,
-                            children,
-                        },
-                    )
-                    .await
-                    .expect_err("termination payloads must be rejected locally");
-                assert!(matches!(error, StorageResponseError::InvalidInput(_)));
-            }
+        for (task_id, outcome) in [
+            (
+                TaskId::Commit,
+                TaskSuccessOutcome::Regular {
+                    serialized_outputs: outputs.clone(),
+                    children: Vec::new(),
+                },
+            ),
+            (
+                TaskId::Cleanup,
+                TaskSuccessOutcome::Regular {
+                    serialized_outputs: Vec::new(),
+                    children: children.clone(),
+                },
+            ),
+            (TaskId::Index(7), TaskSuccessOutcome::Finalizing),
+        ] {
+            let error = client
+                .report_task_success(
+                    JobId::from(11),
+                    task_id,
+                    13,
+                    ExecutionManagerId::from(17),
+                    19,
+                    outcome,
+                )
+                .await
+                .expect_err("mismatched outcome must be rejected locally");
+            assert!(matches!(error, StorageResponseError::InvalidInput(_)));
         }
         assert_eq!(service.successes.lock().await.len(), 1);
         drop(client);

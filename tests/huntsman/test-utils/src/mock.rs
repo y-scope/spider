@@ -18,6 +18,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use dashmap::DashSet;
 use spider_core::job::submission::CompressedJobSubmission;
+use spider_core::job::submission::TaskSuccessOutcome;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -35,7 +36,6 @@ use spider_execution_manager::client::SchedulerError;
 use spider_execution_manager::client::SchedulerResponse;
 use spider_execution_manager::client::StorageClient;
 use spider_execution_manager::client::StorageResponseError;
-use spider_execution_manager::client::TaskSuccessPayload;
 use tokio::sync::Notify;
 
 /// Mock [`SchedulerClient`].
@@ -328,12 +328,15 @@ impl StorageClient for MockStorage {
         task_instance_id: TaskInstanceId,
         em_id: ExecutionManagerId,
         session_id: SessionId,
-        payload: TaskSuccessPayload,
+        outcome: TaskSuccessOutcome,
     ) -> Result<(), StorageResponseError> {
-        let TaskSuccessPayload {
-            serialized_outputs,
-            children,
-        } = payload;
+        let (serialized_outputs, children) = match outcome {
+            TaskSuccessOutcome::Regular {
+                serialized_outputs,
+                children,
+            } => (Some(serialized_outputs), children),
+            TaskSuccessOutcome::Finalizing => (None, Vec::new()),
+        };
         lock(&self.inner.success_reports).push(SuccessReport {
             job_id,
             task_id,
