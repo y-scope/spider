@@ -3,7 +3,7 @@
 use std::net::IpAddr;
 use std::time::Duration;
 
-use spider_core::job::submission::CompressedJobSubmission;
+use spider_core::job::submission::TaskSuccessOutcome;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -88,17 +88,10 @@ impl RequestUnpack for RegisterTaskInstanceRequest {
 /// * The job ID.
 /// * The task ID.
 /// * The task instance ID.
-/// * The serialized task outputs.
-/// * The child job submissions in submission order.
+/// * The successful task outcome. Regular tasks preserve outputs and child submission order; commit
+///   and cleanup tasks must carry neither outputs nor children.
 impl RequestUnpack for ReportTaskSuccessRequest {
-    type Unpacked = (
-        SessionId,
-        JobId,
-        TaskId,
-        TaskInstanceId,
-        Vec<u8>,
-        Vec<CompressedJobSubmission>,
-    );
+    type Unpacked = (SessionId, JobId, TaskId, TaskInstanceId, TaskSuccessOutcome);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
         let task_id = unpack_task_id(self.task_id).inspect_err(|error| {
@@ -111,13 +104,29 @@ impl RequestUnpack for ReportTaskSuccessRequest {
             );
         })?;
 
+        let outcome = match task_id {
+            TaskId::Index(_) => TaskSuccessOutcome::Regular {
+                serialized_outputs: self.serialized_outputs,
+                children: self.children.into_iter().map(Into::into).collect(),
+            },
+            TaskId::Commit | TaskId::Cleanup
+                if self.serialized_outputs.is_empty() && self.children.is_empty() =>
+            {
+                TaskSuccessOutcome::Finalizing
+            }
+            TaskId::Commit | TaskId::Cleanup => {
+                return Err(invalid_argument(
+                    "termination tasks cannot report outputs or child jobs".to_owned(),
+                ));
+            }
+        };
+
         Ok((
             self.session_id,
             JobId::from(self.job_id),
             task_id,
             self.task_instance_id,
-            self.serialized_outputs,
-            self.children.into_iter().map(Into::into).collect(),
+            outcome,
         ))
     }
 }
@@ -242,5 +251,108 @@ const fn invalid_argument(message: String) -> UnpackError {
     UnpackError {
         code: Code::InvalidArgument,
         message,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use spider_core::job::submission::CompressedJobSubmission;
+    use tonic::Status;
+
+    use super::*;
+    use crate::common;
+    use crate::storage;
+
+    /// Creates a success report with distinct identifiers and the given task result.
+    ///
+    /// # Returns
+    ///
+    /// The success report.
+    fn success_request(
+        task_id: TaskId,
+        serialized_outputs: Vec<u8>,
+        children: Vec<storage::CompressedJobSubmission>,
+    ) -> ReportTaskSuccessRequest {
+        ReportTaskSuccessRequest {
+            session_id: 11,
+            job_id: 13,
+            task_id: Some(common::TaskId::from(task_id)),
+            task_instance_id: 17,
+            execution_manager_id: 19,
+            serialized_outputs,
+            children,
+        }
+    }
+
+    #[test]
+    fn regular_success_unpacks_outputs_children_and_identifiers() -> Result<(), Status> {
+        let children = vec![
+            CompressedJobSubmission {
+                compressed_serialized_task_graph: vec![1, 2],
+                compressed_serialized_job_inputs: vec![3],
+            },
+            CompressedJobSubmission {
+                compressed_serialized_task_graph: vec![4],
+                compressed_serialized_job_inputs: vec![5, 6],
+            },
+        ];
+        for (outputs, children) in [(Vec::new(), Vec::new()), (vec![7, 8], children)] {
+            let request = success_request(
+                TaskId::Index(23),
+                outputs.clone(),
+                children.clone().into_iter().map(Into::into).collect(),
+            );
+            assert_eq!(
+                request.unpack()?,
+                (
+                    11,
+                    JobId::from(13),
+                    TaskId::Index(23),
+                    17,
+                    TaskSuccessOutcome::Regular {
+                        serialized_outputs: outputs,
+                        children,
+                    },
+                )
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn finalizing_success_unpacks_empty_report() -> Result<(), Status> {
+        for task_id in [TaskId::Commit, TaskId::Cleanup] {
+            assert_eq!(
+                success_request(task_id, Vec::new(), Vec::new()).unpack()?,
+                (
+                    11,
+                    JobId::from(13),
+                    task_id,
+                    17,
+                    TaskSuccessOutcome::Finalizing
+                )
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn finalizing_success_rejects_outputs_and_children() {
+        let child = storage::CompressedJobSubmission {
+            compressed_serialized_task_graph: vec![1],
+            compressed_serialized_task_graph_input: vec![2],
+        };
+        for task_id in [TaskId::Commit, TaskId::Cleanup] {
+            for (outputs, children) in [
+                (vec![3], Vec::new()),
+                (Vec::new(), vec![child.clone()]),
+                (vec![3], vec![child.clone()]),
+            ] {
+                let error = success_request(task_id, outputs, children)
+                    .unpack()
+                    .expect_err("finalizing reports must carry neither outputs nor children");
+                assert_eq!(Status::from(error).code(), Code::InvalidArgument);
+            }
+        }
     }
 }

@@ -1,6 +1,7 @@
 //! gRPC service adapters for the storage service.
 
 use async_trait::async_trait;
+use spider_core::job::submission::TaskSuccessOutcome;
 use spider_core::types::id::TaskId;
 use spider_core::types::io::SerializedTaskOutputs;
 use spider_proto_rust::common;
@@ -673,14 +674,8 @@ impl<
         &self,
         request: Request<storage::ReportTaskSuccessRequest>,
     ) -> Result<Response<common::Void>, Status> {
-        let (session_id, job_id, task_id, task_instance_id, serialized_outputs, children) =
+        let (session_id, job_id, task_id, task_instance_id, outcome) =
             request.into_inner().unpack()?;
-        if !children.is_empty() {
-            return Err(Status::invalid_argument(match task_id {
-                TaskId::Index(_) => "child job submission is not enabled",
-                TaskId::Commit | TaskId::Cleanup => "termination tasks cannot submit child jobs",
-            }));
-        }
         tracing::info!(
             session_id = session_id,
             job_id = job_id.get(),
@@ -689,8 +684,19 @@ impl<
             "Task instance completion request (success) received."
         );
 
-        let _job_state = match task_id {
-            TaskId::Index(task_index) => {
+        let _job_state = match (task_id, outcome) {
+            (
+                TaskId::Index(task_index),
+                TaskSuccessOutcome::Regular {
+                    serialized_outputs,
+                    children,
+                },
+            ) => {
+                if !children.is_empty() {
+                    return Err(Status::invalid_argument(
+                        "child job submission is not enabled",
+                    ));
+                }
                 self.inner
                     .succeed_task_instance(
                         session_id,
@@ -698,20 +704,21 @@ impl<
                         task_instance_id,
                         task_index,
                         serialized_outputs,
-                        Vec::new(),
+                        children,
                     )
                     .await
             }
-            TaskId::Commit => {
+            (TaskId::Commit, TaskSuccessOutcome::Finalizing) => {
                 self.inner
                     .succeed_commit_task_instance(session_id, job_id, task_instance_id)
                     .await
             }
-            TaskId::Cleanup => {
+            (TaskId::Cleanup, TaskSuccessOutcome::Finalizing) => {
                 self.inner
                     .succeed_cleanup_task_instance(session_id, job_id, task_instance_id)
                     .await
             }
+            _ => unreachable!("unpacked success outcome matches its task kind"),
         }
         .map_err(|error| {
             self.task_instance_management_service_error_handler(error, "report_task_success")
@@ -1047,7 +1054,7 @@ mod tests {
     type ErrorHandler = fn(&TestGrpcServiceState, StorageServerError, &'static str) -> Status;
 
     #[tokio::test]
-    async fn child_reports_are_rejected_without_completing_any_task_kind() -> anyhow::Result<()> {
+    async fn invalid_success_reports_do_not_complete_any_task_kind() -> anyhow::Result<()> {
         for task_id in [TaskId::Index(0), TaskId::Commit, TaskId::Cleanup] {
             let grpc = create_test_grpc_service(ShutdownHandle::new());
             let termination_task = TerminationTaskDescriptor {
@@ -1114,6 +1121,17 @@ mod tests {
                     ),
                 }],
             };
+            if !matches!(task_id, TaskId::Index(_)) {
+                let mut outputs_only = request.clone();
+                outputs_only.children.clear();
+                let status = grpc
+                    .report_task_success(Request::new(outputs_only))
+                    .await
+                    .expect_err("termination task outputs must be rejected");
+                assert_eq!(status.code(), Code::InvalidArgument);
+                assert_eq!(grpc.inner.get_job_state(job_id).await?, expected_state);
+                request.serialized_outputs.clear();
+            }
             let status = grpc
                 .report_task_success(Request::new(request.clone()))
                 .await
