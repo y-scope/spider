@@ -25,6 +25,9 @@ pub mod scheduler {
 
 #[allow(clippy::all, clippy::nursery, clippy::pedantic)]
 pub mod storage {
+    /// The maximum decoded message size of the task instance management service.
+    pub const MAX_TASK_INSTANCE_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
+
     include!("generated/storage.rs");
 
     pub use execution_manager_liveness_service_client::ExecutionManagerLivenessServiceClient;

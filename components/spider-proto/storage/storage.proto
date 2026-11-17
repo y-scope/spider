@@ -121,6 +121,11 @@ message TimeoutPolicy {
   uint64 hard_timeout_ms = 2;
 }
 
+message CompressedJobSubmission {
+  bytes compressed_serialized_task_graph = 1;
+  bytes compressed_serialized_task_graph_input = 2;
+}
+
 message ReportTaskSuccessRequest {
   uint64 job_id = 1;
   common.TaskId task_id = 2;
@@ -128,6 +133,7 @@ message ReportTaskSuccessRequest {
   uint64 execution_manager_id = 4;
   uint64 session_id = 5;
   bytes serialized_outputs = 6;
+  repeated CompressedJobSubmission children = 7;
 }
 
 message ReportTaskFailureRequest {

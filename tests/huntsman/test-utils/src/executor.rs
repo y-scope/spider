@@ -29,6 +29,7 @@ use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskInputsSerializer;
 use spider_core::types::io::TaskOutput;
 use spider_core::types::io::TaskOutputsSerializer;
+use spider_task_executor::protocol::MAX_FRAME_SIZE;
 use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
 use spider_tdl::TaskContext;
@@ -78,7 +79,12 @@ impl ExecutorHandle {
         Self {
             child,
             requests: FramedWrite::new(stdin, LengthDelimitedCodec::new()),
-            responses: FramedRead::new(stdout, LengthDelimitedCodec::new()),
+            responses: FramedRead::new(
+                stdout,
+                LengthDelimitedCodec::builder()
+                    .max_frame_length(MAX_FRAME_SIZE)
+                    .new_codec(),
+            ),
         }
     }
 
