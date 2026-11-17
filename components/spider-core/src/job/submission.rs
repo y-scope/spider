@@ -5,22 +5,6 @@ use serde::Serialize;
 
 use crate::types::id::TaskId;
 
-/// The maximum compressed size of one child job submission. Storage may enforce a smaller
-/// limit based on its database configuration.
-pub const MAX_CHILD_SIZE: u64 = 4 * 1024 * 1024;
-
-/// The maximum number of child jobs of one job, over all of its tasks' reports.
-pub const MAX_CHILDREN_PER_JOB: usize = 1024;
-
-/// The maximum number of compressed bytes of the child jobs of one success report.
-pub const MAX_REPORT_CHILDREN_SIZE: u64 = 16 * 1024 * 1024;
-
-/// The maximum number of bytes of the outputs of one success report.
-pub const MAX_REPORT_OUTPUTS_SIZE: u64 = 4 * 1024 * 1024;
-
-/// The maximum size of a decoded message of the task instance management service.
-pub const MAX_TASK_INSTANCE_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
-
 /// A job submission as submitted: its zstd-compressed serialized task graph and its zstd-compressed
 /// serialized job inputs, not validated yet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,15 +68,6 @@ impl TaskSuccessOutcome {
         }
     }
 }
-
-/// The room that a task instance message leaves beyond a success report's outputs and children, for
-/// its framing and metadata.
-const TASK_INSTANCE_MESSAGE_MARGIN: u64 = 1024 * 1024;
-
-const _: () = assert!(
-    MAX_REPORT_OUTPUTS_SIZE + MAX_REPORT_CHILDREN_SIZE + TASK_INSTANCE_MESSAGE_MARGIN
-        <= MAX_TASK_INSTANCE_MESSAGE_SIZE as u64
-);
 
 #[cfg(test)]
 mod tests {

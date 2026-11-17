@@ -12,12 +12,12 @@ use bytes::Bytes;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use spider_core::job::submission::CompressedJobSubmission;
-use spider_core::job::submission::MAX_TASK_INSTANCE_MESSAGE_SIZE;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
 use spider_core::types::io::ExecutionContext;
 use spider_task_executor::protocol::ExecutorOutcome;
+use spider_task_executor::protocol::MAX_FRAME_SIZE;
 use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
 use spider_tdl::TaskContext;
@@ -102,7 +102,7 @@ impl Outcome {
     fn decode_response(bytes: &[u8]) -> Self {
         match bincode::DefaultOptions::new()
             .with_fixint_encoding()
-            .with_limit(MAX_TASK_INSTANCE_MESSAGE_SIZE as u64)
+            .with_limit(MAX_FRAME_SIZE as u64)
             .reject_trailing_bytes()
             .deserialize::<Response>(bytes)
         {
@@ -331,7 +331,7 @@ impl ProcessPool {
             responses: FramedRead::new(
                 stdout,
                 LengthDelimitedCodec::builder()
-                    .max_frame_length(MAX_TASK_INSTANCE_MESSAGE_SIZE)
+                    .max_frame_length(MAX_FRAME_SIZE)
                     .new_codec(),
             ),
         })

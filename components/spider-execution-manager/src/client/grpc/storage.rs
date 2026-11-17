@@ -6,6 +6,7 @@
 use std::num::NonZeroUsize;
 
 use async_trait::async_trait;
+use prost::Message;
 use spider_core::job::submission::TaskSuccessOutcome;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
@@ -14,6 +15,7 @@ use spider_core::types::id::TaskId;
 use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::ExecutionContext;
 use spider_proto_rust::common;
+use spider_proto_rust::storage::MAX_TASK_INSTANCE_MESSAGE_SIZE;
 use spider_proto_rust::storage::TaskInstanceManagementServiceClient;
 use spider_proto_rust::storage::{self};
 use spider_utils::grpc::client::ConnectionPool;
@@ -124,6 +126,21 @@ impl StorageClient for GrpcStorageClient {
             children: children.into_iter().map(Into::into).collect(),
             task_instance_id,
         };
+        if request.encoded_len() > MAX_TASK_INSTANCE_MESSAGE_SIZE {
+            return self
+                .report_task_failure(
+                    job_id,
+                    task_id,
+                    task_instance_id,
+                    em_id,
+                    session_id,
+                    format!(
+                        "invalid success payload: report exceeds {MAX_TASK_INSTANCE_MESSAGE_SIZE} \
+                         bytes"
+                    ),
+                )
+                .await;
+        }
         self.connection_pool
             .get_client()
             .report_task_success(request)
@@ -193,7 +210,6 @@ mod tests {
     use std::sync::Arc;
 
     use spider_core::job::submission::CompressedJobSubmission;
-    use spider_core::job::submission::MAX_TASK_INSTANCE_MESSAGE_SIZE;
     use spider_proto_rust::storage::TaskInstanceManagementService;
     use spider_proto_rust::storage::TaskInstanceManagementServiceServer;
     use tokio::net::TcpListener;
@@ -208,6 +224,7 @@ mod tests {
     #[derive(Clone, Default)]
     struct RecordingService {
         successes: Arc<Mutex<Vec<storage::ReportTaskSuccessRequest>>>,
+        failures: Arc<Mutex<Vec<storage::ReportTaskFailureRequest>>>,
     }
 
     #[async_trait]
@@ -229,9 +246,10 @@ mod tests {
 
         async fn report_task_failure(
             &self,
-            _request: Request<storage::ReportTaskFailureRequest>,
+            request: Request<storage::ReportTaskFailureRequest>,
         ) -> Result<Response<common::Void>, Status> {
-            Err(Status::unimplemented("task failure is unused"))
+            self.failures.lock().await.push(request.into_inner());
+            Ok(Response::new(common::Void {}))
         }
     }
 
@@ -321,6 +339,35 @@ mod tests {
             assert!(matches!(error, StorageResponseError::InvalidInput(_)));
         }
         assert_eq!(service.successes.lock().await.len(), 1);
+        // The output buffer fits the limit, but protobuf fields make the request exceed it.
+        client
+            .report_task_success(
+                JobId::from(11),
+                TaskId::Index(7),
+                13,
+                ExecutionManagerId::from(17),
+                19,
+                TaskSuccessOutcome::Regular {
+                    serialized_outputs: vec![0; MAX_TASK_INSTANCE_MESSAGE_SIZE],
+                    children: Vec::new(),
+                },
+            )
+            .await?;
+        assert_eq!(service.successes.lock().await.len(), 1);
+        assert_eq!(
+            *service.failures.lock().await,
+            vec![storage::ReportTaskFailureRequest {
+                job_id: 11,
+                task_id: Some(common::TaskId::from(TaskId::Index(7))),
+                task_instance_id: 13,
+                execution_manager_id: 17,
+                session_id: 19,
+                error_message: format!(
+                    "invalid success payload: report exceeds {MAX_TASK_INSTANCE_MESSAGE_SIZE} \
+                     bytes"
+                ),
+            }],
+        );
         drop(client);
         drop(shutdown_guard);
         server.await??;

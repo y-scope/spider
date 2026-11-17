@@ -20,7 +20,6 @@ use std::process::Stdio;
 use bytes::Bytes;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
-use spider_core::job::submission::MAX_TASK_INSTANCE_MESSAGE_SIZE;
 use spider_core::task::TdlContext;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -30,6 +29,7 @@ use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskInputsSerializer;
 use spider_core::types::io::TaskOutput;
 use spider_core::types::io::TaskOutputsSerializer;
+use spider_task_executor::protocol::MAX_FRAME_SIZE;
 use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
 use spider_tdl::TaskContext;
@@ -82,7 +82,7 @@ impl ExecutorHandle {
             responses: FramedRead::new(
                 stdout,
                 LengthDelimitedCodec::builder()
-                    .max_frame_length(MAX_TASK_INSTANCE_MESSAGE_SIZE)
+                    .max_frame_length(MAX_FRAME_SIZE)
                     .new_codec(),
             ),
         }

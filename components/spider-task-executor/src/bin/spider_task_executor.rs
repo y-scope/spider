@@ -22,10 +22,10 @@ use anyhow::anyhow;
 use bytes::Bytes;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
-use spider_core::job::submission::MAX_TASK_INSTANCE_MESSAGE_SIZE;
 use spider_task_executor::ExecutorError;
 use spider_task_executor::TdlPackageManager;
 use spider_task_executor::protocol::ExecutorOutcome;
+use spider_task_executor::protocol::MAX_FRAME_SIZE;
 use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
 use tokio::io::stdin;
@@ -96,7 +96,7 @@ async fn main() -> Result<()> {
     let mut responses = FramedWrite::new(
         stdout(),
         LengthDelimitedCodec::builder()
-            .max_frame_length(MAX_TASK_INSTANCE_MESSAGE_SIZE)
+            .max_frame_length(MAX_FRAME_SIZE)
             .new_codec(),
     );
 

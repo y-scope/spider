@@ -2004,6 +2004,7 @@ dependencies = [
  "bytes",
  "clap",
  "futures-util",
+ "prost",
  "rmp-serde",
  "serde",
  "spider-core",
