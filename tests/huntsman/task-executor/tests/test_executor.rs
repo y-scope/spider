@@ -177,3 +177,30 @@ async fn assert_outputs_sum_zero_fails_for_non_commit_task() {
     assert_task_execution_error(outcome, "commit task");
     handle.shutdown_clean().await;
 }
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn response_larger_than_eight_mib_preserves_outputs() {
+    const PAYLOAD_SIZE: usize = 10 * 1024 * 1024;
+    let mut handle = ExecutorHandle::spawn();
+    handle
+        .send(&execute_request(
+            "generate_payload",
+            encode_single_input(&PAYLOAD_SIZE),
+        ))
+        .await;
+    let Response::Result { outcome, .. } = handle.recv().await;
+    let ExecutorOutcome::Success { outputs, children } = outcome else {
+        panic!("expected Success, got {outcome:?}");
+    };
+    assert!(outputs.len() > 8 * 1024 * 1024);
+    assert_eq!(
+        decode_single_output::<String>(&outputs),
+        "x".repeat(PAYLOAD_SIZE)
+    );
+    assert_eq!(
+        children,
+        [] as [spider_core::job::submission::CompressedJobSubmission; 0]
+    );
+    handle.shutdown_clean().await;
+}

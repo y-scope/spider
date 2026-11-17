@@ -339,6 +339,24 @@ mod tests {
             assert!(matches!(error, StorageResponseError::InvalidInput(_)));
         }
         assert_eq!(service.successes.lock().await.len(), 1);
+        assert_oversized_success_reports_failure(&client, &service).await?;
+        drop(client);
+        drop(shutdown_guard);
+        server.await??;
+        Ok(())
+    }
+
+    /// Verifies that an oversized success request becomes a failure for the same task instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`GrpcStorageClient::report_task_success`]'s return values on failure.
+    async fn assert_oversized_success_reports_failure(
+        client: &GrpcStorageClient,
+        service: &RecordingService,
+    ) -> anyhow::Result<()> {
         // The output buffer fits the limit, but protobuf fields make the request exceed it.
         client
             .report_task_success(
@@ -368,9 +386,6 @@ mod tests {
                 ),
             }],
         );
-        drop(client);
-        drop(shutdown_guard);
-        server.await??;
         Ok(())
     }
 

@@ -67,7 +67,7 @@ mod tests {
     use crate::storage::JobState as ProtocolJobState;
 
     #[test]
-    fn test_compressed_job_submission_preserves_graph_and_inputs() {
+    fn compressed_job_submission_preserves_graph_and_inputs() {
         let submission = CompressedJobSubmission {
             compressed_serialized_task_graph: vec![1, 2, 3],
             compressed_serialized_job_inputs: vec![4, 5],
