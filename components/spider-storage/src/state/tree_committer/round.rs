@@ -87,13 +87,22 @@ impl<
         }
     }
 
-    /// Runs one round for the events of `in_flight`, in their order, applies the round's state
-    /// changes to the cache deepest job first and root last, and answers each event that the round
-    /// plans. `in_flight`, which [`super::CommitterContextGuard`] owns, keeps the events to put
-    /// back at the front of the pending queue, in their order: the events that the round defers or,
-    /// if the database rejects the outputs of a job or the children that the round registers (see
-    /// [`fail_job_with_oversized_payload`]), every event of the round, with that job's event turned
-    /// into the job's failure.
+    /// Runs one round over the events in `in_flight`:
+    ///
+    /// 1. Plans the events in their order.
+    /// 2. Writes the planned state changes and the registered child jobs to the database, in one
+    ///    transaction.
+    /// 3. Updates the tree's active-children counters, then applies the state changes to the cache,
+    ///    deepest job first and root last.
+    /// 4. Answers each planned event and publishes the ready work.
+    ///
+    /// On return, `in_flight` holds the events that the committer puts back at the front of the
+    /// pending queue, in their order:
+    ///
+    /// * Normally, the events that the round deferred.
+    /// * If the database rejected a job's outputs or a registered child job as too large, every
+    ///   event of the round, with that job's event replaced by the job's failure (see
+    ///   [`fail_job_with_oversized_payload`]). Nothing was written.
     ///
     /// # Errors
     ///
