@@ -254,13 +254,16 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
 
     /// # Returns
     ///
-    /// On success, [`None`] if the tree's active job `job_id` is the root or its parent no longer
-    /// blocks on its children: a cancel or a failure moved the parent to [`JobState::CleanupReady`]
-    /// or to a terminal state other than [`JobState::Succeeded`]. A parent that is no longer in the
-    /// tree is terminal and taken to be deactivated. Otherwise, a tuple containing:
+    /// On success:
     ///
-    /// * The ID of the parent.
-    /// * The parent's node.
+    /// * [`None`] if the tree's active job `job_id` has no parent that blocks on its children:
+    ///   * `job_id` is the root.
+    ///   * The parent is no longer in the tree, because it is terminal.
+    ///   * A cancel or a failure has moved the parent to [`JobState::CleanupReady`],
+    ///     [`JobState::Failed`] or [`JobState::Cancelled`].
+    /// * Otherwise, a tuple containing:
+    ///   * The ID of the parent.
+    ///   * The parent's node.
     ///
     /// # Errors
     ///
@@ -358,10 +361,11 @@ impl EventPlan {
     ///   * [`TreeEventKind::Start`]: the root moves from [`JobState::Ready`] to
     ///     [`JobState::Running`], and its ready tasks are published.
     ///   * [`TreeEventKind::RegularTasksDone`] without children: the job stores its outputs and
-    ///     moves from [`JobState::Running`] to its completion target (see
-    ///     [`TreeNode::completion_target`]), with its commit task published if that is
-    ///     [`JobState::CommitReady`], or with its success climbing (see
-    ///     [`Self::climb_after_success`]) if that is [`JobState::Succeeded`].
+    ///     leaves [`JobState::Running`]:
+    ///     * With a commit task, it moves to [`JobState::CommitReady`] with its commit task
+    ///       published.
+    ///     * Without one, it moves to [`JobState::Succeeded`], and its success climbs (see
+    ///       [`Self::climb_after_success`]).
     ///   * [`TreeEventKind::RegularTasksDone`] with children over the limits of one job (see
     ///     [`ChildJobUsage::is_within_job_limits`]): the job moves from [`JobState::Running`] to
     ///     [`JobState::Failed`].
