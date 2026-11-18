@@ -142,8 +142,10 @@ impl TestEnv {
     }
 
     /// Like [`Self::start`], with a task instance pool that never considers the test's execution
-    /// manager stale, although it sends no heartbeats, so that the pool never removes the test's
-    /// task instances or re-enqueues their tasks, however long the test runs.
+    /// manager stale, although it sends no heartbeats. However long the test runs, the pool never:
+    ///
+    /// * Removes the test's task instances.
+    /// * Re-enqueues their tasks.
     ///
     /// # Returns
     ///
@@ -406,9 +408,10 @@ impl TestEnv {
     /// # Returns
     ///
     /// A future that reports the success of the task instance `task_instance_id` of the task
-    /// `task_index` of `job_id`, whose only output is `value`, with `children`, that panics if it
-    /// isn't answered within [`RPC_TIMEOUT`], and that forwards
-    /// [`ServiceState::succeed_task_instance`]'s return values.
+    /// `task_index` of `job_id`, whose only output is `value`, with `children`. The future:
+    ///
+    /// * Resolves to [`ServiceState::succeed_task_instance`]'s return values.
+    /// * Panics if the report isn't answered within [`RPC_TIMEOUT`].
     pub fn task_success(
         &self,
         job_id: JobId,
@@ -435,8 +438,10 @@ impl TestEnv {
     /// # Returns
     ///
     /// A future that reports the success of the instance `task_instance_id` of `job_id`'s commit
-    /// task, that panics if it isn't answered within [`RPC_TIMEOUT`], and that forwards
-    /// [`ServiceState::succeed_commit_task_instance`]'s return values.
+    /// task. The future:
+    ///
+    /// * Resolves to [`ServiceState::succeed_commit_task_instance`]'s return values.
+    /// * Panics if the report isn't answered within [`RPC_TIMEOUT`].
     pub fn commit_success(
         &self,
         job_id: JobId,
@@ -853,13 +858,19 @@ impl TestEnv {
         .collect()
     }
 
-    /// Asserts that every job of `expected` is in its state in its row, whose end time is set
-    /// exactly when the state is terminal, and, for a root, in what [`ServiceState::get_job_state`]
-    /// answers, and that the service has not shut down fatally.
+    /// Asserts that:
+    ///
+    /// * Every job of `expected` is in its state in its row.
+    /// * Each such row has an end time exactly when its state is terminal.
+    /// * Every root of `expected` is in its state in what [`ServiceState::get_job_state`] answers.
+    /// * The service has not shut down fatally.
     ///
     /// # Panics
     ///
-    /// Panics if the query or a root's state read fails, or if an assertion fails.
+    /// Panics if:
+    ///
+    /// * The query or a root's state read fails.
+    /// * An assertion fails.
     pub async fn assert_states(&self, expected: &HashMap<JobId, JobState>, what: &str) {
         for (job_id, state) in expected {
             let row = sqlx::query_as::<_, StateRow>(
@@ -897,7 +908,10 @@ impl TestEnv {
     ///
     /// # Panics
     ///
-    /// Panics if the query fails or a row is not terminal.
+    /// Panics if:
+    ///
+    /// * The query fails.
+    /// * A row is not terminal.
     pub async fn assert_quiescent(&self, root_id: JobId) {
         let non_terminal_rows: HashMap<JobId, JobState> = sqlx::query_as::<_, (JobId, JobState)>(
             "SELECT `id`, `state` FROM `jobs` WHERE `id` = ? OR `root_id` = ?;",
@@ -976,8 +990,11 @@ impl TestEnv {
     ///
     /// # Panics
     ///
-    /// Panics if the lane returns an entry that `expected` doesn't hold, or one more time than
-    /// `expected` holds it, or if the entries don't arrive within [`PUBLICATION_TIMEOUT`].
+    /// Panics if:
+    ///
+    /// * The lane returns an entry that `expected` doesn't hold.
+    /// * The lane returns an entry more times than `expected` holds it.
+    /// * The entries don't arrive within [`PUBLICATION_TIMEOUT`].
     async fn drain_lane(&self, lane: Lane, expected: &[(JobId, TaskId)]) {
         let mut remaining: HashMap<(JobId, TaskId), usize> = HashMap::new();
         for entry in expected {
@@ -1069,7 +1086,10 @@ impl JobShape {
     ///
     /// # Returns
     ///
-    /// The task graph and its inputs.
+    /// A tuple containing:
+    ///
+    /// * The task graph.
+    /// * The task graph's inputs.
     ///
     /// # Panics
     ///
@@ -1224,7 +1244,7 @@ impl TreeProbes {
     ///
     /// # Panics
     ///
-    /// Panics if the assertion fails or the probes don't observe a job of `expected`.
+    /// Panics if the assertion fails.
     pub fn assert_transitions(&self, expected: &HashMap<JobId, usize>, what: &str) {
         for (job_id, num_transitions) in expected {
             assert_eq!(

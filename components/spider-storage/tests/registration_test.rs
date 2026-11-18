@@ -36,7 +36,7 @@ impl TestEnv {
     ///
     /// # Panics
     ///
-    /// Panics if a task's report fails or the assertion fails.
+    /// Panics if the assertion fails.
     async fn run_all_tasks(&self, job_id: JobId, shape: &JobShape) {
         for task_index in 0..shape.num_tasks {
             let expected_state = if task_index + 1 == shape.num_tasks {
