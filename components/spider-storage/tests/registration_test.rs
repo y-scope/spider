@@ -37,7 +37,7 @@ impl TestEnv {
     /// # Panics
     ///
     /// Panics if a task's report fails or the assertion fails.
-    async fn run_all_tasks(&self, job_id: JobId, shape: JobShape) {
+    async fn run_all_tasks(&self, job_id: JobId, shape: &JobShape) {
         for task_index in 0..shape.num_tasks {
             let expected_state = if task_index + 1 == shape.num_tasks {
                 JobState::Succeeded
@@ -105,7 +105,7 @@ async fn a_report_with_children_blocks_its_job_and_inserts_them() -> anyhow::Res
 async fn a_registered_parent_commits_after_its_children_succeed() -> anyhow::Result<()> {
     let env = TestEnv::start().await;
     let parent_id = env
-        .start_root(JobShape {
+        .start_root(&JobShape {
             with_commit: true,
             ..JobShape::ONE_TASK
         })
@@ -167,7 +167,7 @@ async fn a_registered_parent_commits_after_its_children_succeed() -> anyhow::Res
     env.drain_ready_tasks(&child_ids, &child_shapes).await;
 
     for (position, (child_id, shape)) in child_ids.iter().zip(&child_shapes).enumerate() {
-        env.run_all_tasks(*child_id, *shape).await;
+        env.run_all_tasks(*child_id, shape).await;
         let parent_state = if position + 1 == child_ids.len() {
             JobState::CommitReady
         } else {
@@ -205,7 +205,7 @@ async fn a_registered_parent_commits_after_its_children_succeed() -> anyhow::Res
 async fn sibling_tasks_register_the_union_of_their_children_in_task_order() -> anyhow::Result<()> {
     let env = TestEnv::start().await;
     let parent_id = env
-        .start_root(JobShape {
+        .start_root(&JobShape {
             num_tasks: 2,
             ..JobShape::ONE_TASK
         })
@@ -258,7 +258,7 @@ async fn sibling_tasks_register_the_union_of_their_children_in_task_order() -> a
     let child_ids: Vec<JobId> = rows.iter().map(|row| row.id).collect();
     env.drain_ready_tasks(&child_ids, &child_shapes).await;
     for (child_id, shape) in child_ids.iter().zip(&child_shapes) {
-        env.run_all_tasks(*child_id, *shape).await;
+        env.run_all_tasks(*child_id, shape).await;
     }
     let mut expected_states = HashMap::from([(parent_id, JobState::Succeeded)]);
     expected_states.extend(

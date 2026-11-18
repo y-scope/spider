@@ -296,7 +296,8 @@ impl TestEnv {
         job_id
     }
 
-    /// Registers and starts a job of [`build_independent_job`].
+    /// Registers and starts a job of `num_tasks` independent tasks under `execution_policy`, with a
+    /// cleanup task if `with_cleanup`.
     ///
     /// # Returns
     ///
@@ -311,7 +312,13 @@ impl TestEnv {
         execution_policy: ExecutionPolicy,
         with_cleanup: bool,
     ) -> JobId {
-        let (graph, inputs) = build_independent_job(num_tasks, execution_policy, with_cleanup);
+        let (graph, inputs) = JobShape {
+            num_tasks,
+            with_cleanup,
+            execution_policy: Some(execution_policy),
+            ..JobShape::ONE_TASK
+        }
+        .build();
         let job_id = self.register_job(&graph, &inputs).await;
         self.service
             .start_job(job_id)
@@ -462,7 +469,7 @@ impl TestEnv {
     /// # Panics
     ///
     /// Panics if the start fails.
-    pub async fn start_root(&self, shape: JobShape) -> JobId {
+    pub async fn start_root(&self, shape: &JobShape) -> JobId {
         let job_id = self.start_root_without_draining(shape).await;
         self.drain_lane(Lane::Task, &shape.ready_tasks(job_id))
             .await;
@@ -478,7 +485,7 @@ impl TestEnv {
     /// # Panics
     ///
     /// Panics if the start fails or isn't answered within [`RPC_TIMEOUT`].
-    pub async fn start_root_without_draining(&self, shape: JobShape) -> JobId {
+    pub async fn start_root_without_draining(&self, shape: &JobShape) -> JobId {
         let (graph, inputs) = shape.build();
         let job_id = self.register_job(&graph, &inputs).await;
         bounded_rpc(self.service.start_job(job_id))
@@ -1092,45 +1099,36 @@ pub struct ChildRow {
     pub compressed_serialized_task_graph: Vec<u8>,
 }
 
-/// The shape of a test job of tasks that each take and return one byte-typed value: independent
-/// tasks, or, if `is_chain`, a chain where every task but the first takes the previous task's
-/// output. Its tasks, commit task and cleanup task each run at most `max_num_instances` instances
-/// at once and are retried at most `max_num_retry` times.
-#[derive(Clone, Copy, Debug)]
+/// The shape of a test job of tasks that each take and return one byte-typed value.
+#[derive(Clone, Debug)]
 pub struct JobShape {
+    /// The number of the job's regular tasks.
     pub num_tasks: usize,
+
+    /// Whether every task but the first takes the previous task's output, instead of every task
+    /// being independent.
     pub is_chain: bool,
+
+    /// Whether the job has a commit task.
     pub with_commit: bool,
+
+    /// Whether the job has a cleanup task.
     pub with_cleanup: bool,
-    pub max_num_instances: u32,
-    pub max_num_retry: u32,
+
+    /// The execution policy of each of the job's tasks, commit task and cleanup task, or [`None`]
+    /// for the default policy.
+    pub execution_policy: Option<ExecutionPolicy>,
 }
 
 impl JobShape {
-    /// A job of one task, without a commit or a cleanup task, whose task runs one instance at once
-    /// and is never retried.
+    /// A job of one task, without a commit or a cleanup task, under the default execution policy.
     pub const ONE_TASK: Self = Self {
         num_tasks: 1,
         is_chain: false,
         with_commit: false,
         with_cleanup: false,
-        max_num_instances: 1,
-        max_num_retry: 0,
+        execution_policy: None,
     };
-
-    /// Builds a job of this shape.
-    ///
-    /// # Returns
-    ///
-    /// The task graph and its inputs.
-    #[must_use]
-    pub fn build(self) -> (SubmittedTaskGraph, TaskGraphInput) {
-        self.build_with_execution_policy(ExecutionPolicy {
-            max_num_instances: self.max_num_instances,
-            max_num_retry: self.max_num_retry,
-            ..ExecutionPolicy::default()
-        })
-    }
 
     /// # Returns
     ///
@@ -1140,7 +1138,7 @@ impl JobShape {
     ///
     /// Panics if the job fails to compress.
     #[must_use]
-    pub fn child(self) -> CompressedJobSubmission {
+    pub fn child(&self) -> CompressedJobSubmission {
         let (graph, inputs) = self.build();
         CompressedJobSubmission {
             compressed_serialized_task_graph: compress_task_graph(&graph)
@@ -1155,15 +1153,14 @@ impl JobShape {
     /// The task-lane entries that the start of `job_id`, a job of this shape, publishes: every task
     /// of independent tasks, or the first task of a chain.
     #[must_use]
-    pub fn ready_tasks(self, job_id: JobId) -> Vec<(JobId, TaskId)> {
+    pub fn ready_tasks(&self, job_id: JobId) -> Vec<(JobId, TaskId)> {
         let num_ready_tasks = if self.is_chain { 1 } else { self.num_tasks };
         (0..num_ready_tasks)
             .map(|task_index| (job_id, TaskId::Index(task_index)))
             .collect()
     }
 
-    /// Builds a job of this shape whose tasks, commit task and cleanup task run under
-    /// `execution_policy` instead of the shape's own limits.
+    /// Builds a job of this shape.
     ///
     /// # Returns
     ///
@@ -1172,17 +1169,14 @@ impl JobShape {
     /// # Panics
     ///
     /// Panics if the graph fails to build.
-    fn build_with_execution_policy(
-        self,
-        execution_policy: ExecutionPolicy,
-    ) -> (SubmittedTaskGraph, TaskGraphInput) {
-        let execution_policy = Some(execution_policy);
+    #[must_use]
+    pub fn build(&self) -> (SubmittedTaskGraph, TaskGraphInput) {
         let termination_task = |task_func: &str| TerminationTaskDescriptor {
             tdl_context: TdlContext {
                 package: "test".to_owned(),
                 task_func: task_func.to_owned(),
             },
-            execution_policy: execution_policy.clone(),
+            execution_policy: self.execution_policy.clone(),
         };
         let mut graph = SubmittedTaskGraph::new(
             self.with_commit.then(|| termination_task("commit")),
@@ -1198,7 +1192,7 @@ impl JobShape {
                         package: "test".to_owned(),
                         task_func: format!("task{task_index}"),
                     },
-                    execution_policy: execution_policy.clone(),
+                    execution_policy: self.execution_policy.clone(),
                     inputs: vec![bytes_type.clone()],
                     outputs: vec![bytes_type.clone()],
                     input_sources: task_index.checked_sub(1).filter(|_| self.is_chain).map(
@@ -1429,30 +1423,6 @@ pub fn build_chain_task_graph(
         .append_task_input(&[0u8; 4])
         .expect("task input appending should succeed");
     (graph, inputs.build())
-}
-
-/// Builds a job of `num_tasks` independent tasks under `execution_policy`, each taking and
-/// returning one byte-typed value, with a cleanup task if `with_cleanup`.
-///
-/// # Returns
-///
-/// The task graph and its inputs.
-///
-/// # Panics
-///
-/// Panics if the graph fails to build.
-#[must_use]
-pub fn build_independent_job(
-    num_tasks: usize,
-    execution_policy: ExecutionPolicy,
-    with_cleanup: bool,
-) -> (SubmittedTaskGraph, TaskGraphInput) {
-    JobShape {
-        num_tasks,
-        with_cleanup,
-        ..JobShape::ONE_TASK
-    }
-    .build_with_execution_policy(execution_policy)
 }
 
 /// # Returns

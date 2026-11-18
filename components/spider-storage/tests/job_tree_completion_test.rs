@@ -73,7 +73,7 @@ impl SiblingTree {
             with_commit: parent_has_commit,
             ..JobShape::ONE_TASK
         };
-        let (root_id, parent_id) = env.start_job_at(position, parent_shape).await;
+        let (root_id, parent_id) = env.start_job_at(position, &parent_shape).await;
         let parent_value = value(0xb1, 0);
         let child_ids = env
             .register_children(
@@ -132,7 +132,7 @@ impl CommitParentTree {
         let root_value = value(0xf0, 0);
         let parent_value = value(0xf1, 0);
         let root_id = env
-            .start_root(JobShape {
+            .start_root(&JobShape {
                 with_commit: root_has_commit,
                 ..JobShape::ONE_TASK
             })
@@ -246,16 +246,16 @@ impl TestEnv {
     ///
     /// * The ID of the tree's root.
     /// * The ID of the job.
-    async fn start_job_at(&self, position: Position, shape: JobShape) -> (JobId, JobId) {
+    async fn start_job_at(&self, position: Position, shape: &JobShape) -> (JobId, JobId) {
         match position {
             Position::Root => {
                 let job_id = self.start_root(shape).await;
                 (job_id, job_id)
             }
             Position::UnderRoot => {
-                let root_id = self.start_root(JobShape::ONE_TASK).await;
+                let root_id = self.start_root(&JobShape::ONE_TASK).await;
                 let [job_id] = self
-                    .register_children(root_id, &value(0xb0, 0), &[shape])
+                    .register_children(root_id, &value(0xb0, 0), std::slice::from_ref(shape))
                     .await[..]
                 else {
                     panic!("the root should have one child");
@@ -524,7 +524,7 @@ impl TestEnv {
         let (root_id, job_id) = self
             .start_job_at(
                 position,
-                JobShape {
+                &JobShape {
                     num_tasks,
                     ..JobShape::ONE_TASK
                 },
