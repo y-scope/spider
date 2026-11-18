@@ -48,6 +48,9 @@ pub enum HookAction {
     /// Blocks until released, or until the runtime's shutdown is requested.
     Pause,
 
+    /// Lets the hit go on: the hook only counts it.
+    Observe,
+
     /// Fails the hit with an injected fault.
     Crash,
 
@@ -167,6 +170,7 @@ impl TestHooks {
         };
         for hook in fired {
             match hook.action {
+                HookAction::Observe => {}
                 HookAction::Pause => {
                     let shutdown_handle = shutdown_handle.clone().unwrap_or_default();
                     tokio::select! {
