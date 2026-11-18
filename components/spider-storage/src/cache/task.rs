@@ -444,11 +444,8 @@ impl SharedTaskControlBlock {
     ///
     /// * [`CacheError::TaskOutputsLengthMismatch`] if the number of task outputs doesn't match the
     ///   number of outputs of the task.
-    /// * [`InternalError::TaskGraphCorrupted`] if:
-    ///   * Attempting to mark a parent of a child task as completed, but the child task's
-    ///     unfinished parent counter is already 0.
-    ///   * Attempting to update a child task after parent completion, but the child task is already
-    ///     in a terminal state.
+    /// * [`InternalError::TaskGraphCorrupted`] if attempting to update a child task after parent
+    ///   completion, but the child task is already in a terminal state.
     /// * Forwards [`TaskControlBlockBase::succeed_task_instance`]'s return values on failure.
     /// * Forwards [`TaskControlBlock::write_outputs`]'s return values on failure.
     /// * Forwards [`TestHooks::hit`]'s return values on failure.
@@ -483,16 +480,10 @@ impl SharedTaskControlBlock {
             let mut ready_child_indices = Vec::new();
             for child in &tcb.children {
                 let mut child_tcb = child.inner.lock().await;
-                if child_tcb.num_unfinished_parents == 0 {
-                    return Err(InternalError::TaskGraphCorrupted(
-                        "child task has no unfinished parents remaining when processing parent \
-                         completion"
-                            .to_owned(),
-                    )
-                    .into());
+                if !child_tcb.completed_parent_indices.insert(tcb.index) {
+                    continue;
                 }
-                child_tcb.num_unfinished_parents -= 1;
-                if child_tcb.num_unfinished_parents != 0 {
+                if child_tcb.completed_parent_indices.len() != child_tcb.num_parents {
                     continue;
                 }
 
@@ -553,7 +544,7 @@ impl SharedTaskControlBlock {
         let mut tcb = self.inner.lock().await;
         tcb.base.instance_pool.reset();
         tcb.base.retry_counter.reset();
-        tcb.num_unfinished_parents = tcb.num_parents;
+        tcb.completed_parent_indices.clear();
         tcb.base.state = if tcb.num_parents == 0 {
             TaskState::Ready
         } else {
@@ -678,7 +669,7 @@ impl SharedTaskControlBlock {
             },
             index,
             num_parents,
-            num_unfinished_parents: num_parents,
+            completed_parent_indices: HashSet::new(),
             children,
             inputs: input_readers,
             outputs: output_writers,
@@ -1099,7 +1090,7 @@ struct TaskControlBlock {
     base: TaskControlBlockBase,
     index: TaskIndex,
     num_parents: usize,
-    num_unfinished_parents: usize,
+    completed_parent_indices: HashSet<TaskIndex>,
     children: Vec<SharedTaskControlBlock>,
     inputs: Vec<InputReader>,
     outputs: Vec<OutputWriter>,
@@ -1179,6 +1170,7 @@ mod tests {
     use spider_core::task::ExecutionPolicy;
     use spider_core::task::TaskDescriptor;
     use spider_core::task::TaskGraph as SubmittedTaskGraph;
+    use spider_core::task::TaskInputOutputIndex;
     use spider_core::task::TerminationTaskDescriptor;
     use spider_core::task::ValueTypeDescriptor;
     use spider_core::types::id::JobId;
@@ -2005,6 +1997,66 @@ mod tests {
         );
 
         assert_graph_outputs(&task_graph, &[expected.d_output]).await;
+    }
+
+    /// Completing one parent twice must not stand in for a different parent that has not run.
+    #[tokio::test]
+    async fn repeated_parent_completion_does_not_make_child_ready() -> anyhow::Result<()> {
+        let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
+        let root_task = |task_func: &str| TaskDescriptor {
+            tdl_context: TdlContext {
+                package: "test_pkg".to_owned(),
+                task_func: task_func.to_owned(),
+            },
+            execution_policy: None,
+            inputs: vec![],
+            outputs: vec![bytes_type.clone()],
+            input_sources: None,
+        };
+        let mut submitted = SubmittedTaskGraph::new(None, None)?;
+        submitted.insert_task(root_task("parent_a"))?;
+        submitted.insert_task(root_task("parent_b"))?;
+        submitted.insert_task(TaskDescriptor {
+            tdl_context: TdlContext {
+                package: "test_pkg".to_owned(),
+                task_func: "child".to_owned(),
+            },
+            execution_policy: None,
+            inputs: vec![bytes_type.clone(), bytes_type.clone()],
+            outputs: vec![],
+            input_sources: Some(vec![
+                TaskInputOutputIndex {
+                    task_idx: 0,
+                    position: 0,
+                },
+                TaskInputOutputIndex {
+                    task_idx: 1,
+                    position: 0,
+                },
+            ]),
+        })?;
+        let task_graph = TaskGraph::create(create_validated_submission(
+            submitted,
+            TaskGraphInputBuilder::new().build(),
+        ))
+        .await?;
+        let parent_a = task_graph
+            .get_task_control_block(0)
+            .expect("parent A should exist");
+
+        let first_id = next_instance_id();
+        parent_a.register_task_instance(first_id).await?;
+        let first_ready = succeed_instance(&parent_a, first_id, vec![vec![1]]).await?;
+        assert_eq!(first_ready, Vec::<TaskIndex>::new());
+
+        parent_a.reset().await;
+        let second_id = next_instance_id();
+        parent_a.register_task_instance(second_id).await?;
+        let second_ready = succeed_instance(&parent_a, second_id, vec![vec![2]]).await?;
+        assert_eq!(second_ready, Vec::<TaskIndex>::new());
+
+        assert_eq!(task_graph.get_all_ready_task_indices().await, vec![1]);
+        Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
