@@ -1,11 +1,17 @@
 //! End-to-end correctness tests against the `spider-task-executor` binary.
 //!
-//! Each test spawns a fresh executor subprocess via [`ExecutorHandle::spawn`], exchanges one framed
-//! bincode request/response over the binary's stdin/stdout, and asserts on the result.
+//! Tests spawn fresh executor subprocesses via [`ExecutorHandle::spawn`], exchange framed bincode
+//! requests and responses over the binary's stdin/stdout, and assert on the results.
 
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::TaskId;
+use spider_core::types::io::SerializedTaskOutputs;
 use spider_task_executor::ExecutorError;
 use spider_task_executor::protocol::ExecutorOutcome;
+use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
+use spider_tdl::TaskContext;
 use spider_tdl::TdlError;
 use test_utils::ExecutorHandle;
 use test_utils::commit_execute_request;
@@ -203,4 +209,173 @@ async fn response_larger_than_eight_mib_preserves_outputs() {
         [] as [spider_core::job::submission::CompressedJobSubmission; 0]
     );
     handle.shutdown_clean().await;
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn child_submissions_preserve_storage_encoding_and_submission_order() -> anyhow::Result<()> {
+    use spider_core::task::TaskGraph;
+    use spider_core::types::io::TaskGraphInput;
+
+    let mut handle = ExecutorHandle::spawn();
+    for count in [2_u64, 1] {
+        handle
+            .send(&execute_request(
+                "create_children",
+                encode_single_input(&count),
+            ))
+            .await;
+        let Response::Result { outcome, .. } = handle.recv().await;
+        let ExecutorOutcome::Success { outputs, children } = outcome else {
+            panic!("expected child-producing success, got {outcome:?}");
+        };
+        assert_eq!(decode_single_output::<u64>(&outputs), count);
+        assert_eq!(children.len() as u64, count);
+        for (index, child) in children.iter().enumerate() {
+            let graph =
+                TaskGraph::from_zstd_compressed_json(&child.compressed_serialized_task_graph)?;
+            assert_eq!(graph.get_num_tasks(), 1);
+            assert_eq!(
+                graph
+                    .get_task(0)
+                    .expect("child graph contains task")
+                    .get_tdl_context()
+                    .task_func,
+                "fibonacci"
+            );
+            let inputs = TaskGraphInput::from_zstd_compressed_bytes(
+                &child.compressed_serialized_job_inputs,
+            )?;
+            let inputs = inputs.into_positional_inputs(|bytes| bytes);
+            assert_eq!(inputs, vec![rmp_serde::to_vec(&(index as u64))?]);
+        }
+    }
+    handle.shutdown_clean().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn failed_execution_discards_child_submissions() -> anyhow::Result<()> {
+    let mut handle = ExecutorHandle::spawn();
+    handle
+        .send(&execute_request(
+            "create_children_then_fail",
+            encode_no_inputs(),
+        ))
+        .await;
+    let Response::Result { outcome, .. } = handle.recv().await;
+    let ExecutorOutcome::Failure { error } = outcome else {
+        panic!("expected task failure, got {outcome:?}");
+    };
+    let error: ExecutorError = rmp_serde::from_slice(&error)?;
+    assert!(
+        matches!(error, ExecutorError::TaskError(TdlError::ExecutionError(_))),
+        "got {error:?}"
+    );
+    handle
+        .send(&execute_request("fibonacci", encode_single_input(&7_u64)))
+        .await;
+    let Response::Result { outcome, .. } = handle.recv().await;
+    let ExecutorOutcome::Success { outputs, children } = outcome else {
+        panic!("expected success after failed execution, got {outcome:?}");
+    };
+    assert_eq!(decode_single_output::<u64>(&outputs), 13);
+    assert_eq!(children, []);
+    handle.shutdown_clean().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn child_creation_followed_by_panic_does_not_report_success() -> anyhow::Result<()> {
+    let mut handle = ExecutorHandle::spawn();
+    handle
+        .send(&execute_request(
+            "create_children_then_panic",
+            encode_no_inputs(),
+        ))
+        .await;
+    let frame = handle.try_recv().await;
+    assert!(
+        frame.is_none(),
+        "expected stdout EOF after panic, got a response frame: {frame:?}",
+    );
+    let status = handle.wait_for_exit().await;
+    assert!(
+        !status.success(),
+        "expected non-zero exit after panic, got {status:?}",
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn termination_tasks_reject_child_creation() -> anyhow::Result<()> {
+    let mut handle = ExecutorHandle::spawn();
+    for task_id in [TaskId::Commit, TaskId::Cleanup] {
+        let outputs = if task_id == TaskId::Commit {
+            Some(SerializedTaskOutputs::serialize_with_size_hint(&[])?.to_raw())
+        } else {
+            None
+        };
+        let context = TaskContext::new(
+            JobId::random(),
+            task_id,
+            1,
+            ResourceGroupId::random(),
+            outputs,
+        )?;
+        let mut request = execute_request("create_children", encode_single_input(&1_u64));
+        let Request::Execute { raw_ctx, .. } = &mut request else {
+            panic!("expected execute request");
+        };
+        *raw_ctx = rmp_serde::to_vec(&context)?;
+        handle.send(&request).await;
+        let Response::Result { outcome, .. } = handle.recv().await;
+        let ExecutorOutcome::Failure { error } = outcome else {
+            panic!("expected child-creation rejection, got {outcome:?}");
+        };
+        let error: ExecutorError = rmp_serde::from_slice(&error)?;
+        assert!(
+            matches!(error, ExecutorError::TaskError(_)),
+            "got {error:?}"
+        );
+    }
+    handle.shutdown_clean().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn termination_task_outputs_survive_the_subprocess_protocol() -> anyhow::Result<()> {
+    let mut handle = ExecutorHandle::spawn();
+    for task_id in [TaskId::Commit, TaskId::Cleanup] {
+        let outputs = if task_id == TaskId::Commit {
+            Some(SerializedTaskOutputs::serialize_with_size_hint(&[])?.to_raw())
+        } else {
+            None
+        };
+        let context = TaskContext::new(
+            JobId::random(),
+            task_id,
+            1,
+            ResourceGroupId::random(),
+            outputs,
+        )?;
+        let mut request = execute_request("fibonacci", encode_single_input(&7_u64));
+        let Request::Execute { raw_ctx, .. } = &mut request else {
+            panic!("expected execute request");
+        };
+        *raw_ctx = rmp_serde::to_vec(&context)?;
+        handle.send(&request).await;
+        let Response::Result { outcome, .. } = handle.recv().await;
+        let ExecutorOutcome::Success { outputs, children } = outcome else {
+            panic!("expected termination task success, got {outcome:?}");
+        };
+        assert_eq!(decode_single_output::<u64>(&outputs), 13);
+        assert_eq!(children, []);
+    }
+    handle.shutdown_clean().await;
+    Ok(())
 }
