@@ -166,7 +166,7 @@ impl TestEnv {
     ///
     /// # Returns
     ///
-    /// A pair, containing:
+    /// A tuple containing:
     ///
     /// * The result of the commit's success or, for the races that say so, of the commit's failure
     ///   or of the commit's instance registration.
