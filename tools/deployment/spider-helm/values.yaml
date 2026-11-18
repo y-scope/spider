@@ -102,4 +102,8 @@ spiderConfig:
       - name: "general"
         replicas: 4
         resource_group: null
+        # Container resources for this pool's execution manager; overrides `resources.worker`.
+        # resources:
+        #   requests: {cpu: "1", memory: "2Gi"}
+        #   limits: {memory: "2Gi"}
     service_account_name: ""

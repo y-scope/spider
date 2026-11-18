@@ -47,8 +47,8 @@ spec:
             {{- with $.Values.spiderConfig.worker.extra_envs }}
             {{- tpl (ternary . (toYaml .) (typeIs "string" .)) $ | nindent 12 }}
             {{- end }}
-          {{- if $.Values.resources.worker }}
-          resources: {{- toYaml $.Values.resources.worker | nindent 12 }}
+          {{- if or .resources $.Values.resources.worker }}
+          resources: {{- toYaml (.resources | default $.Values.resources.worker) | nindent 12 }}
           {{- end }}
           volumeMounts:
             - name: "config"
