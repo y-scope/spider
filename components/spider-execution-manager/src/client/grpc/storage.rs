@@ -6,6 +6,8 @@
 use std::num::NonZeroUsize;
 
 use async_trait::async_trait;
+use prost::Message;
+use spider_core::job::submission::TaskSuccessOutcome;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::SessionId;
@@ -13,6 +15,7 @@ use spider_core::types::id::TaskId;
 use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::ExecutionContext;
 use spider_proto_rust::common;
+use spider_proto_rust::storage::MAX_TASK_INSTANCE_MESSAGE_SIZE;
 use spider_proto_rust::storage::TaskInstanceManagementServiceClient;
 use spider_proto_rust::storage::{self};
 use spider_utils::grpc::client::ConnectionPool;
@@ -95,16 +98,41 @@ impl StorageClient for GrpcStorageClient {
         task_instance_id: TaskInstanceId,
         em_id: ExecutionManagerId,
         session_id: SessionId,
-        serialized_outputs: Option<Vec<u8>>,
+        outcome: TaskSuccessOutcome,
     ) -> Result<(), StorageResponseError> {
+        let (serialized_outputs, children) = match (task_id, outcome) {
+            (
+                TaskId::Index(_),
+                TaskSuccessOutcome::Regular {
+                    serialized_outputs,
+                    children,
+                },
+            ) => (serialized_outputs, children),
+            (TaskId::Commit | TaskId::Cleanup, TaskSuccessOutcome::Finalizing) => {
+                (Vec::new(), Vec::new())
+            }
+            _ => {
+                return Err(StorageResponseError::InvalidInput(
+                    "success outcome does not match task kind".to_owned(),
+                ));
+            }
+        };
         let request = storage::ReportTaskSuccessRequest {
             job_id: job_id.get(),
             task_id: Some(common::TaskId::from(task_id)),
             execution_manager_id: em_id.get(),
             session_id,
-            serialized_outputs: serialized_outputs.unwrap_or_default(),
+            serialized_outputs,
+            children: children.into_iter().map(Into::into).collect(),
             task_instance_id,
         };
+        let size = request.encoded_len();
+        if size > MAX_TASK_INSTANCE_MESSAGE_SIZE {
+            return Err(StorageResponseError::ReportTooLarge {
+                size: size as u64,
+                limit: MAX_TASK_INSTANCE_MESSAGE_SIZE as u64,
+            });
+        }
         self.connection_pool
             .get_client()
             .report_task_success(request)
@@ -171,7 +199,176 @@ fn to_transport_error(error: impl std::fmt::Display) -> StorageResponseError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use spider_core::job::submission::CompressedJobSubmission;
+    use spider_proto_rust::storage::TaskInstanceManagementService;
+    use spider_proto_rust::storage::TaskInstanceManagementServiceServer;
+    use tokio::net::TcpListener;
+    use tokio::sync::Mutex;
+    use tokio_util::sync::CancellationToken;
+    use tonic::Request;
+    use tonic::Response;
+    use tonic::transport::Server;
+
     use super::*;
+
+    #[derive(Clone, Default)]
+    struct RecordingService {
+        successes: Arc<Mutex<Vec<storage::ReportTaskSuccessRequest>>>,
+        failures: Arc<Mutex<Vec<storage::ReportTaskFailureRequest>>>,
+    }
+
+    #[async_trait]
+    impl TaskInstanceManagementService for RecordingService {
+        async fn register_task_instance(
+            &self,
+            _request: Request<storage::RegisterTaskInstanceRequest>,
+        ) -> Result<Response<storage::RegisterTaskInstanceResponse>, Status> {
+            Err(Status::unimplemented("task registration is unused"))
+        }
+
+        async fn report_task_success(
+            &self,
+            request: Request<storage::ReportTaskSuccessRequest>,
+        ) -> Result<Response<common::Void>, Status> {
+            self.successes.lock().await.push(request.into_inner());
+            Ok(Response::new(common::Void {}))
+        }
+
+        async fn report_task_failure(
+            &self,
+            request: Request<storage::ReportTaskFailureRequest>,
+        ) -> Result<Response<common::Void>, Status> {
+            self.failures.lock().await.push(request.into_inner());
+            Ok(Response::new(common::Void {}))
+        }
+    }
+
+    #[tokio::test]
+    async fn success_reports_preserve_payloads_and_identifiers_over_grpc() -> anyhow::Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let endpoint = Endpoint::from_shared(format!("http://{}", listener.local_addr()?))?;
+        let incoming = futures_util::stream::unfold(listener, |listener| async {
+            let connection = listener.accept().await.map(|(stream, _address)| stream);
+            Some((connection, listener))
+        });
+        let service = RecordingService::default();
+        let shutdown = CancellationToken::new();
+        let shutdown_guard = shutdown.clone().drop_guard();
+        let server = tokio::spawn(
+            Server::builder()
+                .add_service(
+                    TaskInstanceManagementServiceServer::new(service.clone())
+                        .max_decoding_message_size(MAX_TASK_INSTANCE_MESSAGE_SIZE),
+                )
+                .serve_with_incoming_shutdown(incoming, shutdown.cancelled_owned()),
+        );
+        let client = GrpcStorageClient::connect(endpoint, NonZeroUsize::MIN).await?;
+        let children = vec![
+            CompressedJobSubmission {
+                compressed_serialized_task_graph: vec![0xff; 3 * 1024 * 1024],
+                compressed_serialized_job_inputs: vec![0, 0xfe],
+            },
+            CompressedJobSubmission {
+                compressed_serialized_task_graph: vec![0xfe; 2 * 1024 * 1024],
+                compressed_serialized_job_inputs: vec![0xfd, 0],
+            },
+        ];
+        let outputs = vec![0, 0xff, 7];
+        let expected = storage::ReportTaskSuccessRequest {
+            job_id: 11,
+            task_id: Some(common::TaskId::from(TaskId::Index(7))),
+            task_instance_id: 13,
+            execution_manager_id: 17,
+            session_id: 19,
+            serialized_outputs: outputs.clone(),
+            children: children.clone().into_iter().map(Into::into).collect(),
+        };
+        client
+            .report_task_success(
+                JobId::from(expected.job_id),
+                TaskId::Index(7),
+                expected.task_instance_id,
+                ExecutionManagerId::from(expected.execution_manager_id),
+                expected.session_id,
+                TaskSuccessOutcome::Regular {
+                    serialized_outputs: outputs.clone(),
+                    children: children.clone(),
+                },
+            )
+            .await?;
+        assert_eq!(*service.successes.lock().await, vec![expected]);
+
+        for (task_id, outcome) in [
+            (
+                TaskId::Commit,
+                TaskSuccessOutcome::Regular {
+                    serialized_outputs: outputs.clone(),
+                    children: Vec::new(),
+                },
+            ),
+            (
+                TaskId::Cleanup,
+                TaskSuccessOutcome::Regular {
+                    serialized_outputs: Vec::new(),
+                    children: children.clone(),
+                },
+            ),
+            (TaskId::Index(7), TaskSuccessOutcome::Finalizing),
+        ] {
+            let error = client
+                .report_task_success(
+                    JobId::from(11),
+                    task_id,
+                    13,
+                    ExecutionManagerId::from(17),
+                    19,
+                    outcome,
+                )
+                .await
+                .expect_err("mismatched outcome must be rejected locally");
+            assert!(matches!(error, StorageResponseError::InvalidInput(_)));
+        }
+        assert_eq!(service.successes.lock().await.len(), 1);
+        assert_oversized_success_is_rejected(&client, &service).await;
+        drop(client);
+        drop(shutdown_guard);
+        server.await??;
+        Ok(())
+    }
+
+    /// Verifies that an oversized success request returns an error without sending a report.
+    async fn assert_oversized_success_is_rejected(
+        client: &GrpcStorageClient,
+        service: &RecordingService,
+    ) {
+        // The output buffer fits the limit, but protobuf fields make the request exceed it.
+        let error = client
+            .report_task_success(
+                JobId::from(11),
+                TaskId::Index(7),
+                13,
+                ExecutionManagerId::from(17),
+                19,
+                TaskSuccessOutcome::Regular {
+                    serialized_outputs: vec![0; MAX_TASK_INSTANCE_MESSAGE_SIZE],
+                    children: Vec::new(),
+                },
+            )
+            .await
+            .expect_err("oversized reports must be rejected locally");
+        let StorageResponseError::ReportTooLarge { size, limit } = error else {
+            panic!("expected report size error, got {error:?}");
+        };
+        assert!(size > limit);
+        assert_eq!(limit, MAX_TASK_INSTANCE_MESSAGE_SIZE as u64);
+        assert_eq!(service.successes.lock().await.len(), 1);
+        assert_eq!(
+            *service.failures.lock().await,
+            [] as [storage::ReportTaskFailureRequest; 0]
+        );
+    }
 
     #[test]
     fn status_maps_not_found_to_stale_session() {

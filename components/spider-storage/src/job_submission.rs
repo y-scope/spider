@@ -1,3 +1,4 @@
+pub use spider_core::job::submission::CompressedJobSubmission;
 use spider_core::task::TaskGraph;
 use spider_core::task::{self};
 use spider_core::types::io::TaskGraphInput;
@@ -21,25 +22,6 @@ pub enum JobSubmissionError {
     /// The number of positional job inputs does not match the number of graph inputs.
     #[error("task graph input size mismatch: expected {expected}, got {actual}")]
     TaskGraphInputSizeMismatch { expected: usize, actual: usize },
-}
-
-/// A job submission as submitted: its zstd-compressed serialized task graph and its
-/// zstd-compressed serialized job inputs, not validated yet.
-#[derive(Debug, PartialEq, Eq)]
-pub struct CompressedJobSubmission {
-    pub compressed_serialized_task_graph: Vec<u8>,
-    pub compressed_serialized_job_inputs: Vec<u8>,
-}
-
-impl CompressedJobSubmission {
-    /// # Returns
-    ///
-    /// The total size of the compressed serialized task graph and job inputs.
-    #[must_use]
-    pub const fn size(&self) -> u64 {
-        (self.compressed_serialized_task_graph.len() + self.compressed_serialized_job_inputs.len())
-            as u64
-    }
 }
 
 /// A validated wrapper around a task graph, its corresponding job inputs, and the compressed

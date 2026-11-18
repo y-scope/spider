@@ -4,6 +4,7 @@
 //! instance, fetch its [`ExecutionContext`], and report success or failure.
 
 use async_trait::async_trait;
+use spider_core::job::submission::TaskSuccessOutcome;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::SessionId;
@@ -13,9 +14,8 @@ use spider_core::types::io::ExecutionContext;
 
 /// Errors returned by [`StorageClient`] operations.
 ///
-/// The variants intentionally mirror the storage server's externally visible failure modes (see
-/// `spider_storage::state::error::StorageServerError`) plus a transport bucket for connection /
-/// serialization failures.
+/// Includes local request validation failures, the storage server's externally visible failure
+/// modes, and connection or serialization failures.
 #[derive(Debug, thiserror::Error)]
 pub enum StorageResponseError {
     /// The `session_id` carried with the request does not match storage's current session.
@@ -39,6 +39,10 @@ pub enum StorageResponseError {
     /// The input to the operation is invalid.
     #[error("invalid input: {0}")]
     InvalidInput(String),
+
+    /// The encoded success report exceeds the task instance management service's message limit.
+    #[error("success report of {size} bytes exceeds message limit of {limit} bytes")]
+    ReportTooLarge { size: u64, limit: u64 },
 }
 
 /// Client interface to the storage server.
@@ -84,8 +88,7 @@ pub trait StorageClient: Send + Sync {
     /// * `task_instance_id` - The task instance that produced the outcome.
     /// * `em_id` - The identity of the calling execution manager.
     /// * `session_id` - The session id captured from the scheduler assignment.
-    /// * `serialized_outputs` - The wire-format encoded task outputs buffer, forwarded verbatim to
-    ///   storage. For commit tasks and cleanup tasks, this must be `None`.
+    /// * `outcome` - The successful task outcome.
     ///
     /// # Errors
     ///
@@ -96,8 +99,10 @@ pub trait StorageClient: Send + Sync {
     /// * [`StorageResponseError::CacheStale`] if storage's job cache rejected the report.
     /// * [`StorageResponseError::Transport`] if the connection was lost or timed out.
     /// * [`StorageResponseError::Server`] if storage returned an otherwise-uncategorized error.
-    /// * [`StorageResponseError::InvalidInput`] if `serialized_outputs` is `Some` for a commit or
-    ///   cleanup task.
+    /// * [`StorageResponseError::InvalidInput`] if the outcome does not match the task kind, or
+    ///   storage rejects the report.
+    /// * [`StorageResponseError::ReportTooLarge`] if the encoded report exceeds the service's
+    ///   message limit. The report is not sent.
     async fn report_task_success(
         &self,
         job_id: JobId,
@@ -105,7 +110,7 @@ pub trait StorageClient: Send + Sync {
         task_instance_id: TaskInstanceId,
         em_id: ExecutionManagerId,
         session_id: SessionId,
-        serialized_outputs: Option<Vec<u8>>,
+        outcome: TaskSuccessOutcome,
     ) -> Result<(), StorageResponseError>;
 
     /// Reports failed execution of a task instance.
