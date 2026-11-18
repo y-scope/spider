@@ -57,13 +57,6 @@ use crate::task_graph_builder::compress_task_graph;
 /// on a paused hook to return.
 pub const HOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// How long a test waits for published work to arrive on a lane.
-pub const PUBLICATION_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// How long a test waits for an RPC that waits on a tree's committer. A test may hold such an RPC
-/// paused over several of its steps, so this is well above [`HOOK_TIMEOUT`].
-const RPC_TIMEOUT: Duration = Duration::from_secs(60);
-
 /// The runtime type that [`TestEnv`] runs.
 pub type TestRuntime =
     Runtime<InboundQueueSenderHandle, MariaDbStorageConnector, TaskInstancePoolHandle>;
@@ -470,27 +463,13 @@ impl TestEnv {
     ///
     /// Panics if the start fails.
     pub async fn start_root(&self, shape: &JobShape) -> JobId {
-        let job_id = self.start_root_without_draining(shape).await;
-        self.drain_lane(Lane::Task, &shape.ready_tasks(job_id))
-            .await;
-        job_id
-    }
-
-    /// Registers and starts a root job of `shape`, leaving its ready tasks in the task lane.
-    ///
-    /// # Returns
-    ///
-    /// The job ID.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the start fails or isn't answered within [`RPC_TIMEOUT`].
-    pub async fn start_root_without_draining(&self, shape: &JobShape) -> JobId {
         let (graph, inputs) = shape.build();
         let job_id = self.register_job(&graph, &inputs).await;
         bounded_rpc(self.service.start_job(job_id))
             .await
             .expect("the job should start");
+        self.drain_lane(Lane::Task, &shape.ready_tasks(job_id))
+            .await;
         job_id
     }
 
@@ -503,45 +482,33 @@ impl TestEnv {
     ///
     /// # Panics
     ///
-    /// Panics if the report fails, or if it doesn't block the parent on one child per shape.
+    /// Panics if:
+    ///
+    /// * The report fails.
+    /// * The report doesn't block the parent on its children.
+    /// * The parent doesn't have one child per shape.
     pub async fn register_children(
         &self,
         parent_id: JobId,
         value: &[u8],
         shapes: &[JobShape],
     ) -> Vec<JobId> {
-        let child_ids = self
-            .register_children_without_draining(parent_id, value, shapes)
-            .await;
-        self.drain_ready_tasks(&child_ids, shapes).await;
-        child_ids
-    }
-
-    /// Like [`Self::register_children`], leaving the children's ready tasks in the task lane.
-    ///
-    /// # Returns
-    ///
-    /// The IDs of the registered children, by ascending ID, which is the order of `shapes`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the report fails, or if it doesn't block the parent on one child per shape.
-    pub async fn register_children_without_draining(
-        &self,
-        parent_id: JobId,
-        value: &[u8],
-        shapes: &[JobShape],
-    ) -> Vec<JobId> {
         let task_instance_id = self.create_instance(parent_id, TaskId::Index(0)).await;
-        let children = shapes.iter().map(|shape| shape.child()).collect();
+        let children = shapes.iter().map(JobShape::child).collect();
         assert_eq!(
             self.task_success(parent_id, 0, task_instance_id, value, children)
                 .await
                 .expect("the registering report should succeed"),
             JobState::BlockingOnChildren
         );
-        let child_ids = self.children_of(parent_id).await;
+        let child_ids: Vec<JobId> = self
+            .child_rows(parent_id)
+            .await
+            .into_iter()
+            .map(|row| row.id)
+            .collect();
         assert_eq!(child_ids.len(), shapes.len());
+        self.drain_ready_tasks(&child_ids, shapes).await;
         child_ids
     }
 
@@ -734,77 +701,6 @@ impl TestEnv {
         .expect("the cleanup task should be published");
     }
 
-    /// # Returns
-    ///
-    /// The entries that one poll of `lane` returns, at most `max_entries` within `wait`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the poll fails.
-    pub async fn poll_lane(
-        &self,
-        lane: Lane,
-        max_entries: usize,
-        wait: Duration,
-    ) -> Vec<(JobId, TaskId)> {
-        match lane {
-            Lane::Task => self
-                .service
-                .poll_ready_tasks(max_entries, wait)
-                .await
-                .expect("the task lane poll should succeed")
-                .into_iter()
-                .map(|entry| (entry.job_id, TaskId::Index(entry.task_kind)))
-                .collect(),
-            Lane::Commit => self
-                .service
-                .poll_commit_ready_tasks(max_entries, wait)
-                .await
-                .expect("the commit lane poll should succeed")
-                .into_iter()
-                .map(|entry| (entry.job_id, TaskId::Commit))
-                .collect(),
-            Lane::Cleanup => self
-                .service
-                .poll_cleanup_ready_tasks(max_entries, wait)
-                .await
-                .expect("the cleanup lane poll should succeed")
-                .into_iter()
-                .map(|entry| (entry.job_id, TaskId::Cleanup))
-                .collect(),
-        }
-    }
-
-    /// Polls `lane` until it has returned exactly the entries of `expected`, in any order.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the lane returns an entry that `expected` doesn't hold, or one more time than
-    /// `expected` holds it, or if the entries don't arrive within [`PUBLICATION_TIMEOUT`].
-    pub async fn drain_lane(&self, lane: Lane, expected: &[(JobId, TaskId)]) {
-        let mut remaining: HashMap<(JobId, TaskId), usize> = HashMap::new();
-        for entry in expected {
-            *remaining.entry(*entry).or_default() += 1;
-        }
-        let mut num_remaining = expected.len();
-        tokio::time::timeout(PUBLICATION_TIMEOUT, async {
-            while num_remaining > 0 {
-                for entry in self
-                    .poll_lane(lane, num_remaining, Duration::from_secs(1))
-                    .await
-                {
-                    let Some(count) = remaining.get_mut(&entry).filter(|count| **count > 0) else {
-                        panic!("unexpected entry {entry:?} in the {lane:?} lane");
-                    };
-                    *count -= 1;
-                    num_remaining -= 1;
-                }
-            }
-        })
-        .await
-        .expect("the expected lane entries should be published");
-    }
-
     /// Asserts that no lane holds an entry.
     ///
     /// # Panics
@@ -923,17 +819,6 @@ impl TestEnv {
 
     /// # Returns
     ///
-    /// The IDs of the children of `parent_id` in the database, by ascending ID.
-    pub async fn children_of(&self, parent_id: JobId) -> Vec<JobId> {
-        self.child_rows(parent_id)
-            .await
-            .into_iter()
-            .map(|row| row.id)
-            .collect()
-    }
-
-    /// # Returns
-    ///
     /// The outputs of `job_id`'s row in the database, or [`None`] if it has none.
     ///
     /// # Panics
@@ -951,26 +836,6 @@ impl TestEnv {
             SerializedTaskOutputs::deserialize_from_raw(&serialized_outputs)
                 .expect("the stored outputs should deserialize")
         })
-    }
-
-    /// # Returns
-    ///
-    /// The states of the rows of the tree rooted at `root_id` in the database, by job.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the query fails.
-    pub async fn tree_rows(&self, root_id: JobId) -> HashMap<JobId, JobState> {
-        sqlx::query_as::<_, (JobId, JobState)>(
-            "SELECT `id`, `state` FROM `jobs` WHERE `id` = ? OR `root_id` = ?;",
-        )
-        .bind(root_id)
-        .bind(root_id)
-        .fetch_all(&self.pool)
-        .await
-        .expect("the tree query should succeed")
-        .into_iter()
-        .collect()
     }
 
     /// # Returns
@@ -1040,12 +905,17 @@ impl TestEnv {
     ///
     /// Panics if the query fails or a row is not terminal.
     pub async fn assert_quiescent(&self, root_id: JobId) {
-        let non_terminal_rows: HashMap<JobId, JobState> = self
-            .tree_rows(root_id)
-            .await
-            .into_iter()
-            .filter(|(_, state)| !state.is_terminal())
-            .collect();
+        let non_terminal_rows: HashMap<JobId, JobState> = sqlx::query_as::<_, (JobId, JobState)>(
+            "SELECT `id`, `state` FROM `jobs` WHERE `id` = ? OR `root_id` = ?;",
+        )
+        .bind(root_id)
+        .bind(root_id)
+        .fetch_all(&self.pool)
+        .await
+        .expect("the tree query should succeed")
+        .into_iter()
+        .filter(|(_, state)| !state.is_terminal())
+        .collect();
         assert_eq!(
             non_terminal_rows,
             HashMap::new(),
@@ -1065,6 +935,77 @@ impl TestEnv {
         );
         assert_eq!(self.row_state(job_id).await, expected);
         assert!(!self.is_fatal());
+    }
+
+    /// # Returns
+    ///
+    /// The entries that one poll of `lane` returns, at most `max_entries` within `wait`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the poll fails.
+    async fn poll_lane(
+        &self,
+        lane: Lane,
+        max_entries: usize,
+        wait: Duration,
+    ) -> Vec<(JobId, TaskId)> {
+        match lane {
+            Lane::Task => self
+                .service
+                .poll_ready_tasks(max_entries, wait)
+                .await
+                .expect("the task lane poll should succeed")
+                .into_iter()
+                .map(|entry| (entry.job_id, TaskId::Index(entry.task_kind)))
+                .collect(),
+            Lane::Commit => self
+                .service
+                .poll_commit_ready_tasks(max_entries, wait)
+                .await
+                .expect("the commit lane poll should succeed")
+                .into_iter()
+                .map(|entry| (entry.job_id, TaskId::Commit))
+                .collect(),
+            Lane::Cleanup => self
+                .service
+                .poll_cleanup_ready_tasks(max_entries, wait)
+                .await
+                .expect("the cleanup lane poll should succeed")
+                .into_iter()
+                .map(|entry| (entry.job_id, TaskId::Cleanup))
+                .collect(),
+        }
+    }
+
+    /// Polls `lane` until it has returned exactly the entries of `expected`, in any order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the lane returns an entry that `expected` doesn't hold, or one more time than
+    /// `expected` holds it, or if the entries don't arrive within [`PUBLICATION_TIMEOUT`].
+    async fn drain_lane(&self, lane: Lane, expected: &[(JobId, TaskId)]) {
+        let mut remaining: HashMap<(JobId, TaskId), usize> = HashMap::new();
+        for entry in expected {
+            *remaining.entry(*entry).or_default() += 1;
+        }
+        let mut num_remaining = expected.len();
+        tokio::time::timeout(PUBLICATION_TIMEOUT, async {
+            while num_remaining > 0 {
+                for entry in self
+                    .poll_lane(lane, num_remaining, Duration::from_secs(1))
+                    .await
+                {
+                    let Some(count) = remaining.get_mut(&entry).filter(|count| **count > 0) else {
+                        panic!("unexpected entry {entry:?} in the {lane:?} lane");
+                    };
+                    *count -= 1;
+                    num_remaining -= 1;
+                }
+            }
+        })
+        .await
+        .expect("the expected lane entries should be published");
     }
 
     /// Starts a runtime with `hooks` under `config`, then resends the ready tasks.
@@ -1130,36 +1071,6 @@ impl JobShape {
         execution_policy: None,
     };
 
-    /// # Returns
-    ///
-    /// The submission of a child job of this shape, as [`Self::build`] builds it.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the job fails to compress.
-    #[must_use]
-    pub fn child(&self) -> CompressedJobSubmission {
-        let (graph, inputs) = self.build();
-        CompressedJobSubmission {
-            compressed_serialized_task_graph: compress_task_graph(&graph)
-                .expect("task graph compression should succeed"),
-            compressed_serialized_job_inputs: compress_job_inputs(&inputs)
-                .expect("input compression should succeed"),
-        }
-    }
-
-    /// # Returns
-    ///
-    /// The task-lane entries that the start of `job_id`, a job of this shape, publishes: every task
-    /// of independent tasks, or the first task of a chain.
-    #[must_use]
-    pub fn ready_tasks(&self, job_id: JobId) -> Vec<(JobId, TaskId)> {
-        let num_ready_tasks = if self.is_chain { 1 } else { self.num_tasks };
-        (0..num_ready_tasks)
-            .map(|task_index| (job_id, TaskId::Index(task_index)))
-            .collect()
-    }
-
     /// Builds a job of this shape.
     ///
     /// # Returns
@@ -1213,14 +1124,36 @@ impl JobShape {
         }
         (graph, inputs.build())
     }
-}
 
-/// A lane of the inbound queue.
-#[derive(Clone, Copy, Debug)]
-pub enum Lane {
-    Task,
-    Commit,
-    Cleanup,
+    /// # Returns
+    ///
+    /// The submission of a child job of this shape, as [`Self::build`] builds it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the job fails to compress.
+    #[must_use]
+    pub fn child(&self) -> CompressedJobSubmission {
+        let (graph, inputs) = self.build();
+        CompressedJobSubmission {
+            compressed_serialized_task_graph: compress_task_graph(&graph)
+                .expect("task graph compression should succeed"),
+            compressed_serialized_job_inputs: compress_job_inputs(&inputs)
+                .expect("input compression should succeed"),
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The task-lane entries that the start of `job_id`, a job of this shape, publishes: every task
+    /// of independent tasks, or the first task of a chain.
+    #[must_use]
+    pub fn ready_tasks(&self, job_id: JobId) -> Vec<(JobId, TaskId)> {
+        let num_ready_tasks = if self.is_chain { 1 } else { self.num_tasks };
+        (0..num_ready_tasks)
+            .map(|task_index| (job_id, TaskId::Index(task_index)))
+            .collect()
+    }
 }
 
 /// Observers of the committer of one tree: its rounds, the database writes of its rounds, and the
@@ -1495,25 +1428,6 @@ pub async fn join<OutputType>(mut join_handle: JoinHandle<OutputType>) -> Output
         .expect("the spawned task should not panic")
 }
 
-/// Awaits `rpc`, an RPC that waits on a tree's committer.
-///
-/// # Type Parameters
-///
-/// * `OutputType` - The output type of `rpc`.
-///
-/// # Returns
-///
-/// The output of `rpc`.
-///
-/// # Panics
-///
-/// Panics if `rpc` doesn't finish within [`RPC_TIMEOUT`].
-async fn bounded_rpc<OutputType>(rpc: impl Future<Output = OutputType>) -> OutputType {
-    tokio::time::timeout(RPC_TIMEOUT, rpc)
-        .await
-        .expect("the RPC should be answered within the timeout")
-}
-
 /// Asserts that `result` is the stale state error `expected`.
 ///
 /// # Type Parameters
@@ -1536,6 +1450,40 @@ pub fn assert_stale<ValueType: std::fmt::Debug>(
         ),
         "{what}: expected the stale error {expected:?}, got {result:?}"
     );
+}
+
+/// How long a test waits for published work to arrive on a lane.
+const PUBLICATION_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long a test waits for an RPC that waits on a tree's committer. A test may hold such an RPC
+/// paused over several of its steps, so this is well above [`HOOK_TIMEOUT`].
+const RPC_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// A lane of the inbound queue.
+#[derive(Clone, Copy, Debug)]
+enum Lane {
+    Task,
+    Commit,
+    Cleanup,
+}
+
+/// Awaits `rpc`, an RPC that waits on a tree's committer.
+///
+/// # Type Parameters
+///
+/// * `OutputType` - The output type of `rpc`.
+///
+/// # Returns
+///
+/// The output of `rpc`.
+///
+/// # Panics
+///
+/// Panics if `rpc` doesn't finish within [`RPC_TIMEOUT`].
+async fn bounded_rpc<OutputType>(rpc: impl Future<Output = OutputType>) -> OutputType {
+    tokio::time::timeout(RPC_TIMEOUT, rpc)
+        .await
+        .expect("the RPC should be answered within the timeout")
 }
 
 /// # Returns
