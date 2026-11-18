@@ -12,6 +12,7 @@ use spider_core::types::id::TaskId;
 use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskInputsSerializer;
 use spider_core::types::io::TaskOutputsSerializer;
+use spider_tdl::ExecutionSuccessOutcome;
 use spider_tdl::Task;
 use spider_tdl::TaskContext;
 use spider_tdl::TaskHandler;
@@ -124,7 +125,7 @@ fn append_value<Val: Serialize>(
 ///
 /// Returns an error if:
 ///
-/// * Forwards [`TaskOutputsSerializer::deserialize`]'s return values on failure.
+/// * Forwards [`decode_output_payloads`]'s return values on failure.
 /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
 ///
 /// # Panics
@@ -134,10 +135,32 @@ fn decode_outputs<Val: for<'de> Deserialize<'de>>(
     bytes: &[u8],
     index: usize,
 ) -> anyhow::Result<Val> {
-    let outputs = TaskOutputsSerializer::deserialize(bytes)?;
+    let outputs = decode_output_payloads(bytes)?;
     Ok(rmp_serde::from_slice(
         outputs.get(index).expect("index out of bound"),
     )?)
+}
+
+/// Decodes the successful task result and its wire-format outputs.
+///
+/// # Returns
+///
+/// The output payloads on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`ExecutionSuccessOutcome::from_wire`]'s return values on failure.
+/// * Forwards [`TaskOutputsSerializer::deserialize`]'s return values on failure.
+///
+/// # Panics
+///
+/// Panics if the outcome contains child submissions.
+fn decode_output_payloads(bytes: &[u8]) -> anyhow::Result<Vec<Vec<u8>>> {
+    let outcome = ExecutionSuccessOutcome::from_wire(bytes)?;
+    assert_eq!(outcome.children, []);
+    Ok(TaskOutputsSerializer::deserialize(&outcome.outputs)?)
 }
 
 #[test]
@@ -206,7 +229,7 @@ fn handler_runs_tuple_return_task() -> anyhow::Result<()> {
     let result = handler.execute_raw(&make_encoded_ctx(), &raw_args);
     let bytes = result.map_err(|e| anyhow::anyhow!("expected outputs, got error bytes: {e:?}"))?;
 
-    let outputs = TaskOutputsSerializer::deserialize(&bytes)?;
+    let outputs = decode_output_payloads(&bytes)?;
     assert_eq!(outputs.len(), 2);
     let quotient: int32 = rmp_serde::from_slice(&outputs[0])?;
     let remainder: int32 = rmp_serde::from_slice(&outputs[1])?;

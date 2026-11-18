@@ -150,7 +150,11 @@ pub struct TaskExecutionResult {
 }
 
 impl TaskExecutionResult {
-    /// Constructs a successful result wrapping wire-format-encoded output bytes.
+    /// Constructs a successful result wrapping a serialized payload.
+    ///
+    /// # Returns
+    ///
+    /// A successful result that owns the payload.
     #[must_use]
     pub fn from_outputs(bytes: Vec<u8>) -> Self {
         Self::from_buffer(false, bytes)
@@ -166,8 +170,8 @@ impl TaskExecutionResult {
     ///
     /// # Returns
     ///
-    /// `Ok(bytes)` on success, where `bytes` is the wire-format output payload produced by the
-    /// user task.
+    /// `Ok(bytes)` on success, containing the outputs frame followed by the child submissions
+    /// frame for task execution, or an empty buffer for package initialization.
     ///
     /// # Errors
     ///
