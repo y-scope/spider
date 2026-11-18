@@ -862,21 +862,21 @@ impl TestEnv {
     /// Panics if the query or a root's state read fails, or if an assertion fails.
     pub async fn assert_states(&self, expected: &HashMap<JobId, JobState>, what: &str) {
         for (job_id, state) in expected {
-            let (row_state, has_ended, is_root) = sqlx::query_as::<_, (JobState, bool, bool)>(
-                "SELECT `state`, `ended_at` IS NOT NULL, `parent_id` IS NULL FROM `jobs` WHERE \
-                 `id` = ?;",
+            let row = sqlx::query_as::<_, StateRow>(
+                "SELECT `state`, `ended_at` IS NOT NULL AS `has_ended`, `parent_id` IS NULL AS \
+                 `is_root` FROM `jobs` WHERE `id` = ?;",
             )
             .bind(job_id)
             .fetch_one(&self.pool)
             .await
             .expect("the row state query should succeed");
-            assert_eq!(row_state, *state, "{what}: the row state of job {job_id}");
+            assert_eq!(row.state, *state, "{what}: the row state of job {job_id}");
             assert_eq!(
-                has_ended,
+                row.has_ended,
                 state.is_terminal(),
                 "{what}: the end time of job {job_id} in state {state:?}"
             );
-            if is_root {
+            if row.is_root {
                 assert_eq!(
                     self.service
                         .get_job_state(*job_id)
@@ -1461,6 +1461,14 @@ enum Lane {
     Cleanup,
 }
 
+/// The state of a job's row, whether the row has an end time, and whether the job is a root.
+#[derive(sqlx::FromRow)]
+struct StateRow {
+    state: JobState,
+    has_ended: bool,
+    is_root: bool,
+}
+
 /// Awaits `rpc`, an RPC that waits on a tree's committer.
 ///
 /// # Type Parameters
@@ -1488,6 +1496,6 @@ async fn bounded_rpc<OutputType>(rpc: impl Future<Output = OutputType>) -> Outpu
 ///
 /// Panics if the outputs fail to serialize.
 fn serialized_output(value: &[u8]) -> Vec<u8> {
-    TaskOutputsSerializer::from_tuple(&(value.to_vec(),))
+    TaskOutputsSerializer::from_tuple(&(value,))
         .expect("output serialization should succeed")
 }
