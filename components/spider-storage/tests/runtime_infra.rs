@@ -508,21 +508,15 @@ impl TestEnv {
             .map(|row| row.id)
             .collect();
         assert_eq!(child_ids.len(), shapes.len());
-        self.drain_ready_tasks(&child_ids, shapes).await;
+        let children: Vec<_> = child_ids.iter().copied().zip(shapes).collect();
+        self.drain_ready_tasks(&children).await;
         child_ids
     }
 
-    /// Drains the ready tasks of `job_ids`, the jobs of the shapes `shapes`, in order.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `job_ids` and `shapes` differ in length, or forwards [`Self::drain_lane`]'s
-    /// panics.
-    pub async fn drain_ready_tasks(&self, job_ids: &[JobId], shapes: &[JobShape]) {
-        assert_eq!(job_ids.len(), shapes.len(), "one shape per job");
-        let ready_tasks: Vec<_> = job_ids
+    /// Drains the ready tasks of `jobs`, each the ID of a job with the job's shape.
+    pub async fn drain_ready_tasks(&self, jobs: &[(JobId, &JobShape)]) {
+        let ready_tasks: Vec<_> = jobs
             .iter()
-            .zip(shapes)
             .flat_map(|(job_id, shape)| shape.ready_tasks(*job_id))
             .collect();
         self.drain_lane(Lane::Task, &ready_tasks).await;

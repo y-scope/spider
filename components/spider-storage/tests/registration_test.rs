@@ -164,11 +164,12 @@ async fn a_registered_parent_commits_after_its_children_succeed() -> anyhow::Res
     );
     env.assert_states(&expected_states, "after the registration")
         .await;
-    env.drain_ready_tasks(&child_ids, &child_shapes).await;
+    let children: Vec<_> = child_ids.iter().copied().zip(&child_shapes).collect();
+    env.drain_ready_tasks(&children).await;
 
-    for (position, (child_id, shape)) in child_ids.iter().zip(&child_shapes).enumerate() {
+    for (position, (child_id, shape)) in children.iter().enumerate() {
         env.run_all_tasks(*child_id, shape).await;
-        let parent_state = if position + 1 == child_ids.len() {
+        let parent_state = if position + 1 == children.len() {
             JobState::CommitReady
         } else {
             JobState::BlockingOnChildren
@@ -256,8 +257,9 @@ async fn sibling_tasks_register_the_union_of_their_children_in_task_order() -> a
             .collect::<Vec<_>>()
     );
     let child_ids: Vec<JobId> = rows.iter().map(|row| row.id).collect();
-    env.drain_ready_tasks(&child_ids, &child_shapes).await;
-    for (child_id, shape) in child_ids.iter().zip(&child_shapes) {
+    let children: Vec<_> = child_ids.iter().copied().zip(&child_shapes).collect();
+    env.drain_ready_tasks(&children).await;
+    for (child_id, shape) in &children {
         env.run_all_tasks(*child_id, shape).await;
     }
     let mut expected_states = HashMap::from([(parent_id, JobState::Succeeded)]);
