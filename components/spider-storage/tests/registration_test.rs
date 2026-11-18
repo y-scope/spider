@@ -125,7 +125,7 @@ async fn a_registered_parent_commits_after_its_children_succeed() -> anyhow::Res
             0,
             task_instance_id,
             &parent_value,
-            child_shapes.iter().map(|shape| shape.child()).collect()
+            child_shapes.iter().map(JobShape::child).collect()
         )
         .await?,
         JobState::BlockingOnChildren
@@ -216,7 +216,7 @@ async fn sibling_tasks_register_the_union_of_their_children_in_task_order() -> a
             &task_values[0],
             child_shapes[..2]
                 .iter()
-                .map(|shape| shape.child())
+                .map(JobShape::child)
                 .collect()
         )
         .await?,
