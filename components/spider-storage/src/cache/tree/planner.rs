@@ -255,16 +255,14 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
 
     /// # Returns
     ///
-    /// On success:
+    /// The parent of the tree's active job `job_id` that blocks on its children, on success:
     ///
-    /// * [`None`] if the tree's active job `job_id` has no parent that blocks on its children:
+    /// * [`None`] if `job_id` has no such parent:
     ///   * `job_id` is the root.
     ///   * The parent is no longer in the tree, because it is terminal.
     ///   * A cancel or a failure has moved the parent to [`JobState::CleanupReady`],
     ///     [`JobState::Failed`] or [`JobState::Cancelled`].
-    /// * Otherwise, a tuple containing:
-    ///   * The ID of the parent.
-    ///   * The parent's node.
+    /// * Otherwise, the parent's ID and node.
     ///
     /// # Errors
     ///
@@ -273,7 +271,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     /// * [`InternalError::JobNotFound`] if `job_id` is not in the tree.
     /// * [`InternalError::UnexpectedParentState`] if the parent is [`JobState::Ready`],
     ///   [`JobState::Running`], [`JobState::CommitReady`] or [`JobState::Succeeded`].
-    fn blocking_parent(&self, job_id: JobId) -> Result<Option<(JobId, TreeNode)>, InternalError> {
+    fn blocking_parent(&self, job_id: JobId) -> Result<Option<BlockingParent>, InternalError> {
         let Some(parent_id) = self
             .node(job_id)
             .ok_or(InternalError::JobNotFound(job_id))?
@@ -285,7 +283,10 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
             return Ok(None);
         };
         match parent.state {
-            JobState::BlockingOnChildren => Ok(Some((parent_id, parent))),
+            JobState::BlockingOnChildren => Ok(Some(BlockingParent {
+                id: parent_id,
+                node: parent,
+            })),
             JobState::CleanupReady | JobState::Failed | JobState::Cancelled => Ok(None),
             JobState::Ready | JobState::Running | JobState::CommitReady | JobState::Succeeded => {
                 Err(InternalError::UnexpectedParentState {
@@ -327,6 +328,12 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
             ..*node
         })
     }
+}
+
+/// A parent that blocks on its children, as the overlay reads it.
+struct BlockingParent {
+    id: JobId,
+    node: TreeNode,
 }
 
 /// The children that the plan of one event registers.
@@ -652,7 +659,11 @@ impl EventPlan {
         job_id: JobId,
     ) -> Result<(), InternalError> {
         let mut succeeded_job_id = job_id;
-        while let Some((parent_id, parent)) = overlay.blocking_parent(succeeded_job_id)? {
+        while let Some(BlockingParent {
+            id: parent_id,
+            node: parent,
+        }) = overlay.blocking_parent(succeeded_job_id)?
+        {
             let num_active_children = parent
                 .num_active_children
                 .checked_sub(1)
