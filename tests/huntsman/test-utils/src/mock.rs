@@ -529,8 +529,8 @@ struct SchedulerInner {
     notify: Notify,
     call_count: AtomicU64,
     resource_group_ids: Mutex<Vec<Option<ResourceGroupId>>>,
-    /// Records of the assignments handed out by `next_task` that have not yet been checked off by
-    /// a `prev_assignment` acknowledgement. An empty set on exit means the runtime reported every
+    /// Records of the assignments handed out by `next_task` that are not yet checked off by a
+    /// `prev_assignment` acknowledgement. An empty set on exit means the runtime reported every
     /// assignment it was given as consumed.
     outstanding: DashSet<TaskAssignmentRecord>,
     heartbeat_count: AtomicU64,

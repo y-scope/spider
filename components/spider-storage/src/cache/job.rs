@@ -560,6 +560,7 @@ impl<
             .await?;
         // NOTE: `fetch_sub` returns the previous value, so the new count is the returned value
         // minus 1.
+        //
         // `AcqRel` orders every sibling's output and prepared-children writes before the last
         // reporter reads them below.
         let num_incomplete_tasks = job.num_incomplete_tasks.fetch_sub(1, Ordering::AcqRel) - 1;

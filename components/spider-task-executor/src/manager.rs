@@ -36,7 +36,7 @@ pub struct TdlPackage {
     execute: ExecuteFn,
 
     /// Holds the dylib mapped in memory. Never read directly after construction, but its `Drop`
-    /// impl unmaps the library, which would invalidate `execute`. `library` must outlive
+    /// impl unmaps the library, which would invalidate `execute`. `library` has to outlive
     /// `execute`; field-declaration order ensures `execute` is dropped first.
     _library: Library,
 }
