@@ -265,14 +265,7 @@ async fn failed_execution_discards_child_submissions() -> anyhow::Result<()> {
         ))
         .await;
     let Response::Result { outcome, .. } = handle.recv().await;
-    let ExecutorOutcome::Failure { error } = outcome else {
-        panic!("expected task failure, got {outcome:?}");
-    };
-    let error: ExecutorError = rmp_serde::from_slice(&error)?;
-    assert!(
-        matches!(error, ExecutorError::TaskError(TdlError::ExecutionError(_))),
-        "got {error:?}"
-    );
+    assert_task_execution_error(outcome, "intentional failure after child creation");
     handle
         .send(&execute_request("fibonacci", encode_single_input(&7_u64)))
         .await;
