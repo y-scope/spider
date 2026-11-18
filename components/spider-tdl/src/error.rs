@@ -3,9 +3,8 @@
 //! [`TdlError`] crosses the C-FFI boundary as a msgpack-encoded payload inside
 //! [`ExecutionResult::Error`], so it derives both [`serde::Serialize`] and [`serde::Deserialize`].
 
-/// All possible errors produced while executing a user-defined task inside the task executor.
-/// This type can be serialized across the C-FFI boundary as a msgpack-encoded payload through
-/// [`serde`].
+/// All possible errors produced while executing a user-defined task inside the task executor. This
+/// type can be serialized across the C-FFI boundary as a msgpack-encoded payload through [`serde`].
 #[derive(Debug, Eq, PartialEq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum TdlError {
     #[error("task not found: {0}")]

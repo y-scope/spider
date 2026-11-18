@@ -30,8 +30,8 @@ use tokio::task::JoinHandle;
 use tonic::transport::Server;
 use tonic::transport::server::TcpIncoming;
 
-/// How long the storage service may take to shut down once its cancellation token is cancelled.
-/// The hardcoded 30-second budget matches Kubernetes' default termination grace period
+/// How long the storage service may take to shut down once its cancellation token is cancelled. The
+/// hardcoded 30-second budget matches Kubernetes' default termination grace period
 /// [`terminationGracePeriodSeconds`][k8s].
 ///
 /// [k8s]: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination-flow

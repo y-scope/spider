@@ -206,8 +206,8 @@ mod tests {
         call_count: u64,
     }
 
-    /// Mock [`LivenessClient`] that returns scripted heartbeat responses and notifies the test
-    /// once per call.
+    /// Mock [`LivenessClient`] that returns scripted heartbeat responses and notifies the test once
+    /// per call.
     struct MockLivenessClient {
         state: Mutex<MockState>,
         notify: Notify,
@@ -310,8 +310,8 @@ mod tests {
         )
     }
 
-    /// Joins the actor with a short upper bound so a stuck task surfaces as a test failure
-    /// instead of an infinite hang.
+    /// Joins the actor with a short upper bound so a stuck task surfaces as a test failure instead
+    /// of an infinite hang.
     async fn join_actor(join: JoinHandle<()>) {
         tokio::time::timeout(Duration::from_secs(1), join)
             .await

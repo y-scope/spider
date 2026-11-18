@@ -187,8 +187,8 @@ pub fn compress_task_graph(task_graph: &TaskGraph) -> Vec<u8> {
         .expect("task graph compression should succeed")
 }
 
-/// Compresses job inputs into the zstd-compressed serialized [`TaskGraphInput`] format the
-/// database persists.
+/// Compresses job inputs into the zstd-compressed serialized [`TaskGraphInput`] format the database
+/// persists.
 ///
 /// # Panics
 ///

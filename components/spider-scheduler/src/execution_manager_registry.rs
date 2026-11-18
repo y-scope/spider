@@ -137,8 +137,8 @@ impl ExecutionManagerRegistry {
 
     /// Marks an execution manager as dead.
     ///
-    /// This method does not remove the execution manager from the registry immediately. Instead,
-    /// it cancels the liveness tracker running in the background, which removes the registry after
+    /// This method does not remove the execution manager from the registry immediately. Instead, it
+    /// cancels the liveness tracker running in the background, which removes the registry after
     /// receiving the cancellation signal.
     ///
     /// # Errors

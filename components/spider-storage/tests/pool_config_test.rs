@@ -116,8 +116,8 @@ async fn add_resource_group_after_killing_the_idle_connection(
     result
 }
 
-/// Opens a connection with `config`'s credentials that selects no database, so that it is not
-/// one of the connections to `config.name`.
+/// Opens a connection with `config`'s credentials that selects no database, so that it is not one
+/// of the connections to `config.name`.
 ///
 /// # Returns
 ///

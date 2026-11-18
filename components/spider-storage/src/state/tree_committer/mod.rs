@@ -165,10 +165,10 @@ impl PendingQueue {
     }
 }
 
-/// The committer's context: the tree's event receivers, its received events not yet planned and
-/// the events of the round that is running. Dropping it armed shuts the service down fatally
-/// before its fields drop; they then drop every unanswered event's reply, which wakes its
-/// waiter with [`InternalError::TreePoisoned`](crate::cache::error::InternalError::TreePoisoned).
+/// The committer's context: the tree's event receivers, its received events not yet planned and the
+/// events of the round that is running. Dropping it armed shuts the service down fatally before its
+/// fields drop; they then drop every unanswered event's reply, which wakes its waiter with
+/// [`InternalError::TreePoisoned`](crate::cache::error::InternalError::TreePoisoned).
 struct CommitterContextGuard {
     receivers: EventReceivers,
     pending_queue: PendingQueue,

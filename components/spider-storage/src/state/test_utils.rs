@@ -557,8 +557,8 @@ pub fn create_test_task_graph_input() -> TaskGraphInput {
 
 /// # Returns
 ///
-/// A task graph input of `num_inputs` positional inputs, each the msgpack serialization of a
-/// 4-byte zero array.
+/// A task graph input of `num_inputs` positional inputs, each the msgpack serialization of a 4-byte
+/// zero array.
 ///
 /// # Panics
 ///

@@ -24,8 +24,8 @@ pub struct NeuralNetwork {
 impl NeuralNetwork {
     /// Factory function.
     ///
-    /// Validates `layer_specs` via [`wiring::validate`] and generates the inner-layer fan-in
-    /// wiring deterministically from `seed`.
+    /// Validates `layer_specs` via [`wiring::validate`] and generates the inner-layer fan-in wiring
+    /// deterministically from `seed`.
     ///
     /// # Returns
     ///
@@ -173,7 +173,7 @@ struct Layer {
     neuron_count: usize,
     /// Activation applied by every neuron in this layer.
     activation: Neuron,
-    /// Per-neuron fan-in, listing previous-layer output indices feeding each neuron.
-    /// Empty for layer 0, which reads graph inputs directly.
+    /// Per-neuron fan-in, listing previous-layer output indices feeding each neuron. Empty for
+    /// layer 0, which reads graph inputs directly.
     fan_in: Vec<Vec<usize>>,
 }

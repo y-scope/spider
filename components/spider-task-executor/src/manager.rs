@@ -31,8 +31,8 @@ pub struct TdlPackage {
     /// The TDL version used to generate the package.
     version: Version,
 
-    /// Cached fn pointer for `__spider_tdl_package_execute`, resolved once at load time. Valid
-    /// for the lifetime of `library` (i.e., for the lifetime of `Self`).
+    /// Cached fn pointer for `__spider_tdl_package_execute`, resolved once at load time. Valid for
+    /// the lifetime of `library` (i.e., for the lifetime of `Self`).
     execute: ExecuteFn,
 
     /// Holds the dylib mapped in memory. Never read directly after construction, but its `Drop`
@@ -117,8 +117,8 @@ impl TdlPackage {
 
         // SAFETY: see the SAFETY comment on the version lookup above. We deref the borrowed
         // `Symbol<ExecuteFn>` to copy out the underlying fn pointer (`ExecuteFn` is `Copy`); the
-        // pointer remains valid for as long as `library` stays loaded, which is the entire
-        // lifetime of `Self`.
+        // pointer remains valid for as long as `library` stays loaded, which is the entire lifetime
+        // of `Self`.
         let execute = unsafe {
             let symbol: Symbol<ExecuteFn> = library.get(SYM_EXECUTE)?;
             *symbol
@@ -150,9 +150,9 @@ impl TdlPackage {
 
     /// Dispatches a task by name and returns the wire-format-encoded output buffer.
     ///
-    /// `raw_ctx` is a msgpack-encoded
-    /// [`TaskContext`](spider_tdl::TaskContext); `raw_inputs` is a wire-format-encoded
-    /// [`TaskInputsSerializer`](spider_core::types::io::TaskInputsSerializer) buffer.
+    /// `raw_ctx` is a msgpack-encoded [`TaskContext`](spider_tdl::TaskContext); `raw_inputs` is a
+    /// wire-format-encoded [`TaskInputsSerializer`](spider_core::types::io::TaskInputsSerializer)
+    /// buffer.
     ///
     /// # Returns
     ///

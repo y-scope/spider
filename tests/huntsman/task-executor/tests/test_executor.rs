@@ -97,8 +97,8 @@ async fn always_panic_crashes_the_process() {
         .send(&execute_request("always_panic", encode_no_inputs()))
         .await;
 
-    // A panic across the `extern "C"` boundary aborts the executor process. The parent must
-    // observe stdout EOF (no further frames) and a non-zero exit status.
+    // A panic across the `extern "C"` boundary aborts the executor process. The parent must observe
+    // stdout EOF (no further frames) and a non-zero exit status.
     let frame = handle.try_recv().await;
     assert!(
         frame.is_none(),

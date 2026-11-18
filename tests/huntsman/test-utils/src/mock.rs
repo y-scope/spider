@@ -204,8 +204,8 @@ impl MockStorage {
     ///
     /// # Returns
     ///
-    /// A storage mock with no programmed responses. Tests must push register responses before
-    /// they fire; success / failure reports default to `Ok(())`.
+    /// A storage mock with no programmed responses. Tests must push register responses before they
+    /// fire; success / failure reports default to `Ok(())`.
     #[must_use]
     pub fn new() -> Self {
         Self {

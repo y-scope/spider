@@ -45,8 +45,8 @@ use crate::test_hooks::TestHooks;
 ///
 /// All mutable state but the job's child reservation, including the task graph, connectors, and
 /// inbound-queue sender, is held inside the underlying [`JobExecutionState`] and protected by
-/// [`JobExecutionStateHandle`]'s read-write lock.
-/// Its job-level transitions are events of the job's tree, which the tree's committer applies.
+/// [`JobExecutionStateHandle`]'s read-write lock. Its job-level transitions are events of the job's
+/// tree, which the tree's committer applies.
 ///
 /// # Type Parameters
 ///
@@ -502,8 +502,8 @@ impl<
         }
     }
 
-    /// Marks the task instance as succeeded and stores the children that its report prepared in
-    /// the task.
+    /// Marks the task instance as succeeded and stores the children that its report prepared in the
+    /// task.
     ///
     /// If all tasks have succeeded, submits the job's outputs and the children that its tasks
     /// prepared to the job's tree and waits until the committer has stored them and moved the job
@@ -879,8 +879,8 @@ impl<
         if let Some(partial_mutation_guard) = partial_mutation_guard {
             partial_mutation_guard.disarm();
         }
-        // The submitted event belongs to the committer, so a pause that the service's shutdown
-        // ends lets the wait for its reply go on, as it would without the hook.
+        // The submitted event belongs to the committer, so a pause that the service's shutdown ends
+        // lets the wait for its reply go on, as it would without the hook.
         let _ = jcb
             .hooks
             .hit(HookPoint::JobEventAfterSubmit, || jcb.hook_context(None))
@@ -955,8 +955,8 @@ impl<
             .await?;
         partial_mutation_guard.disarm();
 
-        // The lock is intentionally held until just before return so all TCB accesses
-        // observe a consistent state within the lock's scope.
+        // The lock is intentionally held until just before return so all TCB accesses observe a
+        // consistent state within the lock's scope.
         drop(job);
         Ok(execution_context)
     }
@@ -1294,9 +1294,9 @@ impl<R: InboundQueueSender, T: TaskInstancePoolConnector> JobExecutionStateHandl
 
 /// Represents the execution state of a job.
 ///
-/// This struct holds all mutable job state, including the task graph, connectors, and
-/// inbound-queue sender,
-/// so that concurrent access is synchronized through [`JobExecutionStateHandle`]'s read-write lock.
+/// This struct holds all mutable job state, including the task graph, connectors, and inbound-queue
+/// sender, so that concurrent access is synchronized through [`JobExecutionStateHandle`]'s
+/// read-write lock.
 ///
 /// # Type Parameters
 ///

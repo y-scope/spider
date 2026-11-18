@@ -203,8 +203,8 @@ fn poll_ready_tasks_request(
 
 /// # Returns
 ///
-/// [`storage::PollReadyTasksResponse`] converted into
-/// [`Result<(SessionId, Vec<InboundEntry>), StorageClientError>`].
+/// [`storage::PollReadyTasksResponse`] converted into [`Result<(SessionId, Vec<InboundEntry>),
+/// StorageClientError>`].
 fn poll_ready_tasks_response_to_result(
     response: storage::PollReadyTasksResponse,
 ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError> {
@@ -218,8 +218,8 @@ fn poll_ready_tasks_response_to_result(
 
 /// # Returns
 ///
-/// [`storage::ReadyTasks`] converted into
-/// [`Result<(SessionId, Vec<InboundEntry>), StorageClientError>`].
+/// [`storage::ReadyTasks`] converted into [`Result<(SessionId, Vec<InboundEntry>),
+/// StorageClientError>`].
 fn ready_tasks_to_result(
     tasks: storage::ReadyTasks,
 ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError> {

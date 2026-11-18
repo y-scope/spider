@@ -63,8 +63,8 @@ const MAX_TIMEOUT_MS: u64 = 1000 * 60 * 60 * 24; // 24 hours
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimeoutPolicy {
     /// The soft timeout for the task, in milliseconds. If the task execution exceeds this
-    /// duration, Spider may create a new task instance to mitigate potential blocking or
-    /// stalled executions.
+    /// duration, Spider may create a new task instance to mitigate potential blocking or stalled
+    /// executions.
     ///
     /// Default to 150,000ms (2.5 minutes).
     ///

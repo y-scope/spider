@@ -88,8 +88,8 @@ pub struct ServiceStateParams<
 
 /// Per-request service state providing access to the storage layer.
 ///
-/// Internally wraps a single [`Arc`] around [`ServiceStateInner`] so that cloning is cheap (one
-/// Arc clone instead of cloning each field).
+/// Internally wraps a single [`Arc`] around [`ServiceStateInner`] so that cloning is cheap (one Arc
+/// clone instead of cloning each field).
 ///
 /// # Type Parameters
 ///
@@ -829,8 +829,7 @@ impl<
     ///
     /// # Returns
     ///
-    /// Up to `max_tasks` cleanup-ready task entries received within the `wait` duration on
-    /// success.
+    /// Up to `max_tasks` cleanup-ready task entries received within the `wait` duration on success.
     ///
     /// # Errors
     ///

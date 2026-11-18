@@ -759,8 +759,8 @@ async fn job_states(pool: &MySqlPool) -> Vec<(JobId, JobState)> {
         .expect("the job state query should succeed")
 }
 
-/// Runs `write` while a transaction locks the row `locked_row_id` of `locked_table` exclusively,
-/// so that `write` blocks on that row in its statement that matches the `LIKE` pattern
+/// Runs `write` while a transaction locks the row `locked_row_id` of `locked_table` exclusively, so
+/// that `write` blocks on that row in its statement that matches the `LIKE` pattern
 /// `statement_pattern`. Then connects a newer connector with `newer_config`, checks that its fence
 /// bump queues behind `write` and does not finish, releases the row, and waits for `write` and the
 /// newer connector.
@@ -880,9 +880,9 @@ async fn wait_for_blocked_statements(
     }
 }
 
-/// Waits until a connection to `pool`'s database reissues a statement whose text matches the
-/// `LIKE` pattern `statement_pattern`, that is, until the statement's running time drops below a
-/// running time seen earlier.
+/// Waits until a connection to `pool`'s database reissues a statement whose text matches the `LIKE`
+/// pattern `statement_pattern`, that is, until the statement's running time drops below a running
+/// time seen earlier.
 ///
 /// # Panics
 ///

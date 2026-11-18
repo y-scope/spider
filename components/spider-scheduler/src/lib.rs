@@ -7,8 +7,8 @@
 //!
 //! The crate defines three trait seams wired into a single pipeline — a storage client that polls
 //! the inbound queue, a core that makes serial decisions, and a dispatching queue that fans those
-//! decisions out to execution managers. The core owns and constructs its own dispatching queue,
-//! and exposes only a handle to the service:
+//! decisions out to execution managers. The core owns and constructs its own dispatching queue, and
+//! exposes only a handle to the service:
 //!
 //! ```text
 //!   storage  ── authoritative inbound queue (owned by the storage layer, not this crate)
