@@ -214,10 +214,7 @@ async fn sibling_tasks_register_the_union_of_their_children_in_task_order() -> a
             0,
             first_task_instance_id,
             &task_values[0],
-            child_shapes[..2]
-                .iter()
-                .map(JobShape::child)
-                .collect()
+            child_shapes[..2].iter().map(JobShape::child).collect()
         )
         .await?,
         JobState::BlockingOnChildren
@@ -519,14 +516,8 @@ async fn a_report_at_the_maximum_depth_with_children_fails_its_task() -> anyhow:
     for _ in 0..MAX_DEPTH {
         let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
         assert_eq!(
-            env.task_success(
-                job_id,
-                0,
-                task_instance_id,
-                &[0u8; 4],
-                vec![chain_child(1)]
-            )
-            .await?,
+            env.task_success(job_id, 0, task_instance_id, &[0u8; 4], vec![chain_child(1)])
+                .await?,
             JobState::BlockingOnChildren
         );
         let rows = env.child_rows(job_id).await;
@@ -537,14 +528,8 @@ async fn a_report_at_the_maximum_depth_with_children_fails_its_task() -> anyhow:
 
     let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
     assert_eq!(
-        env.task_success(
-            job_id,
-            0,
-            task_instance_id,
-            &[0u8; 4],
-            vec![chain_child(1)]
-        )
-        .await?,
+        env.task_success(job_id, 0, task_instance_id, &[0u8; 4], vec![chain_child(1)])
+            .await?,
         JobState::Failed
     );
     env.assert_job_state(job_id, JobState::Failed).await;

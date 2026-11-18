@@ -1143,8 +1143,8 @@ impl JobShape {
     }
 }
 
-/// Observers of committer rounds: the rounds of one tree, the rounds that write a transition of each
-/// of some of its jobs, and the database writes of every tree's rounds.
+/// Observers of committer rounds: the rounds of one tree, the rounds that write a transition of
+/// each of some of its jobs, and the database writes of every tree's rounds.
 pub struct TreeProbes {
     round_hook: ArmedHook,
     write_hook: ArmedHook,
@@ -1483,6 +1483,5 @@ async fn bounded_rpc<OutputType>(rpc: impl Future<Output = OutputType>) -> Outpu
 ///
 /// Panics if the outputs fail to serialize.
 fn serialized_output(value: &[u8]) -> Vec<u8> {
-    TaskOutputsSerializer::from_tuple(&(value,))
-        .expect("output serialization should succeed")
+    TaskOutputsSerializer::from_tuple(&(value,)).expect("output serialization should succeed")
 }
