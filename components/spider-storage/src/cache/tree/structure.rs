@@ -63,10 +63,7 @@ impl TreeStructure {
     ///
     /// * [`InternalError::JobChangedTwiceInRound`] if an event would change a job that an earlier
     ///   event of the round changes.
-    /// * [`InternalError::BlockingJobWithoutActiveChild`] if a job's success reaches a parent that
-    ///   blocks on its children without an active child.
-    /// * [`InternalError::UnexpectedParentState`] if a job's success reaches a parent that neither
-    ///   blocks on its children nor was deactivated.
+    /// * Forwards [`RoundPlanner::plan_event`]'s return values on failure.
     pub fn plan_events<'event_lifetime>(
         &self,
         events: impl IntoIterator<Item = &'event_lifetime TreeEvent>,
@@ -372,8 +369,11 @@ mod tests {
     ///
     /// # Panics
     ///
-    /// Panics if a job of `jobs` has no parent, if its parent is not in the tree, or if a job is
-    /// given twice.
+    /// Panics if:
+    ///
+    /// * A job of `jobs` has no parent.
+    /// * A job's parent is not in the tree.
+    /// * A job is given twice.
     fn tree(root: TreeNode, jobs: impl IntoIterator<Item = (u64, TreeNode)>) -> TreeStructure {
         let mut children_by_parent: BTreeMap<u64, Vec<(JobId, TreeNode)>> = BTreeMap::new();
         for (job_id, node) in jobs {
