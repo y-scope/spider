@@ -122,6 +122,10 @@ pub struct MockDbConnector {
     /// anything.
     pub injected_transition_errors: Arc<Mutex<VecDeque<DbError>>>,
 
+    /// The errors that the next reads of a job's state and parent return, in order, before they
+    /// read anything.
+    pub injected_state_and_parent_errors: Arc<Mutex<VecDeque<DbError>>>,
+
     pub resource_groups: Arc<DashMap<ResourceGroupId, ExternalResourceGroupCredentials>>,
     pub resource_group_ids: Arc<DashMap<String, ResourceGroupId>>,
     pub next_resource_group_id: Arc<AtomicUsize>,
@@ -149,6 +153,7 @@ impl Default for MockDbConnector {
             parents: Arc::new(DashMap::new()),
             next_job_id: Arc::new(AtomicU64::new(MOCK_FIRST_JOB_ID)),
             injected_transition_errors: Arc::new(Mutex::new(VecDeque::new())),
+            injected_state_and_parent_errors: Arc::new(Mutex::new(VecDeque::new())),
             resource_groups: Arc::new(DashMap::new()),
             resource_group_ids: Arc::new(DashMap::new()),
             next_resource_group_id: Arc::new(AtomicUsize::new(1)),
@@ -177,6 +182,22 @@ impl ExternalJobOrchestration for MockDbConnector {
             .get(&job_id)
             .map(|v| *v)
             .ok_or(DbError::JobNotFound(job_id))
+    }
+
+    async fn get_state_and_parent(
+        &self,
+        job_id: JobId,
+    ) -> Result<(JobState, Option<JobId>), DbError> {
+        let injected_error = self
+            .injected_state_and_parent_errors
+            .lock()
+            .expect("the injected state and parent errors' mutex should not be poisoned")
+            .pop_front();
+        if let Some(error) = injected_error {
+            return Err(error);
+        }
+        let state = self.get_state(job_id).await?;
+        Ok((state, self.parents.get(&job_id).map(|parent_id| *parent_id)))
     }
 
     async fn get_outputs(&self, job_id: JobId) -> Result<Vec<TaskOutput>, DbError> {
