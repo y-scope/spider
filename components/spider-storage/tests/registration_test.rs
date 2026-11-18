@@ -67,7 +67,7 @@ async fn a_report_with_children_blocks_its_job_and_inserts_them() -> anyhow::Res
 
     let task_instance_id = env.create_instance(parent_id, TaskId::Index(0)).await;
     assert_eq!(
-        env.report_success(parent_id, 0, task_instance_id, vec![1u8; 4], children)
+        env.task_success(parent_id, 0, task_instance_id, &[1u8; 4], children)
             .await?,
         JobState::BlockingOnChildren
     );
@@ -356,11 +356,11 @@ async fn a_report_over_a_limit_fails_its_task() -> anyhow::Result<()> {
                 };
                 let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
                 assert_eq!(
-                    env.report_success(
+                    env.task_success(
                         job_id,
                         0,
                         task_instance_id,
-                        vec![0u8; case.output_size],
+                        &vec![0u8; case.output_size],
                         (case.children)()
                     )
                     .await?,
@@ -400,11 +400,11 @@ async fn children_over_the_job_limits_across_reports_fail_the_task_before_decodi
         .map(CompressedJobSubmission::size)
         .sum();
     assert_eq!(
-        env.report_success(
+        env.task_success(
             job_id,
             0,
             first_task_instance_id,
-            vec![0u8; 4],
+            &[0u8; 4],
             stored_children
         )
         .await?,
@@ -419,11 +419,11 @@ async fn children_over_the_job_limits_across_reports_fail_the_task_before_decodi
         .map(CompressedJobSubmission::size)
         .sum();
     assert_eq!(
-        env.report_success(
+        env.task_success(
             job_id,
             1,
             second_task_instance_id,
-            vec![0u8; 4],
+            &[0u8; 4],
             undecodable_children
         )
         .await?,
@@ -470,11 +470,11 @@ async fn rejected_reports_revert_their_children_usage_reservation() -> anyhow::R
 
     let invalid_task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
     assert_eq!(
-        env.report_success(
+        env.task_success(
             job_id,
             0,
             invalid_task_instance_id,
-            vec![0u8; 4],
+            &[0u8; 4],
             large_children(2)
                 .chain(iter::once(undecodable_child(16)))
                 .collect()
@@ -486,22 +486,22 @@ async fn rejected_reports_revert_their_children_usage_reservation() -> anyhow::R
 
     let first_task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
     assert_eq!(
-        env.report_success(
+        env.task_success(
             job_id,
             0,
             first_task_instance_id,
-            vec![0u8; 4],
+            &[0u8; 4],
             large_children(2).collect()
         )
         .await?,
         JobState::Running
     );
     let duplicate_result = env
-        .report_success(
+        .task_success(
             job_id,
             0,
             first_task_instance_id,
-            vec![0u8; 4],
+            &[0u8; 4],
             large_children(2).collect(),
         )
         .await;
@@ -517,11 +517,11 @@ async fn rejected_reports_revert_their_children_usage_reservation() -> anyhow::R
 
     let second_task_instance_id = env.create_instance(job_id, TaskId::Index(1)).await;
     assert_eq!(
-        env.report_success(
+        env.task_success(
             job_id,
             1,
             second_task_instance_id,
-            vec![0u8; 4],
+            &[0u8; 4],
             large_children(max_children - 2).collect()
         )
         .await?,
@@ -542,11 +542,11 @@ async fn a_report_at_the_maximum_depth_with_children_fails_its_task() -> anyhow:
     for _ in 0..MAX_DEPTH {
         let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
         assert_eq!(
-            env.report_success(
+            env.task_success(
                 job_id,
                 0,
                 task_instance_id,
-                vec![0u8; 4],
+                &[0u8; 4],
                 vec![chain_child(1)]
             )
             .await?,
@@ -560,11 +560,11 @@ async fn a_report_at_the_maximum_depth_with_children_fails_its_task() -> anyhow:
 
     let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
     assert_eq!(
-        env.report_success(
+        env.task_success(
             job_id,
             0,
             task_instance_id,
-            vec![0u8; 4],
+            &[0u8; 4],
             vec![chain_child(1)]
         )
         .await?,

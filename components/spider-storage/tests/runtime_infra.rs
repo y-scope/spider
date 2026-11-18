@@ -403,30 +403,6 @@ impl TestEnv {
             .task_instance_id
     }
 
-    /// Reports the success of the task instance `task_instance_id` of the task `task_index` of
-    /// `job_id`, whose only output is `output`, with `children`.
-    ///
-    /// # Returns
-    ///
-    /// The job state that the report returns on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`ServiceState::succeed_task_instance`]'s return values on failure.
-    pub async fn report_success(
-        &self,
-        job_id: JobId,
-        task_index: TaskIndex,
-        task_instance_id: u64,
-        output: Vec<u8>,
-        children: Vec<CompressedJobSubmission>,
-    ) -> Result<JobState, StorageServerError> {
-        self.task_success(job_id, task_index, task_instance_id, &output, children)
-            .await
-    }
-
     /// # Returns
     ///
     /// A future that reports the success of the task instance `task_instance_id` of the task
