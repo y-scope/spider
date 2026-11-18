@@ -170,7 +170,6 @@ impl TestHooks {
         };
         for hook in fired {
             match hook.action {
-                HookAction::Observe => {}
                 HookAction::Pause => {
                     let shutdown_handle = shutdown_handle.clone().unwrap_or_default();
                     tokio::select! {
@@ -182,6 +181,7 @@ impl TestHooks {
                         () = shutdown_handle.cancelled() => return Err(InjectedFault::Stopping),
                     }
                 }
+                HookAction::Observe => {}
                 HookAction::Crash => return Err(InjectedFault::Crash(point)),
                 HookAction::Panic => panic!("injected panic at {point:?}"),
             }
