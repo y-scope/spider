@@ -42,12 +42,10 @@ impl TreeStructure {
     }
 
     /// Plans a round of `events` against the tree's structure, in their order, each against the
-    /// result of the round's earlier events. An event is deferred to a later round if:
-    ///
-    /// * It registers a child set after the round's planned child set.
-    /// * Its outputs and children would push the round's payload over
-    ///   [`MAX_ROUND_PAYLOAD`](crate::limits::MAX_ROUND_PAYLOAD) after the payload of the round's
-    ///   earlier events.
+    /// result of the round's earlier events. An event is deferred to a later round if its outputs
+    /// and children would push the round's payload over
+    /// [`MAX_ROUND_PAYLOAD`](crate::limits::MAX_ROUND_PAYLOAD) after the payload of the round's
+    /// earlier events.
     ///
     /// # Type Parameters
     ///
@@ -263,7 +261,6 @@ mod tests {
     use crate::cache::tree::ChildJobUsage;
     use crate::cache::tree::Lane;
     use crate::cache::tree::Plan;
-    use crate::cache::tree::PlannedRegistration;
     use crate::cache::tree::Publication;
     use crate::cache::tree::RoundOutcome;
     use crate::cache::tree::TreeEvent;
@@ -281,6 +278,7 @@ mod tests {
     use crate::limits::MAX_ERROR_MESSAGE_CHARS;
     use crate::limits::MAX_EVENTS_PER_ROUND;
     use crate::limits::MAX_JOB_CHILDREN_SIZE;
+    use crate::limits::MAX_ROUND_PAYLOAD;
     use crate::state::test_utils::create_test_prepared_child;
     use crate::state::test_utils::create_test_prepared_children;
 
@@ -369,7 +367,7 @@ mod tests {
     fn plan_root_event(node: TreeNode, kind: TreeEventKind) -> (Plan, TreeEventOutcome) {
         let mut plan = plan_root_events(node, [kind]);
         let outcomes = std::mem::take(&mut plan.outcomes);
-        let [RoundOutcome::Planned(outcome)] =
+        let [RoundOutcome::Planned { outcome, .. }] =
             <[_; 1]>::try_from(outcomes).expect("a round of one event should have one outcome")
         else {
             panic!("a round of one event should plan the event");
@@ -388,7 +386,10 @@ mod tests {
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
-                [RoundOutcome::Planned(TreeEventOutcome::Untracked)]
+                [RoundOutcome::Planned {
+                    outcome: TreeEventOutcome::Untracked,
+                    ..
+                }]
             ),
             "an event of a job not in the tree gave {:?}",
             plan.outcomes
@@ -486,8 +487,7 @@ mod tests {
     #[tokio::test]
     async fn regular_tasks_done_with_children_blocks_the_job_and_registers_them() {
         let children = create_test_prepared_children(2).await;
-        let usage = ChildJobUsage::of(&children);
-        let mut plan = plan_root_events(
+        let plan = plan_root_events(
             TreeNode {
                 state: JobState::Running,
                 has_commit: true,
@@ -498,9 +498,10 @@ mod tests {
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
-                [RoundOutcome::Planned(TreeEventOutcome::Applied(
-                    JobState::BlockingOnChildren
-                ))]
+                [RoundOutcome::Planned {
+                    outcome: TreeEventOutcome::Applied(JobState::BlockingOnChildren),
+                    registers_children: true,
+                }]
             ),
             "a registration gave {:?}",
             plan.outcomes
@@ -513,15 +514,6 @@ mod tests {
             }]
         );
         assert_eq!(plan.publications, []);
-        assert_eq!(
-            plan.registration.take(),
-            Some(PlannedRegistration {
-                event_index: 0,
-                parent_id: ROOT_ID,
-                children: usage,
-            })
-        );
-        assert_eq!(usage.count, 2);
     }
 
     #[tokio::test]
@@ -531,16 +523,23 @@ mod tests {
             children.push(create_test_prepared_child(0).await);
         }
         let usage = ChildJobUsage::of(&children);
-        let (plan, outcome) = plan_root_event(
+        let plan = plan_root_events(
             TreeNode {
                 state: JobState::Running,
                 ..PLAIN_NODE
             },
-            registration(children),
+            [registration(children)],
         );
         assert!(
-            matches!(outcome, TreeEventOutcome::Applied(JobState::Failed)),
-            "a child set over the job limits gave {outcome:?}"
+            matches!(
+                plan.outcomes.as_slice(),
+                [RoundOutcome::Planned {
+                    outcome: TreeEventOutcome::Applied(JobState::Failed),
+                    registers_children: false,
+                }]
+            ),
+            "a child set over the job limits gave {:?}",
+            plan.outcomes
         );
         assert_eq!(
             plan.updates,
@@ -553,7 +552,6 @@ mod tests {
                 ..JobStateUpdate::new(ROOT_ID, JobState::Running, JobState::Failed)
             }]
         );
-        assert_eq!(plan.registration, None);
     }
 
     #[tokio::test]
@@ -577,48 +575,77 @@ mod tests {
             matches!(
                 plan.outcomes.as_slice(),
                 [
-                    RoundOutcome::Planned(TreeEventOutcome::Stale(
-                        StaleStateError::JobNoLongerRunning
-                    )),
-                    RoundOutcome::Planned(TreeEventOutcome::Stale(
-                        StaleStateError::JobNoLongerRunning
-                    )),
-                    RoundOutcome::Planned(TreeEventOutcome::Untracked),
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobNoLongerRunning),
+                        registers_children: false,
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobNoLongerRunning),
+                        registers_children: false,
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Untracked,
+                        registers_children: false,
+                    },
                 ]
             ),
             "stale and untracked registrations gave {:?}",
             plan.outcomes
         );
         assert_eq!(plan.updates, []);
-        assert_eq!(plan.registration, None);
     }
 
     #[tokio::test]
-    async fn a_round_registers_its_first_applicable_child_set_and_defers_the_other_child_sets() {
-        let children = create_test_prepared_children(2).await;
-        let usage = ChildJobUsage::of(&children);
+    async fn a_round_registers_every_applicable_child_set_and_defers_one_over_the_payload_budget() {
+        let first_children = create_test_prepared_children(2).await;
+        let second_children = create_test_prepared_children(1).await;
+        let round_payload =
+            usize::try_from(MAX_ROUND_PAYLOAD).expect("the round payload should fit a usize");
         let events = vec![
             root_event(TreeEventKind::CancelRoot),
             event(2, failure(Lane::Regular, "boom")),
-            event(3, registration(children)),
-            event(4, registration(create_test_prepared_children(1).await)),
-            event(5, registration(Vec::new())),
+            event(3, registration(first_children)),
+            event(
+                4,
+                TreeEventKind::RegularTasksDone {
+                    outputs: vec![vec![0; round_payload]],
+                    children: create_test_prepared_children(1).await,
+                },
+            ),
+            event(5, registration(second_children)),
+            event(6, registration(Vec::new())),
         ];
-        let plan = tree_with_children(2..=5)
+        let plan = tree_with_children(2..=6)
             .plan_events(&events)
             .expect("the round should change each job at most once");
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
                 [
-                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::CleanupReady)),
-                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::Failed)),
-                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::BlockingOnChildren)),
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::CleanupReady),
+                        registers_children: false,
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::Failed),
+                        registers_children: false,
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::BlockingOnChildren),
+                        registers_children: true,
+                    },
                     RoundOutcome::Deferred,
-                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::Succeeded)),
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::BlockingOnChildren),
+                        registers_children: true,
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::Succeeded),
+                        registers_children: false,
+                    },
                 ]
             ),
-            "a round with two child sets gave {:?}",
+            "a round with several child sets gave {:?}",
             plan.outcomes
         );
         assert_eq!(
@@ -630,20 +657,12 @@ mod tests {
                 (ROOT_ID.get(), JobState::CleanupReady),
                 (2, JobState::Failed),
                 (3, JobState::BlockingOnChildren),
-                (5, JobState::Succeeded),
+                (5, JobState::BlockingOnChildren),
+                (6, JobState::Succeeded),
             ]
-        );
-        assert_eq!(
-            plan.registration,
-            Some(PlannedRegistration {
-                event_index: 2,
-                parent_id: JobId::from(3),
-                children: usage,
-            })
         );
 
         let children = create_test_prepared_children(1).await;
-        let usage = ChildJobUsage::of(&children);
         let events = vec![
             event(2, failure(Lane::Regular, "boom")),
             event(2, registration(create_test_prepared_children(1).await)),
@@ -656,23 +675,24 @@ mod tests {
             matches!(
                 plan.outcomes.as_slice(),
                 [
-                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::Failed)),
-                    RoundOutcome::Planned(TreeEventOutcome::Stale(
-                        StaleStateError::JobAlreadyTerminated(JobState::Failed)
-                    )),
-                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::BlockingOnChildren)),
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::Failed),
+                        registers_children: false,
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobAlreadyTerminated(
+                            JobState::Failed
+                        )),
+                        registers_children: false,
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::BlockingOnChildren),
+                        registers_children: true,
+                    },
                 ]
             ),
             "a stale child set ahead of an applicable one gave {:?}",
             plan.outcomes
-        );
-        assert_eq!(
-            plan.registration,
-            Some(PlannedRegistration {
-                event_index: 2,
-                parent_id: JobId::from(3),
-                children: usage,
-            })
         );
     }
 
@@ -816,10 +836,16 @@ mod tests {
             matches!(
                 plan.outcomes.as_slice(),
                 [
-                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::Failed)),
-                    RoundOutcome::Planned(TreeEventOutcome::Stale(
-                        StaleStateError::JobAlreadyTerminated(JobState::Failed)
-                    )),
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::Failed),
+                        ..
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobAlreadyTerminated(
+                            JobState::Failed
+                        )),
+                        ..
+                    },
                 ]
             ),
             "two failures in one round gave {:?}",
@@ -848,10 +874,14 @@ mod tests {
             matches!(
                 plan.outcomes.as_slice(),
                 [
-                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::CleanupReady)),
-                    RoundOutcome::Planned(TreeEventOutcome::Stale(
-                        StaleStateError::JobNoLongerRunning
-                    )),
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::CleanupReady),
+                        ..
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobNoLongerRunning),
+                        ..
+                    },
                 ]
             ),
             "a cancel and a failure in one round gave {:?}",
@@ -887,10 +917,16 @@ mod tests {
             matches!(
                 planned,
                 [
-                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::Failed)),
-                    RoundOutcome::Planned(TreeEventOutcome::Stale(
-                        StaleStateError::JobAlreadyTerminated(JobState::Failed)
-                    )),
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::Failed),
+                        ..
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobAlreadyTerminated(
+                            JobState::Failed
+                        )),
+                        ..
+                    },
                 ]
             ),
             "a failure given before a cancel gave {planned:?}"
@@ -899,9 +935,12 @@ mod tests {
         assert!(
             stale.iter().all(|outcome| matches!(
                 outcome,
-                RoundOutcome::Planned(TreeEventOutcome::Stale(
-                    StaleStateError::JobAlreadyTerminated(JobState::Failed)
-                ))
+                RoundOutcome::Planned {
+                    outcome: TreeEventOutcome::Stale(StaleStateError::JobAlreadyTerminated(
+                        JobState::Failed
+                    )),
+                    ..
+                }
             )),
             "every event after the round's first two should be planned stale"
         );
@@ -925,15 +964,20 @@ mod tests {
             matches!(
                 plan.outcomes.as_slice(),
                 [
-                    RoundOutcome::Planned(TreeEventOutcome::Stale(
-                        StaleStateError::JobCancellationAlreadyRequested
-                    )),
-                    RoundOutcome::Planned(TreeEventOutcome::Stale(
-                        StaleStateError::JobNoLongerRunning
-                    )),
-                    RoundOutcome::Planned(TreeEventOutcome::Stale(
-                        StaleStateError::JobNoLongerCommitReady
-                    )),
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Stale(
+                            StaleStateError::JobCancellationAlreadyRequested
+                        ),
+                        ..
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobNoLongerRunning),
+                        ..
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobNoLongerCommitReady),
+                        ..
+                    },
                 ]
             ),
             "a round of stale events gave {:?}",
