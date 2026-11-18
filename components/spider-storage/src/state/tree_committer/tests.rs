@@ -190,6 +190,7 @@ async fn the_last_reporter_registers_the_children_that_its_jobs_tasks_prepared()
 
 #[tokio::test]
 async fn a_registration_blocks_the_parent_until_every_child_succeeds() -> anyhow::Result<()> {
+    let root_outputs = vec![vec![1]];
     let mut tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
     tree.jcb.start().await?;
     let execution_context = tree
@@ -201,7 +202,7 @@ async fn a_registration_blocks_the_parent_until_every_child_succeeds() -> anyhow
         .succeed_task_instance(
             execution_context.task_instance_id,
             0,
-            vec![vec![1]],
+            root_outputs.clone(),
             create_test_prepared_children(2).await,
         )
         .await?;
@@ -238,14 +239,17 @@ async fn a_registration_blocks_the_parent_until_every_child_succeeds() -> anyhow
             Some(expected_root_state)
         );
     }
-    let mut terminated_job_ids = Vec::new();
-    while let Ok(job_id) = tree.gc_receiver.try_recv() {
-        terminated_job_ids.push(job_id);
-    }
-    assert_eq!(terminated_job_ids, [child_ids[0], child_ids[1], ROOT_ID]);
+    assert_eq!(
+        tree.receive_terminated_job_ids(),
+        child_ids
+            .iter()
+            .copied()
+            .chain([ROOT_ID])
+            .collect::<Vec<_>>()
+    );
     assert_eq!(
         tree.db.outputs.get(&ROOT_ID).map(|outputs| outputs.clone()),
-        Some(vec![vec![1]])
+        Some(root_outputs)
     );
     tree.wait_for_exit().await;
     assert!(!tree.shutdown_handle.is_fatal());
@@ -971,17 +975,17 @@ mod hooked {
         let mut tree = TestTree::spawn(false, false, MockInboundQueueSender).await;
         reply(tree.submit(start())).await?;
         reply(tree.submit(registration(create_test_prepared_children(2).await))).await?;
-        let blocking = reply(tree.control_block.submit(TreeEvent {
+        let registration_reply = reply(tree.control_block.submit(TreeEvent {
             job_id: blocking_child_id,
             kind: registration(create_test_prepared_children(1).await),
         }))
         .await;
         assert!(
             matches!(
-                blocking,
+                registration_reply,
                 Ok(TreeEventOutcome::Applied(JobState::BlockingOnChildren))
             ),
-            "a child's registration gave {blocking:?}"
+            "a child's registration gave {registration_reply:?}"
         );
 
         let reply_join_handles = tree
@@ -996,18 +1000,17 @@ mod hooked {
             )
             .await;
         for reply_join_handle in reply_join_handles {
-            let success = join_reply(reply_join_handle).await;
+            let success_reply = join_reply(reply_join_handle).await;
             assert!(
-                matches!(success, Ok(TreeEventOutcome::Applied(JobState::Succeeded))),
-                "a success of the round gave {success:?}"
+                matches!(
+                    success_reply,
+                    Ok(TreeEventOutcome::Applied(JobState::Succeeded))
+                ),
+                "a success of the round gave {success_reply:?}"
             );
         }
-        let mut terminated_job_ids = Vec::new();
-        while let Ok(job_id) = tree.gc_receiver.try_recv() {
-            terminated_job_ids.push(job_id);
-        }
         assert_eq!(
-            terminated_job_ids,
+            tree.receive_terminated_job_ids(),
             [grandchild_id, leaf_child_id, blocking_child_id, ROOT_ID]
         );
         assert_eq!(tree.jcb.state().await, JobState::Succeeded);

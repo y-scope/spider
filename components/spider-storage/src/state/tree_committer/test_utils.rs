@@ -179,6 +179,20 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
             .expect("the committer should exit within 5 seconds");
     }
 
+    /// Receives every job ID that the tree's committer has handed to the job cache's garbage
+    /// collector so far.
+    ///
+    /// # Returns
+    ///
+    /// The received job IDs, in the order they were handed over.
+    pub(super) fn receive_terminated_job_ids(&mut self) -> Vec<JobId> {
+        let mut terminated_job_ids = Vec::new();
+        while let Ok(job_id) = self.gc_receiver.try_recv() {
+            terminated_job_ids.push(job_id);
+        }
+        terminated_job_ids
+    }
+
     /// Arms a pause, for one hit, of the tree's committer at `point`.
     ///
     /// # Returns
