@@ -392,7 +392,7 @@ impl TestEnv {
     /// # Panics
     ///
     /// Panics if the instance creation fails.
-    pub async fn create_instance(&self, job_id: JobId, task_id: TaskId) -> u64 {
+    pub async fn create_instance(&self, job_id: JobId, task_id: TaskId) -> TaskInstanceId {
         self.service
             .create_task_instance(
                 self.service.session_id(),
@@ -1170,8 +1170,8 @@ impl JobShape {
     }
 }
 
-/// Observers of the committer of one tree: its rounds, the database writes of its rounds, and the
-/// rounds that write a transition of each of some of its jobs.
+/// Observers of committer rounds: the rounds of one tree, the rounds that write a transition of each
+/// of some of its jobs, and the database writes of every tree's rounds.
 pub struct TreeProbes {
     round_hook: ArmedHook,
     write_hook: ArmedHook,
@@ -1391,21 +1391,15 @@ pub fn value(tag: u8, index: usize) -> Vec<u8> {
 /// The outputs that the storage service stores for the one-output tasks that reported `values`, in
 /// order.
 ///
-/// # Type Parameters
-///
-/// * `'value_lifetime` - The lifetime of the borrowed values.
-///
 /// # Panics
 ///
 /// Panics if the outputs fail to deserialize.
 #[must_use]
-pub fn task_outputs<'value_lifetime>(
-    values: impl IntoIterator<Item = &'value_lifetime Vec<u8>>,
-) -> Vec<TaskOutput> {
+pub fn task_outputs(values: impl IntoIterator<Item = impl AsRef<[u8]>>) -> Vec<TaskOutput> {
     values
         .into_iter()
         .flat_map(|value| {
-            TaskOutputsSerializer::deserialize(&serialized_output(value))
+            TaskOutputsSerializer::deserialize(&serialized_output(value.as_ref()))
                 .expect("output deserialization should succeed")
         })
         .collect()
