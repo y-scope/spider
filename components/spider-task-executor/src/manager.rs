@@ -246,6 +246,18 @@ impl TdlPackageManager {
     }
 }
 
+/// FFI symbol name (NUL-terminated) for the package's compile-time `spider-tdl` version.
+const SYM_GET_VERSION: &[u8] = b"__spider_tdl_package_get_version\0";
+
+/// FFI symbol name (NUL-terminated) for the package's declared name.
+const SYM_GET_NAME: &[u8] = b"__spider_tdl_package_get_name\0";
+
+/// FFI symbol name (NUL-terminated) for the package's optional init function.
+const SYM_INIT: &[u8] = b"__spider_tdl_package_init\0";
+
+/// FFI symbol name (NUL-terminated) for the per-task dispatcher.
+const SYM_EXECUTE: &[u8] = b"__spider_tdl_package_execute\0";
+
 /// FFI signature of `__spider_tdl_package_get_version`.
 type GetVersionFn = unsafe extern "C" fn() -> Version;
 
@@ -258,18 +270,6 @@ type InitFn = unsafe extern "C" fn() -> TaskExecutionResult;
 /// FFI signature of `__spider_tdl_package_execute`.
 type ExecuteFn =
     unsafe extern "C" fn(CCharArray<'_>, CByteArray<'_>, CByteArray<'_>) -> TaskExecutionResult;
-
-/// FFI symbol name (NUL-terminated) for the package's compile-time `spider-tdl` version.
-const SYM_GET_VERSION: &[u8] = b"__spider_tdl_package_get_version\0";
-
-/// FFI symbol name (NUL-terminated) for the package's declared name.
-const SYM_GET_NAME: &[u8] = b"__spider_tdl_package_get_name\0";
-
-/// FFI symbol name (NUL-terminated) for the package's optional init function.
-const SYM_INIT: &[u8] = b"__spider_tdl_package_init\0";
-
-/// FFI symbol name (NUL-terminated) for the per-task dispatcher.
-const SYM_EXECUTE: &[u8] = b"__spider_tdl_package_execute\0";
 
 #[cfg(test)]
 mod tests {

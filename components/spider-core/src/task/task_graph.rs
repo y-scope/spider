@@ -53,12 +53,6 @@ pub struct TdlContext {
     pub task_func: String,
 }
 
-/// The minimum allowed timeout value in milliseconds.
-const MIN_TIMEOUT_MS: u64 = 100;
-
-/// The maximum allowed timeout value in milliseconds.
-const MAX_TIMEOUT_MS: u64 = 1000 * 60 * 60 * 24; // 24 hours
-
 /// Timeout policy for a task.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimeoutPolicy {
@@ -661,6 +655,16 @@ impl TaskGraph {
         self.dataflow_deps.len()
     }
 
+    #[must_use]
+    pub const fn get_commit_task_descriptor(&self) -> Option<&TerminationTaskDescriptor> {
+        self.commit_task.as_ref()
+    }
+
+    #[must_use]
+    pub const fn get_cleanup_task_descriptor(&self) -> Option<&TerminationTaskDescriptor> {
+        self.cleanup_task.as_ref()
+    }
+
     /// Computes the input data-flow dependencies and parent task indices for a task based on its
     /// inputs.
     ///
@@ -878,16 +882,6 @@ impl TaskGraph {
         }
         Ok(())
     }
-
-    #[must_use]
-    pub const fn get_commit_task_descriptor(&self) -> Option<&TerminationTaskDescriptor> {
-        self.commit_task.as_ref()
-    }
-
-    #[must_use]
-    pub const fn get_cleanup_task_descriptor(&self) -> Option<&TerminationTaskDescriptor> {
-        self.cleanup_task.as_ref()
-    }
 }
 
 impl Serialize for TaskGraph {
@@ -935,6 +929,12 @@ const TASK_GRAPH_SCHEMA_VERSION: &str = "0.1.0";
 
 /// Task graph schema version compatibility requirement.
 const TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION: &str = ">=0.1.0,<0.2.0";
+
+/// The minimum allowed timeout value in milliseconds.
+const MIN_TIMEOUT_MS: u64 = 100;
+
+/// The maximum allowed timeout value in milliseconds.
+const MAX_TIMEOUT_MS: u64 = 1000 * 60 * 60 * 24; // 24 hours
 
 static TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION_REQUIREMENT: std::sync::LazyLock<VersionReq> =
     std::sync::LazyLock::new(|| {
