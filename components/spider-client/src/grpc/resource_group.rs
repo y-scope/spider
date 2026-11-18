@@ -64,7 +64,8 @@ impl ResourceGroupManagementClient {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ResourceGroupManagementServiceClient::add_resource_group`]'s status on failure.
+    /// * Forwards [`ResourceGroupManagementServiceClient::add_resource_group`]'s return values on
+    ///   failure.
     pub async fn add_resource_group(
         &self,
         credentials: ExternalResourceGroupCredentials,
@@ -95,8 +96,8 @@ impl ResourceGroupManagementClient {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ResourceGroupManagementServiceClient::add_or_verify_resource_group`]'s status
-    ///   on failure.
+    /// * Forwards [`ResourceGroupManagementServiceClient::add_or_verify_resource_group`]'s return
+    ///   values on failure.
     pub async fn add_or_verify_resource_group(
         &self,
         credentials: ExternalResourceGroupCredentials,
@@ -126,8 +127,8 @@ impl ResourceGroupManagementClient {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ResourceGroupManagementServiceClient::verify_resource_group`]'s status on
-    ///   failure.
+    /// * Forwards [`ResourceGroupManagementServiceClient::verify_resource_group`]'s return values
+    ///   on failure.
     pub async fn verify_resource_group(
         &self,
         resource_group_id: ResourceGroupId,

@@ -461,8 +461,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`Self::validate_session`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn create_task_instance(
@@ -509,8 +509,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`Self::validate_session`]'s return values on failure.
     /// * Forwards [`spider_core::types::io::TaskOutputsSerializer::deserialize`]'s return values on
     ///   failure.
     /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
@@ -592,8 +592,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`Self::validate_session`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values on
     ///   failure.
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
@@ -635,8 +635,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`Self::validate_session`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values on
     ///   failure.
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
@@ -678,8 +678,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`Self::validate_session`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn fail_task_instance(
@@ -1008,7 +1008,9 @@ impl<
     ///
     /// # Errors
     ///
-    /// Returns [`StorageServerError::StaleSession`] if the session IDs don't match.
+    /// Returns an error if:
+    ///
+    /// * [`StorageServerError::StaleSession`] if the session IDs don't match.
     fn validate_session(&self, session_id: SessionId) -> Result<(), StorageServerError> {
         if session_id != self.inner.session_id {
             return Err(StorageServerError::StaleSession(self.inner.session_id));

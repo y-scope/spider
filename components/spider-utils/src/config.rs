@@ -35,8 +35,8 @@ pub trait YamlConfig: DeserializeOwned {
     ///
     /// Returns an error if:
     ///
-    /// * [`ConfigError::Io`] if the file cannot be opened.
-    /// * [`ConfigError::Parse`] if the YAML cannot be deserialized.
+    /// * Forwards [`File::open`]'s return values as [`ConfigError::Io`] on failure.
+    /// * Forwards [`yaml_serde::from_reader`]'s return values as [`ConfigError::Parse`] on failure.
     fn from_yaml_file(path: &Path) -> Result<Self, ConfigError> {
         let file = File::open(path)?;
         let config = yaml_serde::from_reader(file)?;

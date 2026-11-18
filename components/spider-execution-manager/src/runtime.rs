@@ -625,7 +625,7 @@ impl Report {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`StorageClient::report_task_success`]'s errors other than
+    /// * Forwards [`StorageClient::report_task_success`]'s return values on failure, except
     ///   [`StorageResponseError::ReportTooLarge`].
     /// * Forwards [`StorageClient::report_task_failure`]'s return values on failure.
     async fn send<StorageClientType: StorageClient>(

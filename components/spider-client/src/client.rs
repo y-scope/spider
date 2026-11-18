@@ -49,13 +49,7 @@ impl SpiderClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::Serialization`] if the task graph or task graph input cannot be serialized
-    ///   or compressed.
-    /// * [`ClientError::InvalidArgument`] if the storage server rejects the task graph or task
-    ///   graph input.
-    /// * [`ClientError::Unauthenticated`] if the resource group is unknown or unauthorized.
-    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
-    /// * [`ClientError::Server`] for any other server-reported error.
+    /// * Forwards [`JobOrchestrationClient::submit_job`]'s return values on failure.
     pub async fn submit_job(
         &self,
         resource_group_id: ResourceGroupId,
@@ -77,12 +71,7 @@ impl SpiderClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
-    /// * [`ClientError::InvalidJobState`] if the job is not in a state that allows starting.
-    /// * [`ClientError::UnspecifiedJobState`] if the server reports an unspecified job state.
-    /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
-    ///   server reports an unrecognized job state.
-    /// * [`ClientError::Server`] for any other server-reported error.
+    /// * Forwards [`JobOrchestrationClient::start_job`]'s return values on failure.
     pub async fn start_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
         self.job_orchestration.start_job(job_id).await
     }
@@ -97,12 +86,7 @@ impl SpiderClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
-    /// * [`ClientError::InvalidJobState`] if the job is not in a state that allows cancellation.
-    /// * [`ClientError::UnspecifiedJobState`] if the server reports an unspecified job state.
-    /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
-    ///   server reports an unrecognized job state.
-    /// * [`ClientError::Server`] for any other server-reported error.
+    /// * Forwards [`JobOrchestrationClient::cancel_job`]'s return values on failure.
     pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
         self.job_orchestration.cancel_job(job_id).await
     }
@@ -117,11 +101,7 @@ impl SpiderClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
-    /// * [`ClientError::UnspecifiedJobState`] if the server reports an unspecified job state.
-    /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
-    ///   server reports an unrecognized job state.
-    /// * [`ClientError::Server`] for any other server-reported error.
+    /// * Forwards [`JobOrchestrationClient::get_job_state`]'s return values on failure.
     pub async fn get_job_state(&self, job_id: JobId) -> Result<JobState, ClientError> {
         self.job_orchestration.get_job_state(job_id).await
     }
@@ -137,12 +117,7 @@ impl SpiderClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
-    /// * [`ClientError::InvalidJobState`] if the job has not yet succeeded.
-    /// * [`ClientError::Deserialization`] if the returned outputs cannot be decompressed or
-    ///   unframed.
-    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
-    /// * [`ClientError::Server`] for any other server-reported error.
+    /// * Forwards [`JobOrchestrationClient::get_job_outputs`]'s return values on failure.
     pub async fn get_job_outputs(&self, job_id: JobId) -> Result<Vec<TaskOutput>, ClientError> {
         self.job_orchestration.get_job_outputs(job_id).await
     }
@@ -157,10 +132,7 @@ impl SpiderClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
-    /// * [`ClientError::InvalidJobState`] if the job has not yet failed.
-    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
-    /// * [`ClientError::Server`] for any other server-reported error.
+    /// * Forwards [`JobOrchestrationClient::get_job_error`]'s return values on failure.
     pub async fn get_job_error(&self, job_id: JobId) -> Result<String, ClientError> {
         self.job_orchestration.get_job_error(job_id).await
     }
@@ -176,13 +148,7 @@ impl SpiderClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::InvalidArgument`] if the storage server rejects the request as invalid.
-    /// * [`ClientError::Unauthenticated`] if the resource group is unknown or the password is
-    ///   invalid.
-    /// * [`ClientError::ResourceGroupAlreadyExists`] if a resource group with the given external
-    ///   resource group ID already exists.
-    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
-    /// * [`ClientError::Server`] for any other server-reported error.
+    /// * Forwards [`ResourceGroupManagementClient::add_resource_group`]'s return values on failure.
     pub async fn add_resource_group(
         &self,
         credentials: ExternalResourceGroupCredentials,
@@ -201,10 +167,8 @@ impl SpiderClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::InvalidArgument`] if the storage server rejects the request as invalid.
-    /// * [`ClientError::Unauthenticated`] if the existing resource group's password is invalid.
-    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
-    /// * [`ClientError::Server`] for any other server-reported error.
+    /// * Forwards [`ResourceGroupManagementClient::add_or_verify_resource_group`]'s return values
+    ///   on failure.
     pub async fn add_or_verify_resource_group(
         &self,
         credentials: ExternalResourceGroupCredentials,
@@ -224,11 +188,8 @@ impl SpiderClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::InvalidArgument`] if the storage server rejects the request as invalid.
-    /// * [`ClientError::Unauthenticated`] if the resource group is unknown or the password is
-    ///   invalid.
-    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
-    /// * [`ClientError::Server`] for any other server-reported error.
+    /// * Forwards [`ResourceGroupManagementClient::verify_resource_group`]'s return values on
+    ///   failure.
     pub async fn verify_resource_group(
         &self,
         resource_group_id: ResourceGroupId,
