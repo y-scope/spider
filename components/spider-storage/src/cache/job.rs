@@ -1164,8 +1164,12 @@ impl<
 ///
 /// # Type Parameters
 ///
-/// The type parameters are forwarded directly to [`JobExecutionState`] in the same declaration
-/// order. Single-character names are used to:
+/// * `R` - The type of the inbound queue sender, forwarded to [`JobExecutionState`]'s
+///   `InboundQueueSenderType`.
+/// * `T` - The type of the task instance pool connector, forwarded to [`JobExecutionState`]'s
+///   `TaskInstancePoolConnectorType`.
+///
+/// Single-character names are used to:
 ///
 /// * Reduce verbosity while preserving consistency with the underlying type.
 /// * Avoid formatting issues, as `rustfmt` does not handle line wrapping well when using more

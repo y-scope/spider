@@ -51,6 +51,11 @@ impl LivenessHandle {
 /// The first heartbeat fires immediately when the spawned task is polled for the first time; from
 /// there it ticks every `heartbeat_interval`. Missed ticks are skipped rather than burst-replayed.
 ///
+/// # Type Parameters
+///
+/// * `LivenessClientType` - The [`LivenessClient`] that the actor sends heartbeats to storage
+///   through.
+///
 /// # Returns
 ///
 /// A pair containing:
@@ -83,6 +88,11 @@ pub fn spawn<LivenessClientType: LivenessClient + Clone + 'static>(
 const COMMAND_CHANNEL_CAP: usize = 16;
 
 /// The actor's owned state. Lives entirely inside the spawned task.
+///
+/// # Type Parameters
+///
+/// * `LivenessClientType` - The [`LivenessClient`] that the actor sends heartbeats to storage
+///   through.
 struct LivenessActor<LivenessClientType: LivenessClient + Clone> {
     em_id: ExecutionManagerId,
     client: LivenessClientType,

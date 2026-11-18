@@ -209,6 +209,10 @@ pub struct WorkloadResult {
 }
 
 /// Type alias for the DB connector factory return type.
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation that the factory returns.
 pub type FactoryReturn<DbConnectorType> = (DbConnectorType, JobId, ResourceGroupId);
 
 /// An async DB connector factory for [`run_workload`].

@@ -13,6 +13,11 @@ use spider_utils::shutdown::ShutdownHandle;
 /// panic, shuts the service down fatally, so that the next start recovers from the database, which
 /// never saw the partial mutation. Dropping it other than by a panic while the service is already
 /// shutting down leaves the shutdown as it is.
+///
+/// # Type Parameters
+///
+/// * `'shutdown_handle` - The lifetime of the [`ShutdownHandle`] that the guard shuts the service
+///   down through.
 pub struct PartialMutationGuard<'shutdown_handle> {
     shutdown_handle: &'shutdown_handle ShutdownHandle,
     job_id: JobId,
