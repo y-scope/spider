@@ -832,9 +832,9 @@ async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyho
 
     assert!(scheduler.buffered_tasks.is_empty());
     assert!(scheduler.pending_jobs.is_empty());
-    assert!(scheduler.pending_job_queue.is_empty());
-    assert!(scheduler.commit_ready_jobs.is_empty());
-    assert!(scheduler.cleanup_ready_jobs.is_empty());
+    assert_eq!(scheduler.pending_job_queue, VecDeque::new());
+    assert_eq!(scheduler.commit_ready_jobs, VecDeque::new());
+    assert_eq!(scheduler.cleanup_ready_jobs, VecDeque::new());
     assert_eq!(scheduler.finalizing_jobs.len(), NUM_FINALIZING_JOBS);
 
     assert!(scheduler.finalizing_jobs.contains(&job_b.0));
