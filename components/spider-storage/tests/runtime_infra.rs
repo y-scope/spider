@@ -1153,9 +1153,9 @@ impl JobShape {
 /// Observers of the committer of one tree: its rounds, the database writes of its rounds, and the
 /// rounds that write a transition of each of some of its jobs.
 pub struct TreeProbes {
-    rounds: ArmedHook,
-    writes: ArmedHook,
-    transitions: HashMap<JobId, ArmedHook>,
+    round_hook: ArmedHook,
+    write_hook: ArmedHook,
+    transition_hooks: HashMap<JobId, ArmedHook>,
 }
 
 impl TreeProbes {
@@ -1169,9 +1169,9 @@ impl TreeProbes {
     #[must_use]
     pub fn arm(env: &TestEnv, root_id: JobId, job_ids: &[JobId]) -> Self {
         Self {
-            rounds: env.observe(HookPoint::CommitterBeforeReceive, HookFilter::job(root_id)),
-            writes: env.observe(HookPoint::CommitterRoundAfterDbWrite, HookFilter::default()),
-            transitions: job_ids
+            round_hook: env.observe(HookPoint::CommitterBeforeReceive, HookFilter::job(root_id)),
+            write_hook: env.observe(HookPoint::CommitterRoundAfterDbWrite, HookFilter::default()),
+            transition_hooks: job_ids
                 .iter()
                 .map(|job_id| {
                     (
@@ -1195,7 +1195,7 @@ impl TreeProbes {
     /// Panics if the probes don't observe `job_id`.
     #[must_use]
     pub fn transitions(&self, job_id: JobId) -> usize {
-        self.transitions
+        self.transition_hooks
             .get(&job_id)
             .expect("the probes should observe the job")
             .hits()
@@ -1208,12 +1208,12 @@ impl TreeProbes {
     /// Panics if the assertion fails.
     pub fn assert_rounds(&self, num_rounds: usize, num_writes: usize, what: &str) {
         assert_eq!(
-            self.rounds.hits(),
+            self.round_hook.hits(),
             num_rounds,
             "{what}: the number of rounds"
         );
         assert_eq!(
-            self.writes.hits(),
+            self.write_hook.hits(),
             num_writes,
             "{what}: the number of database writes"
         );
@@ -1244,7 +1244,7 @@ impl TreeProbes {
 /// * `FirstType` - The output type of the first RPC.
 /// * `SecondType` - The output type of the second RPC.
 pub struct Race<FirstType, SecondType> {
-    paused: ArmedHook,
+    pause_hook: ArmedHook,
     first_join_handle: JoinHandle<FirstType>,
     second_join_handle: JoinHandle<SecondType>,
 }
@@ -1270,17 +1270,17 @@ impl<FirstType: Send + 'static, SecondType: Send + 'static> Race<FirstType, Seco
         second: impl Future<Output = SecondType> + Send + 'static,
         second_job_id: JobId,
     ) -> Self {
-        let paused = env.pause(point, filter);
+        let pause_hook = env.pause(point, filter);
         let first_join_handle = tokio::spawn(first);
-        reached(&paused, 1).await;
-        let submitted = env.observe(
+        reached(&pause_hook, 1).await;
+        let submit_hook = env.observe(
             HookPoint::JobEventAfterSubmit,
             HookFilter::job(second_job_id),
         );
         let second_join_handle = tokio::spawn(second);
-        reached(&submitted, 1).await;
+        reached(&submit_hook, 1).await;
         Self {
-            paused,
+            pause_hook,
             first_join_handle,
             second_join_handle,
         }
@@ -1299,10 +1299,10 @@ impl<FirstType: Send + 'static, SecondType: Send + 'static> Race<FirstType, Seco
     ///
     /// Panics if the paused hook fired more than once.
     pub async fn finish(self) -> (FirstType, SecondType) {
-        self.paused.release();
+        self.pause_hook.release();
         let first = join(self.first_join_handle).await;
         let second = join(self.second_join_handle).await;
-        assert_eq!(self.paused.hits(), 1);
+        assert_eq!(self.pause_hook.hits(), 1);
         (first, second)
     }
 }
