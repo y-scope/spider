@@ -147,10 +147,12 @@ impl<
             for transition in transitions {
                 self.apply_to_cache(transition).await?;
             }
-            let publications_of_registered_child_jobs = self
-                .insert_registered_children_into_tree(in_flight, &registrations, &child_ids)
-                .await?;
-            publications.extend(publications_of_registered_child_jobs);
+            if !registrations.is_empty() {
+                let publications_of_registered_child_jobs = self
+                    .insert_registered_children_into_tree(in_flight, &registrations, &child_ids)
+                    .await?;
+                publications.extend(publications_of_registered_child_jobs);
+            }
         }
 
         assert_eq!(
