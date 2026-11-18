@@ -904,33 +904,6 @@ impl TestEnv {
         );
     }
 
-    /// Asserts that the tree rooted at `root_id` has no non-terminal row.
-    ///
-    /// # Panics
-    ///
-    /// Panics if:
-    ///
-    /// * The query fails.
-    /// * A row is not terminal.
-    pub async fn assert_quiescent(&self, root_id: JobId) {
-        let non_terminal_rows: HashMap<JobId, JobState> = sqlx::query_as::<_, (JobId, JobState)>(
-            "SELECT `id`, `state` FROM `jobs` WHERE `id` = ? OR `root_id` = ?;",
-        )
-        .bind(root_id)
-        .bind(root_id)
-        .fetch_all(&self.pool)
-        .await
-        .expect("the tree query should succeed")
-        .into_iter()
-        .filter(|(_, state)| !state.is_terminal())
-        .collect();
-        assert_eq!(
-            non_terminal_rows,
-            HashMap::new(),
-            "the tree of {root_id} should be quiescent"
-        );
-    }
-
     /// Asserts that the job's cached and persisted states are both `expected`, and that the service
     /// has not shut down fatally.
     pub async fn assert_job_state(&self, job_id: JobId, expected: JobState) {
