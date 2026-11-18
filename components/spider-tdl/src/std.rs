@@ -47,6 +47,10 @@ pub type boolean = bool;
 pub type Bytes = Vec<u8>;
 
 /// Homogeneous list of values.
+///
+/// # Type Parameters
+///
+/// * `ElementType` - The type of the list's elements.
 pub type List<ElementType> = Vec<ElementType>;
 
 /// Homogeneous key-value map.
@@ -54,4 +58,9 @@ pub type List<ElementType> = Vec<ElementType>;
 /// The key type must satisfy [`MapKey`]. Because Rust does not enforce `where` clauses on type
 /// aliases on stable, the bound is enforced by the `#[task]` proc-macro at parse time rather than
 /// by the type alias itself.
+///
+/// # Type Parameters
+///
+/// * `KeyType` - The type of the map's keys.
+/// * `ValueType` - The type of the map's values.
 pub type Map<KeyType, ValueType> = std::collections::HashMap<KeyType, ValueType>;

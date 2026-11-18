@@ -105,6 +105,10 @@ pub fn spawn_line_collector<ReaderType: AsyncRead + Unpin + Send + 'static>(
 const LINE_CHANNEL_CAP: usize = 1024;
 
 /// The actor's owned state. Lives entirely inside the spawned task.
+///
+/// # Type Parameters
+///
+/// * `WriterType` - The output stream that the actor appends log lines to.
 struct ExecutorLogActor<WriterType: AsyncWrite + Unpin> {
     receiver: mpsc::Receiver<String>,
     writer: BufWriter<WriterType>,

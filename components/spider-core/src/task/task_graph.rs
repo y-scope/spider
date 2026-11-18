@@ -803,7 +803,7 @@ impl TaskGraph {
     ///
     /// # Type Parameters
     ///
-    /// * `SequenceSerializer`: Serializer for the sequence of task descriptors.
+    /// * `SequenceSerializer` - Serializer for the sequence of task descriptors.
     ///
     /// # Returns
     ///
@@ -1063,6 +1063,10 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
 }
 
 /// Wrapper of a task graph that enables streaming serialization of the underlying tasks.
+///
+/// # Type Parameters
+///
+/// * `'task_graph_lifetime` - The lifetime of the borrowed [`TaskGraph`].
 struct TaskDescriptorSequence<'task_graph_lifetime> {
     graph: &'task_graph_lifetime TaskGraph,
 }
