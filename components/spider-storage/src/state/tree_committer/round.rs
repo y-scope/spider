@@ -92,8 +92,8 @@ impl<
     /// 1. Plans the events in their order.
     /// 2. Writes the planned state changes and the registered child jobs to the database, in one
     ///    transaction.
-    /// 3. Updates the tree's active-children counters, then applies the state changes to the cache,
-    ///    deepest job first and root last.
+    /// 3. Updates the numbers of active children in the tree's structure, then applies the state
+    ///    changes to the cache, deepest job first and root last.
     /// 4. Answers each planned event and publishes the ready work.
     ///
     /// On return, `in_flight` holds the events that the committer puts back at the front of the
@@ -164,9 +164,9 @@ impl<
             };
             self.hit_hook(HookPoint::CommitterRoundAfterDbWrite, &transitions)
                 .await;
-            for (job_id, num_active_children) in num_active_children {
+            for (job_id, new_num_active_children) in num_active_children {
                 self.structure
-                    .apply_num_active_children(job_id, num_active_children)?;
+                    .apply_num_active_children(job_id, new_num_active_children)?;
             }
             for transition in transitions {
                 self.apply_to_cache(transition).await?;
