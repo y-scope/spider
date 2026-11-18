@@ -88,6 +88,8 @@ impl DataTypeDescriptor {
     ///
     /// # Errors
     ///
+    /// Returns an error if:
+    ///
     /// * Forwards [`serde_json::from_str`]'s return values on failure.
     pub fn from_json(json: &str) -> Result<Self, Error> {
         serde_json::from_str(json).map_err(Into::into)

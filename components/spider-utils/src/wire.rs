@@ -91,9 +91,9 @@ impl ser::Error for WireError {
 ///
 /// Returns an error if:
 ///
-/// * Forwards [`WireFrameBuilder::append_serialize`]'s return values on failure.
-/// * Forwards [`TupleOutputSerializer`]'s return values on failure to reject non-tuple type inputs
-///   at runtime.
+/// * Forwards [`serde::Serialize::serialize`]'s return values on failure if:
+///   * `value` is not a tuple, which [`TupleOutputSerializer`] rejects at runtime.
+///   * [`WireFrameBuilder::append_serialize`] fails to frame an element.
 pub fn serialize_tuple<TupleType: serde::Serialize>(
     value: &TupleType,
 ) -> Result<Vec<u8>, WireError> {

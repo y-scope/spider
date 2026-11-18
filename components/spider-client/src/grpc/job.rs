@@ -74,7 +74,7 @@ impl JobOrchestrationClient {
     ///   [`ClientError::Serialization`].
     /// * Forwards [`TaskGraphInput::to_zstd_compressed_bytes`]'s return values on failure as
     ///   [`ClientError::Serialization`].
-    /// * Forwards [`JobOrchestrationServiceClient::register_job`]'s status on failure.
+    /// * Forwards [`JobOrchestrationServiceClient::register_job`]'s return values on failure.
     pub async fn submit_job(
         &self,
         resource_group_id: ResourceGroupId,
@@ -115,7 +115,7 @@ impl JobOrchestrationClient {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`JobOrchestrationServiceClient::start_job`]'s status on failure.
+    /// * Forwards [`JobOrchestrationServiceClient::start_job`]'s return values on failure.
     /// * Forwards [`job_state_response_to_result`]'s return values on failure.
     pub async fn start_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
         let pool = self.connection_pool.clone();
@@ -143,7 +143,7 @@ impl JobOrchestrationClient {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`JobOrchestrationServiceClient::cancel_job`]'s status on failure.
+    /// * Forwards [`JobOrchestrationServiceClient::cancel_job`]'s return values on failure.
     /// * Forwards [`job_state_response_to_result`]'s return values on failure.
     pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
         let pool = self.connection_pool.clone();
@@ -171,7 +171,7 @@ impl JobOrchestrationClient {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`JobOrchestrationServiceClient::get_job_state`]'s status on failure.
+    /// * Forwards [`JobOrchestrationServiceClient::get_job_state`]'s return values on failure.
     /// * Forwards [`job_state_response_to_result`]'s return values on failure.
     pub async fn get_job_state(&self, job_id: JobId) -> Result<JobState, ClientError> {
         let pool = self.connection_pool.clone();
@@ -202,7 +202,7 @@ impl JobOrchestrationClient {
     ///
     /// * Forwards [`SerializedTaskOutputs::deserialize_from_raw`]'s return values on failure as
     ///   [`ClientError::Deserialization`].
-    /// * Forwards [`JobOrchestrationServiceClient::get_job_outputs`]'s status on failure.
+    /// * Forwards [`JobOrchestrationServiceClient::get_job_outputs`]'s return values on failure.
     pub async fn get_job_outputs(&self, job_id: JobId) -> Result<Vec<TaskOutput>, ClientError> {
         let pool = self.connection_pool.clone();
         let response = call_with_retry(self.retry_config, move || {
@@ -230,7 +230,7 @@ impl JobOrchestrationClient {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`JobOrchestrationServiceClient::get_job_error`]'s status on failure.
+    /// * Forwards [`JobOrchestrationServiceClient::get_job_error`]'s return values on failure.
     pub async fn get_job_error(&self, job_id: JobId) -> Result<String, ClientError> {
         let pool = self.connection_pool.clone();
         let response = call_with_retry(self.retry_config, move || {

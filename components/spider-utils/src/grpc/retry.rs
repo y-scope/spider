@@ -102,8 +102,7 @@ pub async fn execute_with_retry<
 ///
 /// Returns an error if:
 ///
-/// * Forwards `grpc_call`'s [`Status`] on failure if the status is non-retriable or the retry
-///   budget is exhausted.
+/// * Forwards [`execute_with_retry`]'s return values on failure.
 pub async fn call_with_retry<
     ResponseType,
     GrpcCall: FnMut() -> FutureType,
