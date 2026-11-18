@@ -901,7 +901,7 @@ fn assert_succeeded(result: &JobResult, what: &str) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires MariaDB"]
-async fn sibling_jobs_succeeding_in_any_rounds_advance_their_parent_once() -> anyhow::Result<()> {
+async fn sibling_jobs_succeeding_in_any_rounds_advance_their_parent_once() {
     let env = TestEnv::start_keeping_task_instances().await;
     for num_children in [2, 8, 64] {
         for rounds in SiblingRounds::iter() {
@@ -917,12 +917,11 @@ async fn sibling_jobs_succeeding_in_any_rounds_advance_their_parent_once() -> an
     }
     env.assert_lanes_empty().await;
     env.finish().await;
-    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires MariaDB"]
-async fn sibling_tasks_completing_together_complete_their_job_once() -> anyhow::Result<()> {
+async fn sibling_tasks_completing_together_complete_their_job_once() {
     let env = TestEnv::start_keeping_task_instances().await;
     for num_tasks in [2, 8] {
         for position in Position::iter() {
@@ -932,12 +931,11 @@ async fn sibling_tasks_completing_together_complete_their_job_once() -> anyhow::
     }
     env.assert_lanes_empty().await;
     env.finish().await;
-    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires MariaDB"]
-async fn a_parent_with_a_commit_task_commits_then_climbs() -> anyhow::Result<()> {
+async fn a_parent_with_a_commit_task_commits_then_climbs() {
     let env = TestEnv::start_keeping_task_instances().await;
     for sibling_timing in SiblingTiming::iter() {
         for root_has_commit in [false, true] {
@@ -957,5 +955,4 @@ async fn a_parent_with_a_commit_task_commits_then_climbs() -> anyhow::Result<()>
     }
     env.assert_lanes_empty().await;
     env.finish().await;
-    Ok(())
 }
