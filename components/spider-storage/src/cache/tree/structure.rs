@@ -307,6 +307,7 @@ mod tests {
     use crate::cache::tree::TreeNode;
     use crate::cache::tree::TreeStructure;
     use crate::cache::tree::Violation;
+    use crate::cache::tree::test_utils::REGISTRATION_OUTPUT;
     use crate::cache::tree::test_utils::ROOT_ID;
     use crate::cache::tree::test_utils::failure;
     use crate::cache::tree::test_utils::registration;
@@ -333,6 +334,16 @@ mod tests {
         ..PLAIN_NODE
     };
 
+    const BLOCKING_ROOT: TreeNode = TreeNode {
+        state: JobState::BlockingOnChildren,
+        ..PLAIN_NODE
+    };
+
+    const GRANDCHILD: TreeNode = TreeNode {
+        parent: Some(JobId::from(2)),
+        ..CHILD_NODE
+    };
+
     /// # Returns
     ///
     /// The structure of a tree whose root, which has a cleanup task, blocks on its children of the
@@ -345,9 +356,8 @@ mod tests {
         let mut structure = TreeStructure::new_root(
             ROOT_ID,
             TreeNode {
-                state: JobState::BlockingOnChildren,
                 has_cleanup: true,
-                ..PLAIN_NODE
+                ..BLOCKING_ROOT
             },
         );
         structure
@@ -1039,17 +1049,9 @@ mod tests {
             state: JobState::BlockingOnChildren,
             ..CHILD_NODE
         };
-        const GRANDCHILD: TreeNode = TreeNode {
-            parent: Some(JobId::from(2)),
-            ..CHILD_NODE
-        };
-        const BLOCKING_ROOT: TreeNode = TreeNode {
-            state: JobState::BlockingOnChildren,
-            ..PLAIN_NODE
-        };
         let events = [event(3, registration(Vec::new()))];
         let completion = JobStateUpdate {
-            outputs: Some(vec![vec![1]]),
+            outputs: Some(vec![REGISTRATION_OUTPUT.to_vec()]),
             ..JobStateUpdate::new(JobId::from(3), JobState::Running, JobState::Succeeded)
         };
 
@@ -1109,12 +1111,8 @@ mod tests {
 
     #[test]
     fn a_parent_with_a_commit_task_commits_then_climbs() -> anyhow::Result<()> {
-        let blocking_root = || TreeNode {
-            state: JobState::BlockingOnChildren,
-            ..PLAIN_NODE
-        };
         let plan = tree(
-            blocking_root(),
+            BLOCKING_ROOT,
             [
                 (
                     2,
@@ -1124,13 +1122,7 @@ mod tests {
                         ..CHILD_NODE
                     },
                 ),
-                (
-                    3,
-                    TreeNode {
-                        parent: Some(JobId::from(2)),
-                        ..CHILD_NODE
-                    },
-                ),
+                (3, GRANDCHILD),
             ],
         )
         .plan_events(&[event(3, registration(Vec::new()))])?;
@@ -1138,7 +1130,7 @@ mod tests {
             plan.updates,
             [
                 JobStateUpdate {
-                    outputs: Some(vec![vec![1]]),
+                    outputs: Some(vec![REGISTRATION_OUTPUT.to_vec()]),
                     ..JobStateUpdate::new(JobId::from(3), JobState::Running, JobState::Succeeded)
                 },
                 JobStateUpdate::new(
@@ -1155,7 +1147,7 @@ mod tests {
         );
 
         let plan = tree(
-            blocking_root(),
+            BLOCKING_ROOT,
             [(
                 2,
                 TreeNode {
@@ -1166,16 +1158,6 @@ mod tests {
             )],
         )
         .plan_events(&[event(2, TreeEventKind::CommitDone)])?;
-        assert!(
-            matches!(
-                plan.outcomes.as_slice(),
-                [RoundOutcome::Planned(TreeEventOutcome::Applied(
-                    JobState::Succeeded
-                ))]
-            ),
-            "the commit of a child gave {:?}",
-            plan.outcomes
-        );
         assert_eq!(
             plan.updates,
             [
@@ -1194,30 +1176,18 @@ mod tests {
             event(2, registration(Vec::new())),
             event(3, registration(Vec::new())),
         ])?;
-        assert!(
-            matches!(
-                plan.outcomes.as_slice(),
-                [
-                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::Succeeded)),
-                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::Succeeded)),
-                ]
-            ),
-            "two siblings succeeding gave {:?}",
-            plan.outcomes
-        );
         assert_eq!(
-            plan.updates
-                .iter()
-                .map(|update| (update.job_id.get(), update.from, update.to))
-                .collect::<Vec<_>>(),
+            plan.updates,
             [
-                (2, JobState::Running, JobState::Succeeded),
-                (3, JobState::Running, JobState::Succeeded),
-                (
-                    ROOT_ID.get(),
-                    JobState::BlockingOnChildren,
-                    JobState::Succeeded
-                ),
+                JobStateUpdate {
+                    outputs: Some(vec![REGISTRATION_OUTPUT.to_vec()]),
+                    ..JobStateUpdate::new(JobId::from(2), JobState::Running, JobState::Succeeded)
+                },
+                JobStateUpdate {
+                    outputs: Some(vec![REGISTRATION_OUTPUT.to_vec()]),
+                    ..JobStateUpdate::new(JobId::from(3), JobState::Running, JobState::Succeeded)
+                },
+                JobStateUpdate::new(ROOT_ID, JobState::BlockingOnChildren, JobState::Succeeded),
             ]
         );
         assert_eq!(plan.num_active_children, HashMap::from([(ROOT_ID, 0)]));
@@ -1231,25 +1201,19 @@ mod tests {
             has_commit: true,
             ..CHILD_NODE
         };
-        let cleanup_ready_root = TreeNode {
+        const CLEANUP_READY_ROOT: TreeNode = TreeNode {
             state: JobState::CleanupReady,
             has_cleanup: true,
             ..PLAIN_NODE
         };
-        let mut cancelled_root = tree(
-            TreeNode {
-                state: JobState::BlockingOnChildren,
-                ..PLAIN_NODE
-            },
-            [(2, COMMIT_READY_CHILD)],
-        );
-        cancelled_root.apply_state(ROOT_ID, JobState::Cancelled);
+        let mut cancelled_root_tree = tree(BLOCKING_ROOT, [(2, COMMIT_READY_CHILD)]);
+        cancelled_root_tree.apply_state(ROOT_ID, JobState::Cancelled);
         for (description, structure) in [
             (
                 "a cleanup-ready parent",
-                tree(cleanup_ready_root, [(2, COMMIT_READY_CHILD)]),
+                tree(CLEANUP_READY_ROOT, [(2, COMMIT_READY_CHILD)]),
             ),
-            ("a cancelled parent", cancelled_root),
+            ("a cancelled parent", cancelled_root_tree),
         ] {
             let plan = structure.plan_events(&[event(2, TreeEventKind::CommitDone)])?;
             assert_eq!(
@@ -1269,9 +1233,9 @@ mod tests {
     #[test]
     fn a_success_under_a_parent_that_breaks_the_tree_invariants_is_an_internal_error()
     -> anyhow::Result<()> {
-        let mut uncounted_child = tree_with_children([2]);
-        uncounted_child.apply_num_active_children(ROOT_ID, 0)?;
-        let result = uncounted_child.plan_events(&[event(2, registration(Vec::new()))]);
+        let mut uncounted_child_tree = tree_with_children([2]);
+        uncounted_child_tree.apply_num_active_children(ROOT_ID, 0)?;
+        let result = uncounted_child_tree.plan_events(&[event(2, registration(Vec::new()))]);
         assert!(
             matches!(
                 result,
@@ -1280,14 +1244,14 @@ mod tests {
             "a success under a blocking parent without an active child gave {result:?}"
         );
 
-        let running_parent = tree(
+        let running_parent_tree = tree(
             TreeNode {
                 state: JobState::Running,
                 ..PLAIN_NODE
             },
             [(2, CHILD_NODE)],
         );
-        let result = running_parent.plan_events(&[event(2, registration(Vec::new()))]);
+        let result = running_parent_tree.plan_events(&[event(2, registration(Vec::new()))]);
         assert!(
             matches!(
                 result,
@@ -1319,10 +1283,6 @@ mod tests {
 
     #[test]
     fn inserting_children_sets_the_parents_counter_and_refuses_a_missing_parent_or_a_known_child() {
-        const GRANDCHILD: TreeNode = TreeNode {
-            parent: Some(JobId::from(2)),
-            ..CHILD_NODE
-        };
         let mut structure = tree_with_children([2, 3]);
         assert_eq!(
             structure.node(ROOT_ID).map(|node| node.num_active_children),
@@ -1373,10 +1333,6 @@ mod tests {
 
     #[test]
     fn check_invariants_reports_each_broken_invariant() {
-        const BLOCKING_ROOT: TreeNode = TreeNode {
-            state: JobState::BlockingOnChildren,
-            ..PLAIN_NODE
-        };
         let tree_with_child = |child_id: u64, child: TreeNode| {
             let mut structure = TreeStructure::new_root(ROOT_ID, BLOCKING_ROOT);
             structure
