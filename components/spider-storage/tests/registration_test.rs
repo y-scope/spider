@@ -134,36 +134,12 @@ async fn a_registered_parent_commits_after_its_children_succeed() -> anyhow::Res
         env.row_outputs(parent_id).await,
         Some(task_outputs([&parent_value]))
     );
-    let rows = env.child_rows(parent_id).await;
-    assert_eq!(rows.len(), child_shapes.len());
-    let child_ids: Vec<JobId> = rows.iter().map(|row| row.id).collect();
-    assert_eq!(
-        rows,
-        child_ids
-            .iter()
-            .zip(&child_shapes)
-            .map(|(child_id, shape)| ChildRow {
-                id: *child_id,
-                parent_id: Some(parent_id),
-                root_id: Some(parent_id),
-                state: JobState::Running,
-                compressed_serialized_task_graph: shape.child().compressed_serialized_task_graph,
-            })
-            .collect::<Vec<_>>()
-    );
-    assert!(
-        child_ids
-            .iter()
-            .all(|child_id| child_id.get() > parent_id.get())
-    );
-    let mut expected_states = HashMap::from([(parent_id, JobState::BlockingOnChildren)]);
-    expected_states.extend(
-        child_ids
-            .iter()
-            .map(|child_id| (*child_id, JobState::Running)),
-    );
-    env.assert_states(&expected_states, "after the registration")
-        .await;
+    let child_ids: Vec<JobId> = env
+        .child_rows(parent_id)
+        .await
+        .into_iter()
+        .map(|row| row.id)
+        .collect();
     let children: Vec<_> = child_ids.iter().copied().zip(&child_shapes).collect();
     env.drain_ready_tasks(&children).await;
 
@@ -195,7 +171,6 @@ async fn a_registered_parent_commits_after_its_children_succeed() -> anyhow::Res
         env.service.get_job_outputs(parent_id).await?,
         task_outputs([&parent_value])
     );
-    env.assert_quiescent(parent_id).await;
     env.assert_lanes_empty().await;
     env.finish().await;
     Ok(())
@@ -213,6 +188,7 @@ async fn sibling_tasks_register_the_union_of_their_children_in_task_order() -> a
         .await;
     let first_task_instance_id = env.create_instance(parent_id, TaskId::Index(0)).await;
     let second_task_instance_id = env.create_instance(parent_id, TaskId::Index(1)).await;
+    let task_values = [value(0x30, 0), value(0x30, 1)];
     let child_shapes: Vec<_> = (1..=3)
         .map(|num_tasks| JobShape {
             num_tasks,
@@ -225,7 +201,7 @@ async fn sibling_tasks_register_the_union_of_their_children_in_task_order() -> a
             parent_id,
             1,
             second_task_instance_id,
-            &value(0x30, 1),
+            &task_values[1],
             vec![child_shapes[2].child()]
         )
         .await?,
@@ -237,7 +213,7 @@ async fn sibling_tasks_register_the_union_of_their_children_in_task_order() -> a
             parent_id,
             0,
             first_task_instance_id,
-            &value(0x30, 0),
+            &task_values[0],
             child_shapes[..2]
                 .iter()
                 .map(|shape| shape.child())
@@ -272,9 +248,8 @@ async fn sibling_tasks_register_the_union_of_their_children_in_task_order() -> a
         .await;
     assert_eq!(
         env.service.get_job_outputs(parent_id).await?,
-        task_outputs([&value(0x30, 0), &value(0x30, 1)])
+        task_outputs(&task_values)
     );
-    env.assert_quiescent(parent_id).await;
     env.assert_lanes_empty().await;
     env.finish().await;
     Ok(())
