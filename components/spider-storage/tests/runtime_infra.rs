@@ -1586,7 +1586,7 @@ pub fn assert_stale<ValueType: std::fmt::Debug>(
         matches!(
             result,
             Err(StorageServerError::Cache(CacheError::StaleState(error)))
-                if format!("{error:?}") == format!("{expected:?}")
+                if error == expected
         ),
         "{what}: expected the stale error {expected:?}, got {result:?}"
     );

@@ -148,7 +148,7 @@ pub enum InternalError {
 /// updates), or by requests made too early (e.g., reading the outputs of a job that has not
 /// succeeded). They are expected during normal operation and should be propagated to the caller for
 /// notification.
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, PartialEq, Eq)]
 pub enum StaleStateError {
     #[error("the number of living task instances has reached the upper limit")]
     TaskInstanceLimitExceeded,
