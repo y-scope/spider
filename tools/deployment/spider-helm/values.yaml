@@ -19,6 +19,15 @@ image:
     repository: "ghcr.io/y-scope/spider/worker"
     tag: "main"
 
+# Container resource requests and limits (`resources` in a Kubernetes container spec) for each
+# component. Empty means none are set.
+resources:
+  database: {}
+  scheduler: {}
+  storage: {}
+  # Default for every worker pool's execution manager; a pool's own `resources` replaces it.
+  worker: {}
+
 spiderConfig:
   # List of third-party services bundled (deployed) as part of the chart.
   # Remove a service from this list to use an external instance instead, and configure its host/port
@@ -96,4 +105,8 @@ spiderConfig:
       - name: "general"
         replicas: 4
         resource_group: null
+        # Container resources for this pool's execution manager; overrides `resources.worker`.
+        # resources:
+        #   requests: {cpu: "1", memory: "2Gi"}
+        #   limits: {memory: "2Gi"}
     service_account_name: ""

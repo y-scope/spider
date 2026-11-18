@@ -50,6 +50,10 @@ spec:
             - name: "init-scripts"
               mountPath: "/docker-entrypoint-initdb.d"
               readOnly: true
+          {{- with .Values.resources.database }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           readinessProbe:
             {{- include "spider.readinessProbeTimings" . | nindent 12 }}
             exec: &health-check

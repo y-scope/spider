@@ -47,6 +47,10 @@ spec:
             {{- with $.Values.spiderConfig.worker.extra_envs }}
             {{- tpl (ternary . (toYaml .) (typeIs "string" .)) $ | nindent 12 }}
             {{- end }}
+          {{- with .resources | default $.Values.resources.worker }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: "config"
               mountPath: "/etc/spider/execution-manager.yaml"
