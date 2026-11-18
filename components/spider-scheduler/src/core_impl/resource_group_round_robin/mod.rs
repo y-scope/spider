@@ -64,25 +64,6 @@ pub struct ResourceGroupRoundRobinConfig {
     pub finalizing_job_expiration_timeout_sec: u64,
 }
 
-impl Default for ResourceGroupRoundRobinConfig {
-    fn default() -> Self {
-        Self {
-            active_job_list_capacity: NonZeroUsize::new(16)
-                .expect("default value must be positive"),
-            dispatch_queue_capacity: NonZeroUsize::new(32).expect("default value must be positive"),
-            ready_task_capacity: NonZeroUsize::new(1_048_576)
-                .expect("default value must be positive"),
-            commit_ready_task_capacity: NonZeroUsize::new(256)
-                .expect("default value must be positive"),
-            cleanup_ready_task_capacity: NonZeroUsize::new(256)
-                .expect("default value must be positive"),
-            storage_poll_timeout_ms: 10,
-            tick_interval_ms: NonZeroU64::new(5).expect("default value must be positive"),
-            finalizing_job_expiration_timeout_sec: 300,
-        }
-    }
-}
-
 impl ResourceGroupRoundRobinConfig {
     /// Creates a ready-to-run scheduler core from the configuration.
     ///
@@ -103,6 +84,25 @@ impl ResourceGroupRoundRobinConfig {
             config: self,
             dispatch_queue_registry: DispatchQueueRegistry::new(session_tracker),
             _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl Default for ResourceGroupRoundRobinConfig {
+    fn default() -> Self {
+        Self {
+            active_job_list_capacity: NonZeroUsize::new(16)
+                .expect("default value must be positive"),
+            dispatch_queue_capacity: NonZeroUsize::new(32).expect("default value must be positive"),
+            ready_task_capacity: NonZeroUsize::new(1_048_576)
+                .expect("default value must be positive"),
+            commit_ready_task_capacity: NonZeroUsize::new(256)
+                .expect("default value must be positive"),
+            cleanup_ready_task_capacity: NonZeroUsize::new(256)
+                .expect("default value must be positive"),
+            storage_poll_timeout_ms: 10,
+            tick_interval_ms: NonZeroU64::new(5).expect("default value must be positive"),
+            finalizing_job_expiration_timeout_sec: 300,
         }
     }
 }

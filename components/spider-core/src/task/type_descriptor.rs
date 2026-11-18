@@ -57,77 +57,6 @@ pub enum ValueTypeDescriptor {
     },
 }
 
-/// Type descriptor for all supported data types.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DataTypeDescriptor {
-    Value(ValueTypeDescriptor),
-    SharedValue(ValueTypeDescriptor),
-}
-
-impl DataTypeDescriptor {
-    /// Serializes to JSON format.
-    ///
-    /// # Returns
-    ///
-    /// The serialized JSON string representation of the type descriptor on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`serde_json::to_string`]'s return values on failure.
-    pub fn to_json(&self) -> Result<String, Error> {
-        serde_json::to_string(self).map_err(Into::into)
-    }
-
-    /// Deserializes from a JSON string.
-    ///
-    /// # Returns
-    ///
-    /// The deserialized type descriptor on success.
-    ///
-    /// # Errors
-    ///
-    /// * Forwards [`serde_json::from_str`]'s return values on failure.
-    pub fn from_json(json: &str) -> Result<Self, Error> {
-        serde_json::from_str(json).map_err(Into::into)
-    }
-
-    /// Serializes to `MessagePack`.
-    ///
-    /// # Returns
-    ///
-    /// The serialized type descriptor in `MessagePack` in binary format on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`rmp_serde::to_vec`]'s return values on failure.
-    /// * Forwards [`rmp_serde::to_vec_named`]'s return values on failure.
-    pub fn to_msgpack(&self, with_named_fields: bool) -> Result<Vec<u8>, Error> {
-        if with_named_fields {
-            return rmp_serde::to_vec_named(self).map_err(Into::into);
-        }
-        rmp_serde::to_vec(self).map_err(Into::into)
-    }
-
-    /// Deserializes from `MessagePack`.
-    ///
-    /// # Returns
-    ///
-    /// The deserialized type descriptor on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
-    pub fn from_msgpack(bytes: &[u8]) -> Result<Self, Error> {
-        rmp_serde::from_slice(bytes).map_err(Into::into)
-    }
-}
-
 impl ValueTypeDescriptor {
     #[must_use]
     pub const fn int8() -> Self {
@@ -197,6 +126,77 @@ impl ValueTypeDescriptor {
             key,
             value: Box::new(value),
         }
+    }
+}
+
+/// Type descriptor for all supported data types.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DataTypeDescriptor {
+    Value(ValueTypeDescriptor),
+    SharedValue(ValueTypeDescriptor),
+}
+
+impl DataTypeDescriptor {
+    /// Serializes to JSON format.
+    ///
+    /// # Returns
+    ///
+    /// The serialized JSON string representation of the type descriptor on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`serde_json::to_string`]'s return values on failure.
+    pub fn to_json(&self) -> Result<String, Error> {
+        serde_json::to_string(self).map_err(Into::into)
+    }
+
+    /// Deserializes from a JSON string.
+    ///
+    /// # Returns
+    ///
+    /// The deserialized type descriptor on success.
+    ///
+    /// # Errors
+    ///
+    /// * Forwards [`serde_json::from_str`]'s return values on failure.
+    pub fn from_json(json: &str) -> Result<Self, Error> {
+        serde_json::from_str(json).map_err(Into::into)
+    }
+
+    /// Serializes to `MessagePack`.
+    ///
+    /// # Returns
+    ///
+    /// The serialized type descriptor in `MessagePack` in binary format on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`rmp_serde::to_vec`]'s return values on failure.
+    /// * Forwards [`rmp_serde::to_vec_named`]'s return values on failure.
+    pub fn to_msgpack(&self, with_named_fields: bool) -> Result<Vec<u8>, Error> {
+        if with_named_fields {
+            return rmp_serde::to_vec_named(self).map_err(Into::into);
+        }
+        rmp_serde::to_vec(self).map_err(Into::into)
+    }
+
+    /// Deserializes from `MessagePack`.
+    ///
+    /// # Returns
+    ///
+    /// The deserialized type descriptor on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
+    pub fn from_msgpack(bytes: &[u8]) -> Result<Self, Error> {
+        rmp_serde::from_slice(bytes).map_err(Into::into)
     }
 }
 

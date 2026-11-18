@@ -61,14 +61,6 @@ mod task_decl {
         Ok(fib(index))
     }
 
-    fn fib(index: u64) -> u64 {
-        if index < 2 {
-            index
-        } else {
-            fib(index - 1) + fib(index - 2)
-        }
-    }
-
     /// Produces a string containing `size` copies of `x`.
     ///
     /// # Returns
@@ -150,6 +142,14 @@ mod task_decl {
 
     /// Set by [`package_init`] so [`assert_initialized`] can confirm the init hook ran on load.
     static INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+    fn fib(index: u64) -> u64 {
+        if index < 2 {
+            index
+        } else {
+            fib(index - 1) + fib(index - 2)
+        }
+    }
 }
 
 spider_tdl::register_tdl_package! {

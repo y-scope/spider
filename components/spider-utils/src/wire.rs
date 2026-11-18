@@ -72,51 +72,6 @@ impl ser::Error for WireError {
     }
 }
 
-/// Serializes a tuple by decomposing it into individual elements, encoding each element as
-/// msgpack, and framing them in the wire format.
-///
-/// This drives serde's `Serialize` impl for the tuple: serde calls `serialize_tuple(len)`
-/// followed by `serialize_element` for each element. A custom [`TupleOutputSerializer`]
-/// intercepts these calls and frames each element into the wire buffer.
-///
-/// # Type Parameters
-///
-/// * `TupleType` - The tuple type to serialize. Must implement [`serde::Serialize`].
-///
-/// # Returns
-///
-/// The wire-format byte stream on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`WireFrameBuilder::append_serialize`]'s return values on failure.
-/// * Forwards [`TupleOutputSerializer`]'s return values on failure to reject non-tuple type inputs
-///   at runtime.
-pub fn serialize_tuple<TupleType: serde::Serialize>(
-    value: &TupleType,
-) -> Result<Vec<u8>, WireError> {
-    value.serialize(TupleOutputSerializer {
-        builder: WireFrameBuilder::new(),
-    })
-}
-
-/// Parses a wire-format byte stream and extracts each payload as an owned `Vec<u8>`.
-///
-/// # Returns
-///
-/// The unframed wire-format buffer with each element extracted as raw bytes.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`WireFrameBuilder::unframe_payloads`]'s return values on failure.
-pub fn unframe(buf: &[u8]) -> Result<Vec<Vec<u8>>, WireError> {
-    WireFrameBuilder::unframe_payloads(buf)
-}
-
 /// Generates `serialize_*` methods on a `serde::Serializer` impl that all return the same error
 /// forwarded from [`unsupported_type_error`]. Covers the two method shapes in the trait:
 ///
@@ -139,12 +94,6 @@ macro_rules! reject_non_tuple {
         )*
     };
 }
-
-/// Length of the wire header recording the payload count, in bytes.
-const COUNT_HEADER_LEN: usize = 4;
-
-/// Length of the per-payload length prefix, in bytes.
-const FIELD_LEN_PREFIX_LEN: usize = 4;
 
 /// Streaming wire-format builder that frames a sequence of byte payloads.
 ///
@@ -499,6 +448,57 @@ impl<'de> serde::Deserializer<'de> for &mut StreamDeserializer<'de> {
         ))
     }
 }
+
+/// Serializes a tuple by decomposing it into individual elements, encoding each element as
+/// msgpack, and framing them in the wire format.
+///
+/// This drives serde's `Serialize` impl for the tuple: serde calls `serialize_tuple(len)`
+/// followed by `serialize_element` for each element. A custom [`TupleOutputSerializer`]
+/// intercepts these calls and frames each element into the wire buffer.
+///
+/// # Type Parameters
+///
+/// * `TupleType` - The tuple type to serialize. Must implement [`serde::Serialize`].
+///
+/// # Returns
+///
+/// The wire-format byte stream on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`WireFrameBuilder::append_serialize`]'s return values on failure.
+/// * Forwards [`TupleOutputSerializer`]'s return values on failure to reject non-tuple type inputs
+///   at runtime.
+pub fn serialize_tuple<TupleType: serde::Serialize>(
+    value: &TupleType,
+) -> Result<Vec<u8>, WireError> {
+    value.serialize(TupleOutputSerializer {
+        builder: WireFrameBuilder::new(),
+    })
+}
+
+/// Parses a wire-format byte stream and extracts each payload as an owned `Vec<u8>`.
+///
+/// # Returns
+///
+/// The unframed wire-format buffer with each element extracted as raw bytes.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`WireFrameBuilder::unframe_payloads`]'s return values on failure.
+pub fn unframe(buf: &[u8]) -> Result<Vec<Vec<u8>>, WireError> {
+    WireFrameBuilder::unframe_payloads(buf)
+}
+
+/// Length of the wire header recording the payload count, in bytes.
+const COUNT_HEADER_LEN: usize = 4;
+
+/// Length of the per-payload length prefix, in bytes.
+const FIELD_LEN_PREFIX_LEN: usize = 4;
 
 /// Per-field adapter that hands the next payload of a wire frame to a serde visitor.
 ///

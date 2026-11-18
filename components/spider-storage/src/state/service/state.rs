@@ -172,41 +172,6 @@ impl<
         self.inner.session_id
     }
 
-    /// # Returns
-    ///
-    /// The tracker of the service's spawned handler bodies.
-    #[must_use]
-    pub(crate) fn task_tracker(&self) -> &TaskTracker {
-        &self.inner.task_tracker
-    }
-
-    /// Inserts `root`, the root job of a new one-job tree, into the cache, and spawns into the
-    /// service's task tracker the tree's committer, which receives the tree's events from
-    /// `receivers`.
-    ///
-    /// The caller must run in a task of the service's task tracker, or before the service serves
-    /// requests, so that [`crate::state::Runtime::stop`] cannot miss the committer.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`JobCache::insert`]'s return values on failure.
-    pub(crate) async fn insert_tree(
-        &self,
-        root: SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
-        receivers: EventReceivers,
-    ) -> Result<(), StorageServerError> {
-        self.inner.job_cache.insert(root.clone()).await?;
-        spawn_committer(
-            &self.inner.task_tracker,
-            Arc::clone(&self.inner.committer_env),
-            root,
-            receivers,
-        );
-        Ok(())
-    }
-
     /// Registers a job in the database, inserts its control block into the cache and spawns its
     /// tree's committer.
     ///
@@ -984,6 +949,104 @@ impl<
             .map_err(StorageServerError::from)
     }
 
+    /// # Returns
+    ///
+    /// The tracker of the service's spawned handler bodies.
+    #[must_use]
+    pub(crate) fn task_tracker(&self) -> &TaskTracker {
+        &self.inner.task_tracker
+    }
+
+    /// Inserts `root`, the root job of a new one-job tree, into the cache, and spawns into the
+    /// service's task tracker the tree's committer, which receives the tree's events from
+    /// `receivers`.
+    ///
+    /// The caller must run in a task of the service's task tracker, or before the service serves
+    /// requests, so that [`crate::state::Runtime::stop`] cannot miss the committer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobCache::insert`]'s return values on failure.
+    pub(crate) async fn insert_tree(
+        &self,
+        root: SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
+        receivers: EventReceivers,
+    ) -> Result<(), StorageServerError> {
+        self.inner.job_cache.insert(root.clone()).await?;
+        spawn_committer(
+            &self.inner.task_tracker,
+            Arc::clone(&self.inner.committer_env),
+            root,
+            receivers,
+        );
+        Ok(())
+    }
+
+    /// Runs a handler body as a task in the service's task tracker, so that dropping the caller's
+    /// future does not cut the body short, and waits for its result, raced against the service's
+    /// shutdown.
+    ///
+    /// If the caller stops waiting for the result, a panic of the body still shuts the service down
+    /// fatally, and so does a fatal error (see [`StorageServerError::is_fatal`]) unless the service
+    /// is already shutting down gracefully.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `ReturnType` - The type of the value that the body returns on success.
+    ///
+    /// # Returns
+    ///
+    /// The body's result on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageServerError::Stopping`] if:
+    ///   * The service is already shutting down when called, in which case the body is not run.
+    ///   * The service is shutting down before the body finishes.
+    ///   * The body fails while the service is shutting down without a fatal error.
+    /// * [`InternalError::HandlerBodyFailed`] if the body panicked.
+    /// * Forwards `body`'s return values on failure.
+    pub(super) async fn spawn_body<ReturnType: Send + 'static>(
+        &self,
+        body: impl Future<Output = Result<ReturnType, StorageServerError>> + Send + 'static,
+    ) -> Result<ReturnType, StorageServerError> {
+        let shutdown_handle = &self.inner.shutdown_handle;
+        // Keeps the tracker non-empty between the shutdown check and the spawn, so that
+        // `Runtime::stop`'s `wait()` cannot return in that gap and miss the body.
+        let task_tracker_token = self.inner.task_tracker.token();
+        if shutdown_handle.is_cancelled() {
+            return Err(Self::stopping_error());
+        }
+        let join_handle = self.inner.task_tracker.spawn(body);
+        drop(task_tracker_token);
+        let mut handler_body_join_guard = HandlerBodyJoinGuard {
+            join_handle: Some(join_handle),
+            task_tracker: self.inner.task_tracker.clone(),
+            shutdown_handle: shutdown_handle.clone(),
+        };
+        tokio::select! {
+            biased;
+            result = &mut handler_body_join_guard => match result {
+                Ok(Err(e)) if shutdown_handle.is_cancelled() && !shutdown_handle.is_fatal() => {
+                    tracing::warn!(
+                        error = % e,
+                        "Handler body failed while the service is shutting down."
+                    );
+                    Err(Self::stopping_error())
+                }
+                Ok(result) => result,
+                Err(e) => Err(
+                    CacheError::Internal(InternalError::HandlerBodyFailed(e.to_string())).into()
+                ),
+            },
+            () = shutdown_handle.cancelled() => Err(Self::stopping_error()),
+        }
+    }
+
     /// Reads a job that is not in the cache from the database, and rejects it if it is not a root.
     ///
     /// # Returns
@@ -1148,69 +1211,6 @@ impl<
             "Task instance failed for its rejected success report.",
         );
         Ok(state)
-    }
-
-    /// Runs a handler body as a task in the service's task tracker, so that dropping the caller's
-    /// future does not cut the body short, and waits for its result, raced against the service's
-    /// shutdown.
-    ///
-    /// If the caller stops waiting for the result, a panic of the body still shuts the service down
-    /// fatally, and so does a fatal error (see [`StorageServerError::is_fatal`]) unless the service
-    /// is already shutting down gracefully.
-    ///
-    /// # Type Parameters
-    ///
-    /// * `ReturnType` - The type of the value that the body returns on success.
-    ///
-    /// # Returns
-    ///
-    /// The body's result on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`StorageServerError::Stopping`] if:
-    ///   * The service is already shutting down when called, in which case the body is not run.
-    ///   * The service is shutting down before the body finishes.
-    ///   * The body fails while the service is shutting down without a fatal error.
-    /// * [`InternalError::HandlerBodyFailed`] if the body panicked.
-    /// * Forwards `body`'s return values on failure.
-    pub(super) async fn spawn_body<ReturnType: Send + 'static>(
-        &self,
-        body: impl Future<Output = Result<ReturnType, StorageServerError>> + Send + 'static,
-    ) -> Result<ReturnType, StorageServerError> {
-        let shutdown_handle = &self.inner.shutdown_handle;
-        // Keeps the tracker non-empty between the shutdown check and the spawn, so that
-        // `Runtime::stop`'s `wait()` cannot return in that gap and miss the body.
-        let task_tracker_token = self.inner.task_tracker.token();
-        if shutdown_handle.is_cancelled() {
-            return Err(Self::stopping_error());
-        }
-        let join_handle = self.inner.task_tracker.spawn(body);
-        drop(task_tracker_token);
-        let mut handler_body_join_guard = HandlerBodyJoinGuard {
-            join_handle: Some(join_handle),
-            task_tracker: self.inner.task_tracker.clone(),
-            shutdown_handle: shutdown_handle.clone(),
-        };
-        tokio::select! {
-            biased;
-            result = &mut handler_body_join_guard => match result {
-                Ok(Err(e)) if shutdown_handle.is_cancelled() && !shutdown_handle.is_fatal() => {
-                    tracing::warn!(
-                        error = % e,
-                        "Handler body failed while the service is shutting down."
-                    );
-                    Err(Self::stopping_error())
-                }
-                Ok(result) => result,
-                Err(e) => Err(
-                    CacheError::Internal(InternalError::HandlerBodyFailed(e.to_string())).into()
-                ),
-            },
-            () = shutdown_handle.cancelled() => Err(Self::stopping_error()),
-        }
     }
 
     /// # Returns

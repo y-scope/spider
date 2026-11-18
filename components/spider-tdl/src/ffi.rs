@@ -27,26 +27,6 @@ pub struct CArray<'borrow_lifetime, ElementType> {
     _lifetime: PhantomData<&'borrow_lifetime [ElementType]>,
 }
 
-// Manual `Copy`/`Clone` impls avoid the auto-derived `ElementType: Copy` / `ElementType: Clone`
-// bounds: a borrowed pointer/length pair is always trivially copyable regardless of the element
-// type.
-impl<ElementType> Copy for CArray<'_, ElementType> {}
-
-impl<ElementType> Clone for CArray<'_, ElementType> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<ElementType> fmt::Debug for CArray<'_, ElementType> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CArray")
-            .field("pointer", &self.pointer)
-            .field("length", &self.length)
-            .finish()
-    }
-}
-
 impl<'borrow_lifetime, ElementType> CArray<'borrow_lifetime, ElementType> {
     /// Borrows `slice` as a C-ABI array view.
     ///
@@ -81,6 +61,26 @@ impl<'borrow_lifetime, ElementType> CArray<'borrow_lifetime, ElementType> {
     #[must_use]
     pub const fn as_slice(&self) -> &'borrow_lifetime [ElementType] {
         unsafe { std::slice::from_raw_parts(self.pointer, self.length) }
+    }
+}
+
+// Manual `Copy`/`Clone` impls avoid the auto-derived `ElementType: Copy` / `ElementType: Clone`
+// bounds: a borrowed pointer/length pair is always trivially copyable regardless of the element
+// type.
+impl<ElementType> Copy for CArray<'_, ElementType> {}
+
+impl<ElementType> Clone for CArray<'_, ElementType> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<ElementType> fmt::Debug for CArray<'_, ElementType> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CArray")
+            .field("pointer", &self.pointer)
+            .field("length", &self.length)
+            .finish()
     }
 }
 

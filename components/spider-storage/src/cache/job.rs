@@ -346,39 +346,6 @@ impl<
         *reserved_children_usage = *reserved_children_usage - children_usage;
     }
 
-    /// # Returns
-    ///
-    /// The job as a node of its tree, without an active child: its state, its parent and whether it
-    /// has a commit task and a cleanup task.
-    pub(crate) async fn tree_node(&self) -> TreeNode {
-        let job = self.inner.job_execution_state.read().await;
-        let node = TreeNode {
-            state: job.state,
-            parent: self.inner.parent_id,
-            has_commit: job.task_graph.has_commit_task(),
-            has_cleanup: job.task_graph.has_cleanup_task(),
-            active_children: 0,
-        };
-        drop(job);
-        node
-    }
-
-    /// # Returns
-    ///
-    /// The indices of the job's ready tasks on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
-    pub(crate) async fn get_ready_task_indices(&self) -> Result<Vec<TaskIndex>, CacheError> {
-        let job = self.inner.job_execution_state.read_running().await?;
-        let ready_task_indices = job.task_graph.get_all_ready_task_indices().await;
-        drop(job);
-        Ok(ready_task_indices)
-    }
-
     /// Gets the outputs of the job from the in-memory task graph.
     ///
     /// # Returns
@@ -798,6 +765,39 @@ impl<
     pub async fn cancel(&self) -> Result<JobState, CacheError> {
         self.submit_event_and_wait_for_reply(TreeEventKind::CancelRoot, None)
             .await
+    }
+
+    /// # Returns
+    ///
+    /// The job as a node of its tree, without an active child: its state, its parent and whether it
+    /// has a commit task and a cleanup task.
+    pub(crate) async fn tree_node(&self) -> TreeNode {
+        let job = self.inner.job_execution_state.read().await;
+        let node = TreeNode {
+            state: job.state,
+            parent: self.inner.parent_id,
+            has_commit: job.task_graph.has_commit_task(),
+            has_cleanup: job.task_graph.has_cleanup_task(),
+            active_children: 0,
+        };
+        drop(job);
+        node
+    }
+
+    /// # Returns
+    ///
+    /// The indices of the job's ready tasks on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
+    pub(crate) async fn get_ready_task_indices(&self) -> Result<Vec<TaskIndex>, CacheError> {
+        let job = self.inner.job_execution_state.read_running().await?;
+        let ready_task_indices = job.task_graph.get_all_ready_task_indices().await;
+        drop(job);
+        Ok(ready_task_indices)
     }
 
     /// Applies a transition that the tree's committer has written to the database to the cached
