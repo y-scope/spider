@@ -28,6 +28,7 @@ use spider_task_executor::protocol::ExecutorOutcome;
 use spider_task_executor::protocol::MAX_FRAME_SIZE;
 use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
+use spider_tdl::ExecutionSuccessOutcome;
 use tokio::io::stdin;
 use tokio::io::stdout;
 use tokio_util::codec::FramedRead;
@@ -74,7 +75,7 @@ fn run_task(
     task_func: &str,
     raw_ctx: &[u8],
     raw_inputs: &[u8],
-) -> Result<Vec<u8>, ExecutorError> {
+) -> Result<ExecutionSuccessOutcome, ExecutorError> {
     let pkg = if let Some(pkg) = manager.get(package) {
         pkg
     } else {
@@ -124,10 +125,9 @@ async fn main() -> Result<()> {
                     &raw_ctx,
                     &raw_inputs,
                 ) {
-                    Ok(outputs) => ExecutorOutcome::Success {
-                        outputs,
-                        children: Vec::new(),
-                    },
+                    Ok(ExecutionSuccessOutcome { outputs, children }) => {
+                        ExecutorOutcome::Success { outputs, children }
+                    }
                     Err(e) => ExecutorOutcome::Failure {
                         error: rmp_serde::to_vec(&e).inspect_err(
                             |e| tracing::error!(err = ? e, "Failed to serialize execution result."),

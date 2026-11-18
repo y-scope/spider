@@ -48,6 +48,10 @@ pub enum ExecutorError {
     /// a [`TdlError`].
     #[error("failed to deserialize error payload: {0}")]
     ErrorPayloadDeserializationFailure(String),
+
+    /// The wire-format successful task result could not be decoded.
+    #[error("failed to deserialize success payload: {0}")]
+    SuccessPayloadDeserializationFailure(String),
 }
 
 impl From<libloading::Error> for ExecutorError {

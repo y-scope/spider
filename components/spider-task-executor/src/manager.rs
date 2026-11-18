@@ -8,6 +8,7 @@ use std::path::Path;
 
 use libloading::Library;
 use libloading::Symbol;
+use spider_tdl::ExecutionSuccessOutcome;
 use spider_tdl::TdlError;
 use spider_tdl::Version;
 use spider_tdl::ffi::CByteArray;
@@ -148,7 +149,7 @@ impl TdlPackage {
         self.version
     }
 
-    /// Dispatches a task by name and returns the wire-format-encoded output buffer.
+    /// Dispatches a task by name and returns its outputs and child submissions.
     ///
     /// `raw_ctx` is a msgpack-encoded
     /// [`TaskContext`](spider_tdl::TaskContext); `raw_inputs` is a wire-format-encoded
@@ -156,7 +157,7 @@ impl TdlPackage {
     ///
     /// # Returns
     ///
-    /// The wire-format-encoded outputs on success.
+    /// The task outputs and collected child submissions on success.
     ///
     /// # Errors
     ///
@@ -164,13 +165,15 @@ impl TdlPackage {
     ///
     /// * [`ExecutorError::TaskError`] if the user task returned a [`TdlError`] (including
     ///   `TaskNotFound` when `task_name` is unknown to the package).
+    /// * [`ExecutorError::SuccessPayloadDeserializationFailure`] if the successful task result
+    ///   could not be decoded.
     /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
     pub fn execute_task(
         &self,
         task_name: &str,
         raw_ctx: &[u8],
         raw_inputs: &[u8],
-    ) -> Result<Vec<u8>, ExecutorError> {
+    ) -> Result<ExecutionSuccessOutcome, ExecutorError> {
         let name_view = CCharArray::from_utf8(task_name);
         let ctx_view = CByteArray::from_slice(raw_ctx);
         let inputs_view = CByteArray::from_slice(raw_inputs);
@@ -181,7 +184,11 @@ impl TdlPackage {
         let result = unsafe { (self.execute)(name_view, ctx_view, inputs_view) };
 
         match result.into_result() {
-            Ok(output_bytes) => Ok(output_bytes),
+            Ok(success_bytes) => {
+                ExecutionSuccessOutcome::from_wire(&success_bytes).map_err(|error| {
+                    ExecutorError::SuccessPayloadDeserializationFailure(error.to_string())
+                })
+            }
             Err(error_bytes) => {
                 let err: TdlError = rmp_serde::from_slice(&error_bytes)?;
                 Err(ExecutorError::TaskError(err))
