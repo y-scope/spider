@@ -33,9 +33,8 @@ spec:
               mountPath: "/etc/spider/scheduler.yaml"
               subPath: "scheduler.yaml"
               readOnly: true
-          {{- with .Values.resources.scheduler }}
-          resources:
-            {{- toYaml . | nindent 12 }}
+          {{- if .Values.resources.scheduler }}
+          resources: {{- toYaml .Values.resources.scheduler | nindent 12 }}
           {{- end }}
           readinessProbe:
             {{- include "spider.readinessProbeTimings" . | nindent 12 }}
