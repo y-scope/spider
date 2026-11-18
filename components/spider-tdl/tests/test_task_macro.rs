@@ -141,22 +141,7 @@ fn decode_outputs<Val: for<'de> Deserialize<'de>>(
     )?)
 }
 
-/// Decodes the successful task result and its wire-format outputs.
-///
-/// # Returns
-///
-/// The output payloads on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`ExecutionSuccessOutcome::from_wire`]'s return values on failure.
-/// * Forwards [`TaskOutputsSerializer::deserialize`]'s return values on failure.
-///
-/// # Panics
-///
-/// Panics if the outcome contains child submissions.
+/// Decodes output payloads from a successful result with no child submissions.
 fn decode_output_payloads(bytes: &[u8]) -> anyhow::Result<Vec<Vec<u8>>> {
     let outcome = ExecutionSuccessOutcome::from_wire(bytes)?;
     assert_eq!(outcome.children, []);
