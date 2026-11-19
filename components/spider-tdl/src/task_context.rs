@@ -29,10 +29,10 @@ use crate::error::TdlError;
 /// submissions are omitted from serialized metadata.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TaskContext {
-    pub job_id: JobId,
-    pub task_id: TaskId,
-    pub task_instance_id: TaskInstanceId,
-    pub resource_group_id: ResourceGroupId,
+    job_id: JobId,
+    task_id: TaskId,
+    task_instance_id: TaskInstanceId,
+    resource_group_id: ResourceGroupId,
     serialized_task_graph_outputs: Option<Vec<u8>>,
     #[serde(skip)]
     child_jobs: ChildJobSubmissions,
@@ -84,6 +84,26 @@ impl TaskContext {
             serialized_task_graph_outputs,
             child_jobs: ChildJobSubmissions::default(),
         })
+    }
+
+    #[must_use]
+    pub const fn job_id(&self) -> JobId {
+        self.job_id
+    }
+
+    #[must_use]
+    pub const fn task_id(&self) -> TaskId {
+        self.task_id
+    }
+
+    #[must_use]
+    pub const fn task_instance_id(&self) -> TaskInstanceId {
+        self.task_instance_id
+    }
+
+    #[must_use]
+    pub const fn resource_group_id(&self) -> ResourceGroupId {
+        self.resource_group_id
     }
 
     /// Collects a child job for submission when this task succeeds.
@@ -323,10 +343,10 @@ mod tests {
         )?;
         let encoded = rmp_serde::to_vec(&ctx)?;
         let decoded: TaskContext = rmp_serde::from_slice(&encoded)?;
-        assert_eq!(decoded.job_id, ctx.job_id);
-        assert_eq!(decoded.task_id, ctx.task_id);
-        assert_eq!(decoded.task_instance_id, ctx.task_instance_id);
-        assert_eq!(decoded.resource_group_id, ctx.resource_group_id);
+        assert_eq!(decoded.job_id(), ctx.job_id());
+        assert_eq!(decoded.task_id(), ctx.task_id());
+        assert_eq!(decoded.task_instance_id(), ctx.task_instance_id());
+        assert_eq!(decoded.resource_group_id(), ctx.resource_group_id());
         Ok(())
     }
 
