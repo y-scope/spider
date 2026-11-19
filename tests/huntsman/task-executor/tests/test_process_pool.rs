@@ -113,8 +113,16 @@ fn make_request(task_func: &str, inputs: Vec<TaskInput>) -> ExecuteRequest {
 ///
 /// # Errors
 ///
-/// Returns an error if creating, reading, or removing the fixture files fails, or if execution
-/// fails.
+/// Returns an error if:
+///
+/// * Forwards [`std::fs::create_dir`]'s return values on failure.
+/// * Forwards [`std::os::unix::fs::symlink`]'s return values on failure.
+/// * Forwards [`std::fs::write`]'s return values on failure.
+/// * Forwards [`std::fs::set_permissions`]'s return values on failure.
+/// * Forwards [`ProcessPool::new`]'s return values on failure.
+/// * Forwards [`ProcessPool::execute`]'s return values on failure.
+/// * Forwards [`std::fs::read_to_string`]'s return values on failure.
+/// * Forwards [`std::fs::remove_dir_all`]'s return values on failure.
 #[cfg(unix)]
 async fn assert_invalid_response_respawns(frame: &str) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt;

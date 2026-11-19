@@ -157,8 +157,7 @@ impl SerializedTaskOutputs {
     ///
     /// Returns an error if:
     ///
-    /// * [`TaskOutputsError::Empty`] if `raw_bytes` is empty.
-    /// * [`TaskOutputsError::UnknownOption`] if the leading option byte maps to no known option.
+    /// * Forwards [`Self::split_raw`]'s return values on failure.
     pub fn from_raw(raw_bytes: &[u8]) -> Result<Self, TaskOutputsError> {
         let (option, payload_bytes) = Self::split_raw(raw_bytes)?;
         Ok(Self {

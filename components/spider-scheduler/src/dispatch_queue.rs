@@ -81,7 +81,6 @@ impl DispatchQueueWriter {
     ///
     /// Returns an error if:
     ///
-    /// * [`SchedulerError::DispatchQueueClosed`] if the dispatching queue is closed.
     /// * [`SchedulerError::InvalidSessionId`] if the new session ID is not greater than the current
     ///   session ID.
     pub async fn bump_session_id(&self, new_session_id: SessionId) -> Result<(), SchedulerError> {

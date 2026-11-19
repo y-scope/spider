@@ -171,9 +171,11 @@ impl TaskExecutionResult {
     ///
     /// # Errors
     ///
-    /// Returns `Err(bytes)` if the result represented failure, where `bytes` is a msgpack-encoded
-    /// [`crate::TdlError`] produced inside the TDL package. The caller is responsible for decoding
-    /// it via [`rmp_serde::from_slice`].
+    /// Returns an error if:
+    ///
+    /// * The result represents a failure. The error is the msgpack-encoded [`crate::TdlError`] that
+    ///   the TDL package produced. The caller is responsible for decoding it via
+    ///   [`rmp_serde::from_slice`].
     ///
     /// # Safety
     ///
