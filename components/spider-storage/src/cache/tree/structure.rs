@@ -42,12 +42,10 @@ impl TreeStructure {
     }
 
     /// Plans a round of `events` against the tree's structure, in their order, each against the
-    /// result of the round's earlier events. An event is deferred to a later round if:
-    ///
-    /// * It registers a child set after the round's planned child set.
-    /// * Its outputs and children would push the round's payload over
-    ///   [`MAX_ROUND_PAYLOAD`](crate::limits::MAX_ROUND_PAYLOAD) after the payload of the round's
-    ///   earlier events.
+    /// result of the round's earlier events. An event is deferred to a later round if its outputs
+    /// and children would push the round's payload over
+    /// [`MAX_ROUND_PAYLOAD`](crate::limits::MAX_ROUND_PAYLOAD) after the payload of the round's
+    /// earlier events.
     ///
     /// # Type Parameters
     ///
@@ -281,6 +279,7 @@ mod tests {
     use crate::limits::MAX_ERROR_MESSAGE_CHARS;
     use crate::limits::MAX_EVENTS_PER_ROUND;
     use crate::limits::MAX_JOB_CHILDREN_SIZE;
+    use crate::limits::MAX_ROUND_PAYLOAD;
     use crate::state::test_utils::create_test_prepared_child;
     use crate::state::test_utils::create_test_prepared_children;
 
@@ -487,7 +486,7 @@ mod tests {
     async fn regular_tasks_done_with_children_blocks_the_job_and_registers_them() {
         let children = create_test_prepared_children(2).await;
         let usage = ChildJobUsage::of(&children);
-        let mut plan = plan_root_events(
+        let plan = plan_root_events(
             TreeNode {
                 state: JobState::Running,
                 has_commit: true,
@@ -514,12 +513,12 @@ mod tests {
         );
         assert_eq!(plan.publications, []);
         assert_eq!(
-            plan.registration.take(),
-            Some(PlannedRegistration {
+            plan.registrations,
+            [PlannedRegistration {
                 event_index: 0,
                 parent_id: ROOT_ID,
                 children: usage,
-            })
+            }]
         );
         assert_eq!(usage.count, 2);
     }
@@ -553,7 +552,7 @@ mod tests {
                 ..JobStateUpdate::new(ROOT_ID, JobState::Running, JobState::Failed)
             }]
         );
-        assert_eq!(plan.registration, None);
+        assert_eq!(plan.registrations, []);
     }
 
     #[tokio::test]
@@ -590,21 +589,32 @@ mod tests {
             plan.outcomes
         );
         assert_eq!(plan.updates, []);
-        assert_eq!(plan.registration, None);
+        assert_eq!(plan.registrations, []);
     }
 
     #[tokio::test]
-    async fn a_round_registers_its_first_applicable_child_set_and_defers_the_other_child_sets() {
-        let children = create_test_prepared_children(2).await;
-        let usage = ChildJobUsage::of(&children);
+    async fn a_round_registers_every_applicable_child_set_and_defers_one_over_the_payload_budget() {
+        let first_children = create_test_prepared_children(2).await;
+        let first_usage = ChildJobUsage::of(&first_children);
+        let second_children = create_test_prepared_children(1).await;
+        let second_usage = ChildJobUsage::of(&second_children);
+        let round_payload =
+            usize::try_from(MAX_ROUND_PAYLOAD).expect("the round payload should fit a usize");
         let events = vec![
             root_event(TreeEventKind::CancelRoot),
             event(2, failure(Lane::Regular, "boom")),
-            event(3, registration(children)),
-            event(4, registration(create_test_prepared_children(1).await)),
-            event(5, registration(Vec::new())),
+            event(3, registration(first_children)),
+            event(
+                4,
+                TreeEventKind::RegularTasksDone {
+                    outputs: vec![vec![0; round_payload]],
+                    children: create_test_prepared_children(1).await,
+                },
+            ),
+            event(5, registration(second_children)),
+            event(6, registration(Vec::new())),
         ];
-        let plan = tree_with_children(2..=5)
+        let plan = tree_with_children(2..=6)
             .plan_events(&events)
             .expect("the round should change each job at most once");
         assert!(
@@ -615,10 +625,11 @@ mod tests {
                     RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::Failed)),
                     RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::BlockingOnChildren)),
                     RoundOutcome::Deferred,
+                    RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::BlockingOnChildren)),
                     RoundOutcome::Planned(TreeEventOutcome::Applied(JobState::Succeeded)),
                 ]
             ),
-            "a round with two child sets gave {:?}",
+            "a round with several child sets gave {:?}",
             plan.outcomes
         );
         assert_eq!(
@@ -630,16 +641,24 @@ mod tests {
                 (ROOT_ID.get(), JobState::CleanupReady),
                 (2, JobState::Failed),
                 (3, JobState::BlockingOnChildren),
-                (5, JobState::Succeeded),
+                (5, JobState::BlockingOnChildren),
+                (6, JobState::Succeeded),
             ]
         );
         assert_eq!(
-            plan.registration,
-            Some(PlannedRegistration {
-                event_index: 2,
-                parent_id: JobId::from(3),
-                children: usage,
-            })
+            plan.registrations,
+            [
+                PlannedRegistration {
+                    event_index: 2,
+                    parent_id: JobId::from(3),
+                    children: first_usage,
+                },
+                PlannedRegistration {
+                    event_index: 4,
+                    parent_id: JobId::from(5),
+                    children: second_usage,
+                },
+            ]
         );
 
         let children = create_test_prepared_children(1).await;
@@ -667,12 +686,12 @@ mod tests {
             plan.outcomes
         );
         assert_eq!(
-            plan.registration,
-            Some(PlannedRegistration {
+            plan.registrations,
+            [PlannedRegistration {
                 event_index: 2,
                 parent_id: JobId::from(3),
                 children: usage,
-            })
+            }]
         );
     }
 
