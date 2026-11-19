@@ -331,7 +331,10 @@ async fn termination_tasks_reject_child_creation() -> anyhow::Result<()> {
         };
         let error: ExecutorError = rmp_serde::from_slice(&error)?;
         assert!(
-            matches!(error, ExecutorError::TaskError(_)),
+            matches!(
+                error,
+                ExecutorError::TaskError(TdlError::InvalidTaskContext(_))
+            ),
             "got {error:?}"
         );
     }
