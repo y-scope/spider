@@ -6,12 +6,14 @@
 
 use serde::Deserialize;
 use serde::Serialize;
+use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
 use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskInputsSerializer;
 use spider_core::types::io::TaskOutputsSerializer;
+use spider_tdl::ExecutionManagerMetadata;
 use spider_tdl::Task;
 use spider_tdl::TaskContext;
 use spider_tdl::TaskHandler;
@@ -84,6 +86,10 @@ fn make_encoded_ctx() -> Vec<u8> {
         TaskId::Index(0),
         1,
         ResourceGroupId::random(),
+        ExecutionManagerMetadata {
+            id: ExecutionManagerId::random(),
+            pinned_resource_group_id: None,
+        },
         None,
     )
     .expect("failed to build `TaskContext`");
@@ -308,6 +314,10 @@ fn direct_execute_call_round_trips() -> anyhow::Result<()> {
         TaskId::Index(0),
         1,
         ResourceGroupId::random(),
+        ExecutionManagerMetadata {
+            id: ExecutionManagerId::random(),
+            pinned_resource_group_id: None,
+        },
         None,
     )?;
 

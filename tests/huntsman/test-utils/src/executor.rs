@@ -21,6 +21,7 @@ use bytes::Bytes;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use spider_core::task::TdlContext;
+use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -32,6 +33,7 @@ use spider_core::types::io::TaskOutputsSerializer;
 use spider_task_executor::protocol::MAX_FRAME_SIZE;
 use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
+use spider_tdl::ExecutionManagerMetadata;
 use spider_tdl::TaskContext;
 use tokio::process::Child;
 use tokio::process::ChildStdin;
@@ -208,6 +210,10 @@ pub fn build_ctx() -> Vec<u8> {
         TaskId::Index(0),
         1,
         ResourceGroupId::random(),
+        ExecutionManagerMetadata {
+            id: ExecutionManagerId::random(),
+            pinned_resource_group_id: None,
+        },
         None,
     )
     .expect("build TaskContext");
@@ -342,6 +348,10 @@ pub fn build_commit_ctx<ValueType: serde::Serialize>(outputs: &[ValueType]) -> V
         TaskId::Commit,
         1,
         ResourceGroupId::random(),
+        ExecutionManagerMetadata {
+            id: ExecutionManagerId::random(),
+            pinned_resource_group_id: None,
+        },
         Some(serialized_outputs),
     )
     .expect("build commit TaskContext");
