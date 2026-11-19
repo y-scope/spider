@@ -276,9 +276,6 @@ mod tests {
     use crate::task_context::TaskContext;
 
     const INTENTIONAL_FAILURE: &str = "intentional failure";
-    const SUCCEED: int32 = 0;
-    const FAIL_EXECUTION: int32 = 1;
-    const FAIL_SERIALIZATION: int32 = 3;
 
     thread_local! {
         static RETAINED_CONTEXT: RefCell<Option<TaskContext>> = const { RefCell::new(None) };
@@ -349,16 +346,23 @@ mod tests {
         }
     }
 
+    #[derive(Serialize, Deserialize)]
+    enum SubmitMode {
+        Succeed,
+        FailExecution,
+        FailSerialization,
+    }
+
     #[derive(Deserialize)]
     struct SubmitParams {
-        mode: int32,
+        mode: SubmitMode,
     }
 
     struct SubmitChild;
 
     impl Task for SubmitChild {
         type Params = SubmitParams;
-        type Return = (int32,);
+        type Return = (SubmitMode,);
 
         const NAME: &'static str = "test::submit_child";
 
@@ -366,17 +370,23 @@ mod tests {
             ctx.create_child_job(&TaskGraph::default(), &TaskGraphInputBuilder::new().build())?;
             RETAINED_CONTEXT.with(|retained| *retained.borrow_mut() = Some(ctx));
             match params.mode {
-                FAIL_EXECUTION => Err(TdlError::ExecutionError(INTENTIONAL_FAILURE.to_owned())),
-                mode => Ok((mode,)),
+                SubmitMode::Succeed | SubmitMode::FailSerialization => Ok((params.mode,)),
+                SubmitMode::FailExecution => {
+                    Err(TdlError::ExecutionError(INTENTIONAL_FAILURE.to_owned()))
+                }
             }
         }
 
         fn serialize_return(result: &Self::Return) -> Result<Vec<u8>, TdlError> {
-            if result.0 == FAIL_SERIALIZATION {
-                return Err(TdlError::SerializationError(INTENTIONAL_FAILURE.to_owned()));
+            match result.0 {
+                SubmitMode::Succeed | SubmitMode::FailExecution => {
+                    TaskOutputsSerializer::from_tuple(result)
+                        .map_err(|e| TdlError::SerializationError(e.to_string()))
+                }
+                SubmitMode::FailSerialization => {
+                    Err(TdlError::SerializationError(INTENTIONAL_FAILURE.to_owned()))
+                }
             }
-            TaskOutputsSerializer::from_tuple(result)
-                .map_err(|e| TdlError::SerializationError(e.to_string()))
         }
     }
 
@@ -520,28 +530,38 @@ mod tests {
     fn handler_drains_children_on_success_failure_and_serialization_error() -> anyhow::Result<()> {
         let handler = TaskHandlerImpl::<SubmitChild>::new();
         let raw_ctx = make_encoded_ctx();
-        for mode in [SUCCEED, FAIL_EXECUTION, FAIL_SERIALIZATION] {
+        for mode in [
+            SubmitMode::Succeed,
+            SubmitMode::FailExecution,
+            SubmitMode::FailSerialization,
+        ] {
             let mut inputs = TaskInputsSerializer::new();
             inputs.append(TaskInput::ValuePayload(rmp_serde::to_vec(&mode)?))?;
             let result = handler.execute_raw(&raw_ctx, &inputs.release());
-            if mode == SUCCEED {
-                let bytes = result.expect("child-producing task must succeed");
-                let ExecutionSuccessOutcome {
-                    outputs: serialized_outputs,
-                    children,
-                } = ExecutionSuccessOutcome::from_wire(bytes)?;
-                assert_eq!(children.len(), 1);
-                assert_eq!(
-                    TaskOutputsSerializer::deserialize(&serialized_outputs)?,
-                    vec![rmp_serde::to_vec(&mode)?]
-                );
-            } else {
-                let bytes = result.expect_err("task must fail");
-                let error: TdlError = rmp_serde::from_slice(&bytes)?;
-                if mode == FAIL_SERIALIZATION {
-                    assert!(matches!(error, TdlError::SerializationError(_)));
-                } else {
-                    assert!(matches!(error, TdlError::ExecutionError(_)));
+            match mode {
+                SubmitMode::Succeed => {
+                    let bytes = result.expect("child-producing task must succeed");
+                    let ExecutionSuccessOutcome {
+                        outputs: serialized_outputs,
+                        children,
+                    } = ExecutionSuccessOutcome::from_wire(bytes)?;
+                    assert_eq!(children.len(), 1);
+                    assert_eq!(
+                        TaskOutputsSerializer::deserialize(&serialized_outputs)?,
+                        vec![rmp_serde::to_vec(&mode)?]
+                    );
+                }
+                SubmitMode::FailExecution | SubmitMode::FailSerialization => {
+                    let bytes = result.expect_err("task must fail");
+                    let error: TdlError = rmp_serde::from_slice(&bytes)?;
+                    assert!(matches!(
+                        (mode, error),
+                        (SubmitMode::FailExecution, TdlError::ExecutionError(_))
+                            | (
+                                SubmitMode::FailSerialization,
+                                TdlError::SerializationError(_)
+                            )
+                    ));
                 }
             }
             let retained = RETAINED_CONTEXT
