@@ -13,9 +13,9 @@ use crate::task::TaskIndex;
 
 /// A generic identifier type that wraps a numeric ID and a type marker.
 ///
-/// # Type Parameters:
+/// # Type Parameters
 ///
-/// * [`TypeMarker`]: A marker type used to differentiate between different types of IDs.
+/// * `TypeMarker` - A marker type used to differentiate between different types of IDs.
 ///
 /// # Examples
 ///
@@ -184,7 +184,7 @@ pub type TaskInstanceId = u64;
 ///
 /// # Type Parameters
 ///
-/// * [`TypeMarker`] - A marker type used to differentiate between different resource types.
+/// * `TypeMarker` - A marker type used to differentiate between different resource types.
 pub struct SignedId<TypeMarker>
 where
     TypeMarker: Debug + PartialEq + Eq, {
