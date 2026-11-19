@@ -46,10 +46,10 @@ impl ExecutionSuccessOutcome {
     ///
     /// * [`TdlError::DeserializationError`] if either frame is malformed, a child payload is
     ///   missing its pair, or bytes follow the second frame.
-    pub fn from_wire(bytes: &[u8]) -> Result<Self, TdlError> {
+    pub fn from_wire(bytes: Vec<u8>) -> Result<Self, TdlError> {
         let to_decode_error = |error: WireError| TdlError::DeserializationError(error.to_string());
         let (_, remaining) =
-            WireFrameBuilder::unframe_payload_slices(bytes).map_err(to_decode_error)?;
+            WireFrameBuilder::unframe_payload_slices(&bytes).map_err(to_decode_error)?;
         let outputs_len = bytes.len() - remaining.len();
         let (child_payloads, remaining) =
             WireFrameBuilder::unframe_payload_slices(remaining).map_err(to_decode_error)?;
@@ -64,7 +64,7 @@ impl ExecutionSuccessOutcome {
                 "child submission is missing its inputs payload",
             )));
         }
-        Ok(Self {
+        let outcome = Self {
             outputs: bytes[..outputs_len].to_vec(),
             children: children
                 .iter()
@@ -73,7 +73,9 @@ impl ExecutionSuccessOutcome {
                     compressed_serialized_job_inputs: inputs.to_vec(),
                 })
                 .collect(),
-        })
+        };
+        drop(bytes);
+        Ok(outcome)
     }
 
     /// Appends the child submissions frame to the outputs frame.
@@ -424,7 +426,7 @@ mod tests {
                 let ExecutionSuccessOutcome {
                     outputs: serialized_outputs,
                     children,
-                } = ExecutionSuccessOutcome::from_wire(&bytes)?;
+                } = ExecutionSuccessOutcome::from_wire(bytes)?;
                 assert_eq!(children, Vec::new());
                 let outputs = TaskOutputsSerializer::deserialize(&serialized_outputs)?;
                 assert_eq!(outputs.len(), 1);
@@ -441,16 +443,18 @@ mod tests {
 
     #[test]
     fn success_outcome_rejects_malformed_child_frame() -> anyhow::Result<()> {
-        let outputs = TaskOutputsSerializer::new().release();
-        assert!(ExecutionSuccessOutcome::from_wire(&outputs).is_err());
+        assert!(
+            ExecutionSuccessOutcome::from_wire(TaskOutputsSerializer::new().release()).is_err()
+        );
 
+        let outputs = TaskOutputsSerializer::new().release();
         let mut bytes = WireFrameBuilder::with_prefix(outputs.clone()).release();
         bytes.push(0);
-        assert!(ExecutionSuccessOutcome::from_wire(&bytes).is_err());
+        assert!(ExecutionSuccessOutcome::from_wire(bytes).is_err());
 
         let mut builder = WireFrameBuilder::with_prefix(outputs);
         builder.append_payload(b"graph")?;
-        assert!(ExecutionSuccessOutcome::from_wire(&builder.release()).is_err());
+        assert!(ExecutionSuccessOutcome::from_wire(builder.release()).is_err());
         Ok(())
     }
 
@@ -525,7 +529,7 @@ mod tests {
                 let ExecutionSuccessOutcome {
                     outputs: serialized_outputs,
                     children,
-                } = ExecutionSuccessOutcome::from_wire(&bytes)?;
+                } = ExecutionSuccessOutcome::from_wire(bytes)?;
                 assert_eq!(children.len(), 1);
                 assert_eq!(
                     TaskOutputsSerializer::deserialize(&serialized_outputs)?,

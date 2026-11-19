@@ -132,7 +132,7 @@ fn append_value<Val: Serialize>(
 ///
 /// Panics if `index` is out of bounds for the decoded output payloads.
 fn decode_outputs<Val: for<'de> Deserialize<'de>>(
-    bytes: &[u8],
+    bytes: Vec<u8>,
     index: usize,
 ) -> anyhow::Result<Val> {
     let outputs = decode_output_payloads(bytes)?;
@@ -142,7 +142,7 @@ fn decode_outputs<Val: for<'de> Deserialize<'de>>(
 }
 
 /// Decodes output payloads from a successful result with no child submissions.
-fn decode_output_payloads(bytes: &[u8]) -> anyhow::Result<Vec<Vec<u8>>> {
+fn decode_output_payloads(bytes: Vec<u8>) -> anyhow::Result<Vec<Vec<u8>>> {
     let outcome = ExecutionSuccessOutcome::from_wire(bytes)?;
     assert_eq!(outcome.children, []);
     Ok(TaskOutputsSerializer::deserialize(&outcome.outputs)?)
@@ -173,7 +173,7 @@ fn aliased_task_context_compiles_and_runs() -> anyhow::Result<()> {
     let result = handler.execute_raw(&make_encoded_ctx(), &raw_args);
     let bytes = result.map_err(|e| anyhow::anyhow!("expected outputs, got error bytes: {e:?}"))?;
 
-    let value: int32 = decode_outputs(&bytes, 0)?;
+    let value: int32 = decode_outputs(bytes, 0)?;
     assert_eq!(value, INPUT);
     Ok(())
 }
@@ -191,7 +191,7 @@ fn aliased_tdl_error_compiles_and_runs() -> anyhow::Result<()> {
     let result = handler.execute_raw(&make_encoded_ctx(), &raw_args);
     let bytes = result.map_err(|e| anyhow::anyhow!("expected outputs, got error bytes: {e:?}"))?;
 
-    let value: int32 = decode_outputs(&bytes, 0)?;
+    let value: int32 = decode_outputs(bytes, 0)?;
     assert_eq!(value, INPUT);
     Ok(())
 }
@@ -214,7 +214,7 @@ fn handler_runs_tuple_return_task() -> anyhow::Result<()> {
     let result = handler.execute_raw(&make_encoded_ctx(), &raw_args);
     let bytes = result.map_err(|e| anyhow::anyhow!("expected outputs, got error bytes: {e:?}"))?;
 
-    let outputs = decode_output_payloads(&bytes)?;
+    let outputs = decode_output_payloads(bytes)?;
     assert_eq!(outputs.len(), 2);
     let quotient: int32 = rmp_serde::from_slice(&outputs[0])?;
     let remainder: int32 = rmp_serde::from_slice(&outputs[1])?;
@@ -237,7 +237,7 @@ fn handler_runs_single_value_return_task() -> anyhow::Result<()> {
     let result = handler.execute_raw(&make_encoded_ctx(), &raw_args);
     let bytes = result.map_err(|e| anyhow::anyhow!("expected outputs, got error bytes: {e:?}"))?;
 
-    let value: int32 = decode_outputs(&bytes, 0)?;
+    let value: int32 = decode_outputs(bytes, 0)?;
     assert_eq!(value, EXPECTED_OUTPUT);
     Ok(())
 }
@@ -252,7 +252,7 @@ fn handler_runs_no_params_task() -> anyhow::Result<()> {
     let result = handler.execute_raw(&make_encoded_ctx(), &raw_args);
     let bytes = result.map_err(|e| anyhow::anyhow!("expected outputs, got error bytes: {e:?}"))?;
 
-    let value: int32 = decode_outputs(&bytes, 0)?;
+    let value: int32 = decode_outputs(bytes, 0)?;
     assert_eq!(value, EXPECTED_VALUE);
     Ok(())
 }
@@ -278,7 +278,7 @@ fn handler_runs_struct_param_task() -> anyhow::Result<()> {
     let result = handler.execute_raw(&make_encoded_ctx(), &raw_args);
     let bytes = result.map_err(|e| anyhow::anyhow!("expected outputs, got error bytes: {e:?}"))?;
 
-    let translated: Point = decode_outputs(&bytes, 0)?;
+    let translated: Point = decode_outputs(bytes, 0)?;
     assert_eq!(translated, EXPECTED_POINT);
     Ok(())
 }

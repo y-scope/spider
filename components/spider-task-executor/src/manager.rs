@@ -185,7 +185,7 @@ impl TdlPackage {
 
         match result.into_result() {
             Ok(success_bytes) => {
-                ExecutionSuccessOutcome::from_wire(&success_bytes).map_err(|error| {
+                ExecutionSuccessOutcome::from_wire(success_bytes).map_err(|error| {
                     ExecutorError::SuccessPayloadDeserializationFailure(error.to_string())
                 })
             }
