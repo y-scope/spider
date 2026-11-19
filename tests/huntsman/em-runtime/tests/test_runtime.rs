@@ -592,8 +592,47 @@ async fn success_outcome_reports_outputs() -> anyhow::Result<()> {
         .as_ref()
         .context("success report should carry outputs")?;
     assert_eq!(decode_single_output::<u64>(outputs), 55);
+    assert_eq!(
+        report.children,
+        [] as [spider_core::job::submission::CompressedJobSubmission; 0]
+    );
     assert!(storage.failure_reports().is_empty());
 
+    token.cancel();
+    join.await??;
+    assert_eq!(scheduler.outstanding(), &[]);
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn commit_success_reports_no_outputs_or_children() -> anyhow::Result<()> {
+    const SESSION_ID: SessionId = 5;
+    let scheduler = MockScheduler::new();
+    let storage = MockStorage::new();
+    let liveness = MockLiveness::with_initial_session(SESSION_ID);
+    let (runtime, token) = Runtime::create(
+        scheduler.clone(),
+        storage.clone(),
+        Arc::new(liveness),
+        runtime_config(HEARTBEAT_INTERVAL),
+    )
+    .await?;
+    let mut response = assignment_with_session(SESSION_ID);
+    response.task_assignment.task_id = TaskId::Commit;
+    scheduler.push(Ok(response));
+    storage.push_register_response(Ok(execution_context("assert_initialized", vec![])));
+    let join = tokio::spawn(runtime.run());
+    assert!(storage.wait_for_any_report(BOUNDED_WAIT).await);
+    let reports = storage.success_reports();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].task_id, TaskId::Commit);
+    assert!(reports[0].serialized_outputs.is_none());
+    assert_eq!(
+        reports[0].children,
+        [] as [spider_core::job::submission::CompressedJobSubmission; 0]
+    );
+    assert!(storage.failure_reports().is_empty());
     token.cancel();
     join.await??;
     assert_eq!(scheduler.outstanding(), &[]);
@@ -677,6 +716,75 @@ async fn storage_report_error_does_not_kill_runtime() -> anyhow::Result<()> {
 
     token.cancel();
     join.await??;
+    assert!(
+        storage.failure_reports().is_empty(),
+        "unexpected fallback reports: {:?}",
+        storage.failure_reports()
+    );
+    assert_eq!(scheduler.outstanding(), &[]);
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn oversized_success_report_becomes_failure_and_runtime_keeps_serving() -> anyhow::Result<()>
+{
+    const SESSION_ID: SessionId = 5;
+    const REPORT_LIMIT: u64 = 32 * 1024 * 1024;
+
+    let scheduler = MockScheduler::new();
+    let storage = MockStorage::new();
+    let liveness = MockLiveness::with_initial_session(SESSION_ID);
+    let em_id = liveness.em_id();
+    let (runtime, token) = Runtime::create(
+        scheduler.clone(),
+        storage.clone(),
+        Arc::new(liveness),
+        runtime_config(HEARTBEAT_INTERVAL),
+    )
+    .await?;
+    let response = assignment_with_session(SESSION_ID);
+    let error = StorageResponseError::ReportTooLarge {
+        size: REPORT_LIMIT + 1,
+        limit: REPORT_LIMIT,
+    };
+    let expected_error = format!("invalid success payload: {error}");
+    // The task executes normally; the mock supplies the transport's local size-check result.
+    storage.push_success_response(Err(error));
+    scheduler.push(Ok(response));
+    storage.push_register_response(Ok(execution_context("fibonacci", single_input(&10_u64))));
+    let join = tokio::spawn(runtime.run());
+
+    assert!(wait_until(|| storage.failure_reports().len() == 1, BOUNDED_WAIT).await);
+    let failures = storage.failure_reports();
+    let failure = &failures[0];
+    assert_eq!(failure.job_id, response.task_assignment.job_id);
+    assert_eq!(failure.task_id, response.task_assignment.task_id);
+    assert_eq!(failure.task_instance_id, 1);
+    assert_eq!(failure.em_id, em_id);
+    assert_eq!(failure.session_id, SESSION_ID);
+    assert_eq!(failure.error_message, expected_error);
+
+    let next_response = assignment_with_session(SESSION_ID);
+    scheduler.push(Ok(next_response));
+    let mut next_context = execution_context("fibonacci", single_input(&7_u64));
+    next_context.task_instance_id = 2;
+    storage.push_register_response(Ok(next_context));
+    assert!(wait_until(|| storage.success_reports().len() == 2, BOUNDED_WAIT).await);
+
+    token.cancel();
+    join.await??;
+    let reports = storage.success_reports();
+    assert_eq!(reports.len(), 2);
+    let report = &reports[1];
+    assert_eq!(report.job_id, next_response.task_assignment.job_id);
+    assert_eq!(report.task_instance_id, 2);
+    let outputs = report
+        .serialized_outputs
+        .as_ref()
+        .context("subsequent success report should carry outputs")?;
+    assert_eq!(decode_single_output::<u64>(outputs), 13);
+    assert_eq!(storage.failure_reports().len(), 1);
     assert_eq!(scheduler.outstanding(), &[]);
     Ok(())
 }
@@ -813,5 +921,52 @@ async fn cancellation_during_register_leaves_assignment_unacked() -> anyhow::Res
     // exits.
     let expected = TaskAssignmentRecord::new(response.task_assignment.id, response.scheduler_id);
     assert_eq!(scheduler.outstanding(), &[expected]);
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn invalid_executor_response_reports_failure() -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    const SESSION_ID: SessionId = 5;
+    let directory =
+        std::env::temp_dir().join(format!("spider-invalid-runtime-{}", JobId::random()));
+    std::fs::create_dir(&directory)?;
+    let script = directory.join("executor");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nprintf '\\000\\000\\000\\001\\377'\nexec sleep 60\n",
+    )?;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))?;
+    let scheduler = MockScheduler::new();
+    let storage = MockStorage::new();
+    let liveness = MockLiveness::with_initial_session(SESSION_ID);
+    let mut config = runtime_config(HEARTBEAT_INTERVAL);
+    config.executor_binary_path = script;
+    config.package_dir = directory.clone();
+    let (runtime, token) = Runtime::create(
+        scheduler.clone(),
+        storage.clone(),
+        Arc::new(liveness),
+        config,
+    )
+    .await?;
+    scheduler.push(Ok(assignment_with_session(SESSION_ID)));
+    storage.push_register_response(Ok(execution_context("fibonacci", single_input(&10_u64))));
+    let join = tokio::spawn(runtime.run());
+    assert!(storage.wait_for_any_report(BOUNDED_WAIT).await);
+    let failures = storage.failure_reports();
+    assert_eq!(failures.len(), 1);
+    assert!(
+        failures[0]
+            .error_message
+            .starts_with("invalid executor response:")
+    );
+    assert!(storage.success_reports().is_empty());
+    token.cancel();
+    join.await??;
+    std::fs::remove_dir_all(directory)?;
     Ok(())
 }
