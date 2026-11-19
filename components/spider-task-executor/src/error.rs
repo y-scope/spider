@@ -52,6 +52,10 @@ pub enum ExecutorError {
     /// The wire-format successful task result could not be decoded.
     #[error("failed to deserialize success payload: {0}")]
     SuccessPayloadDeserializationFailure(String),
+
+    /// The encoded executor response exceeds the maximum frame size.
+    #[error("executor response exceeds the {limit}-byte frame limit")]
+    ResponseTooLarge { limit: u64 },
 }
 
 impl From<libloading::Error> for ExecutorError {

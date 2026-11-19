@@ -213,6 +213,41 @@ async fn response_larger_than_eight_mib_preserves_outputs() {
 
 #[tokio::test]
 #[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn oversized_response_returns_failure_and_executor_remains_available() -> anyhow::Result<()> {
+    use spider_task_executor::protocol::MAX_FRAME_SIZE;
+
+    let mut handle = ExecutorHandle::spawn();
+    handle
+        .send(&execute_request(
+            "generate_payload",
+            encode_single_input(&MAX_FRAME_SIZE),
+        ))
+        .await;
+    let Response::Result { outcome, .. } = handle.recv().await;
+    let ExecutorOutcome::Failure { error } = outcome else {
+        panic!("expected failure for an oversized response");
+    };
+    let error: ExecutorError = rmp_serde::from_slice(&error)?;
+    let ExecutorError::ResponseTooLarge { limit } = error else {
+        panic!("expected oversized-response error, got {error:?}");
+    };
+    assert_eq!(limit, u64::try_from(MAX_FRAME_SIZE)?);
+
+    handle
+        .send(&execute_request("fibonacci", encode_single_input(&7_u64)))
+        .await;
+    let Response::Result { outcome, .. } = handle.recv().await;
+    let ExecutorOutcome::Success { outputs, children } = outcome else {
+        panic!("expected success after oversized response, got {outcome:?}");
+    };
+    assert_eq!(decode_single_output::<u64>(&outputs), 13);
+    assert_eq!(children, []);
+    handle.shutdown_clean().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
 async fn child_submissions_preserve_storage_encoding_and_submission_order() -> anyhow::Result<()> {
     use spider_core::task::TaskGraph;
     use spider_core::types::io::TaskGraphInput;
