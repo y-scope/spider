@@ -32,12 +32,6 @@ mod task_decl {
     use std::thread::sleep;
     use std::time::Duration;
 
-    use spider_core::task::DataTypeDescriptor;
-    use spider_core::task::TaskDescriptor;
-    use spider_core::task::TaskGraph;
-    use spider_core::task::TdlContext;
-    use spider_core::task::ValueTypeDescriptor;
-    use spider_core::types::io::TaskGraphInputBuilder;
     use spider_tdl::TaskContext;
     use spider_tdl::TdlError;
     use spider_tdl::task;
@@ -221,6 +215,13 @@ mod task_decl {
     /// * [`TdlError::ExecutionError`] if building the child graph or inputs fails.
     /// * Forwards [`TaskContext::create_child_job`]'s return values on failure.
     fn submit_child(ctx: &TaskContext, index: u64) -> Result<(), TdlError> {
+        use spider_core::task::DataTypeDescriptor;
+        use spider_core::task::TaskDescriptor;
+        use spider_core::task::TaskGraph;
+        use spider_core::task::TdlContext;
+        use spider_core::task::ValueTypeDescriptor;
+        use spider_core::types::io::TaskGraphInputBuilder;
+
         let integer = DataTypeDescriptor::Value(ValueTypeDescriptor::int64());
         let mut graph = TaskGraph::default();
         graph

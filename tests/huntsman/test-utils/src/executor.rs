@@ -20,7 +20,6 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use futures_util::SinkExt;
-use futures_util::StreamExt;
 use spider_core::task::TdlContext;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -132,6 +131,8 @@ impl ExecutorHandle {
     ///
     /// Panics if the frame read fails or times out, or if decoding fails.
     pub async fn try_recv(&mut self) -> Option<Response> {
+        use futures_util::StreamExt;
+
         let frame = timeout(EXECUTOR_WAIT_TIMEOUT, self.responses.next())
             .await
             .expect("timed out waiting for executor response")?;

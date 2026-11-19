@@ -261,11 +261,9 @@ mod tests {
 
     use serde::Deserialize;
     use serde::Serialize;
-    use spider_core::task::TaskGraph;
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
     use spider_core::types::id::TaskId;
-    use spider_core::types::io::TaskGraphInputBuilder;
     use spider_core::types::io::TaskInput;
     use spider_core::types::io::TaskInputsSerializer;
     use spider_core::types::io::TaskOutputsSerializer;
@@ -367,6 +365,9 @@ mod tests {
         const NAME: &'static str = "test::submit_child";
 
         fn execute(ctx: TaskContext, params: Self::Params) -> Result<Self::Return, TdlError> {
+            use spider_core::task::TaskGraph;
+            use spider_core::types::io::TaskGraphInputBuilder;
+
             ctx.create_child_job(&TaskGraph::default(), &TaskGraphInputBuilder::new().build())?;
             RETAINED_CONTEXT.with(|retained| *retained.borrow_mut() = Some(ctx));
             match params.mode {

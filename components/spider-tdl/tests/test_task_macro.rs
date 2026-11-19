@@ -11,8 +11,6 @@ use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
 use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskInputsSerializer;
-use spider_core::types::io::TaskOutputsSerializer;
-use spider_tdl::ExecutionSuccessOutcome;
 use spider_tdl::Task;
 use spider_tdl::TaskContext;
 use spider_tdl::TaskHandler;
@@ -143,6 +141,9 @@ fn decode_outputs<Val: for<'de> Deserialize<'de>>(
 
 /// Decodes output payloads from a successful result with no child submissions.
 fn decode_output_payloads(bytes: Vec<u8>) -> anyhow::Result<Vec<Vec<u8>>> {
+    use spider_core::types::io::TaskOutputsSerializer;
+    use spider_tdl::ExecutionSuccessOutcome;
+
     let outcome = ExecutionSuccessOutcome::from_wire(bytes)?;
     assert_eq!(outcome.children, []);
     Ok(TaskOutputsSerializer::deserialize(&outcome.outputs)?)

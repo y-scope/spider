@@ -197,16 +197,11 @@ impl ChildJobSubmissions {
 
 #[cfg(test)]
 mod tests {
-    use spider_core::task::DataTypeDescriptor;
-    use spider_core::task::TaskDescriptor;
     use spider_core::task::TaskGraph;
-    use spider_core::task::TdlContext;
-    use spider_core::task::ValueTypeDescriptor;
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
     use spider_core::types::id::TaskId;
     use spider_core::types::io::SerializedTaskOutputs;
-    use spider_core::types::io::TaskGraphInput;
     use spider_core::types::io::TaskGraphInputBuilder;
     use spider_core::types::io::TaskOutput;
 
@@ -255,6 +250,11 @@ mod tests {
     ///
     /// Panics if the task descriptor is invalid.
     fn create_child_graph() -> TaskGraph {
+        use spider_core::task::DataTypeDescriptor;
+        use spider_core::task::TaskDescriptor;
+        use spider_core::task::TdlContext;
+        use spider_core::task::ValueTypeDescriptor;
+
         let mut graph = TaskGraph::default();
         graph
             .insert_task(TaskDescriptor {
@@ -273,6 +273,8 @@ mod tests {
 
     #[test]
     fn child_jobs_preserve_storage_encoding_and_order() -> anyhow::Result<()> {
+        use spider_core::types::io::TaskGraphInput;
+
         let ctx = create_context(TaskId::Index(0));
         let graph = create_child_graph();
         let mut expected_inputs = Vec::new();
