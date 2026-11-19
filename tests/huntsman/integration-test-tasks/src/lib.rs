@@ -111,7 +111,9 @@ mod task_decl {
     ///
     /// # Errors
     ///
-    /// Forwards [`submit_child`]'s return values on failure.
+    /// Returns an error if:
+    ///
+    /// * Forwards [`submit_child`]'s return values on failure.
     #[task(name = "create_children")]
     pub fn create_children(ctx: TaskContext, count: u64) -> Result<u64, TdlError> {
         for index in 0..count {
@@ -124,8 +126,10 @@ mod task_decl {
     ///
     /// # Errors
     ///
-    /// Returns [`TdlError::ExecutionError`] after creating the child, or forwards
-    /// [`submit_child`]'s return values on failure.
+    /// Returns an error if:
+    ///
+    /// * [`TdlError::ExecutionError`] after creating the child.
+    /// * Forwards [`submit_child`]'s return values on failure.
     #[task(name = "create_children_then_fail")]
     pub fn create_children_then_fail(ctx: TaskContext) -> Result<(), TdlError> {
         submit_child(&ctx, 1)?;
@@ -138,7 +142,9 @@ mod task_decl {
     ///
     /// # Errors
     ///
-    /// Forwards [`submit_child`]'s return values on failure.
+    /// Returns an error if:
+    ///
+    /// * Forwards [`submit_child`]'s return values on failure.
     ///
     /// # Panics
     ///
@@ -210,8 +216,10 @@ mod task_decl {
     ///
     /// # Errors
     ///
-    /// Returns [`TdlError::ExecutionError`] if building the child graph or inputs fails.
-    /// Forwards [`TaskContext::create_child_job`]'s return values on failure.
+    /// Returns an error if:
+    ///
+    /// * [`TdlError::ExecutionError`] if building the child graph or inputs fails.
+    /// * Forwards [`TaskContext::create_child_job`]'s return values on failure.
     fn submit_child(ctx: &TaskContext, index: u64) -> Result<(), TdlError> {
         let integer = DataTypeDescriptor::Value(ValueTypeDescriptor::int64());
         let mut graph = TaskGraph::default();
