@@ -27,7 +27,7 @@ pub type ExecutionResult = std::result::Result<Vec<u8>, Vec<u8>>;
 ///
 /// The serialized form consists of two consecutive wire frames. The first contains the task
 /// outputs. The second contains a graph payload followed by an inputs payload for each child.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct ExecutionSuccessOutcome {
     pub outputs: Vec<u8>,
     pub children: Vec<CompressedJobSubmission>,
