@@ -1,11 +1,14 @@
 //! Test TDL package used by the `task-executor` integration tests.
 //!
-//! Exposes seven tasks that exercise distinct executor code paths:
+//! Exposes tasks that exercise distinct executor code paths:
 //!
 //! * [`task_decl::fibonacci`] — basic compute + correctness.
 //! * [`task_decl::generate_payload`] — produces a requested number of bytes.
 //! * [`task_decl::always_fail`] — in-task error reporting.
 //! * [`task_decl::always_panic`] — process-level crash handling.
+//! * [`task_decl::create_children`] — successful child-submission transport.
+//! * [`task_decl::create_children_then_fail`] — child-submission discard after failure.
+//! * [`task_decl::create_children_then_panic`] — child-submission discard after panic.
 //! * [`task_decl::sleep_and_echo`] — fixed-cost task: sleeps for a known [`INSTRUMENT_SLEEP_US`]
 //!   duration then echoes its `Vec<String>` payload back. Used by the overhead bench so the
 //!   non-sleep portion of the executor's reported FFI time isolates the in-executor input/output
@@ -34,6 +37,27 @@ mod task_decl {
     use spider_tdl::task;
 
     use crate::INSTRUMENT_SLEEP_US;
+
+    #[derive(serde::Deserialize)]
+    pub struct EmptyParams {}
+
+    /// A task that returns malformed bytes from its return serializer.
+    pub struct MalformedSuccess;
+
+    impl spider_tdl::Task for MalformedSuccess {
+        type Params = EmptyParams;
+        type Return = ();
+
+        const NAME: &'static str = "malformed_success";
+
+        fn execute(_ctx: TaskContext, _params: Self::Params) -> Result<Self::Return, TdlError> {
+            Ok(())
+        }
+
+        fn serialize_return(_result: &Self::Return) -> Result<Vec<u8>, TdlError> {
+            Ok(Vec::new())
+        }
+    }
 
     /// Package init hook. Records that init ran, or fails when `SPIDER_TEST_TDL_INIT_SHOULD_FAIL`
     /// is set (used by the executor's init integration test).
@@ -94,6 +118,58 @@ mod task_decl {
         panic!("always_panic: intentional panic")
     }
 
+    /// Creates Fibonacci child jobs with sequential inputs and returns the number submitted.
+    ///
+    /// # Returns
+    ///
+    /// The number of child jobs on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`submit_child`]'s return values on failure.
+    #[task(name = "create_children")]
+    pub fn create_children(ctx: TaskContext, count: u64) -> Result<u64, TdlError> {
+        for index in 0..count {
+            submit_child(&ctx, index)?;
+        }
+        Ok(count)
+    }
+
+    /// Creates a child job and then returns an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`TdlError::ExecutionError`] after creating the child.
+    /// * Forwards [`submit_child`]'s return values on failure.
+    #[task(name = "create_children_then_fail")]
+    pub fn create_children_then_fail(ctx: TaskContext) -> Result<(), TdlError> {
+        submit_child(&ctx, 1)?;
+        Err(TdlError::ExecutionError(
+            "intentional failure after child creation".to_owned(),
+        ))
+    }
+
+    /// Creates a child job and then panics.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`submit_child`]'s return values on failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics after creating the child.
+    #[task(name = "create_children_then_panic")]
+    pub fn create_children_then_panic(ctx: TaskContext) -> Result<(), TdlError> {
+        submit_child(&ctx, 1)?;
+        panic!("intentional panic after child creation")
+    }
+
     /// Sleeps for a fixed [`INSTRUMENT_SLEEP_US`] microseconds, then echoes the input back.
     ///
     /// The fixed-cost body lets the overhead bench subtract the known sleep from the executor's
@@ -150,6 +226,43 @@ mod task_decl {
 
     /// Set by [`package_init`] so [`assert_initialized`] can confirm the init hook ran on load.
     static INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+    /// Submits a child graph that computes a Fibonacci number.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`TdlError::ExecutionError`] if building the child graph or inputs fails.
+    /// * Forwards [`TaskContext::create_child_job`]'s return values on failure.
+    fn submit_child(ctx: &TaskContext, index: u64) -> Result<(), TdlError> {
+        use spider_core::task::DataTypeDescriptor;
+        use spider_core::task::TaskDescriptor;
+        use spider_core::task::TaskGraph;
+        use spider_core::task::TdlContext;
+        use spider_core::task::ValueTypeDescriptor;
+        use spider_core::types::io::TaskGraphInputBuilder;
+
+        let integer = DataTypeDescriptor::Value(ValueTypeDescriptor::int64());
+        let mut graph = TaskGraph::default();
+        graph
+            .insert_task(TaskDescriptor {
+                tdl_context: TdlContext {
+                    package: "integration_test_tasks".to_owned(),
+                    task_func: "fibonacci".to_owned(),
+                },
+                execution_policy: None,
+                inputs: vec![integer.clone()],
+                outputs: vec![integer],
+                input_sources: None,
+            })
+            .map_err(|error| TdlError::ExecutionError(error.to_string()))?;
+        let mut inputs = TaskGraphInputBuilder::new();
+        inputs
+            .append_task_input(&index)
+            .map_err(|error| TdlError::ExecutionError(error.to_string()))?;
+        ctx.create_child_job(&graph, &inputs.build())
+    }
 }
 
 spider_tdl::register_tdl_package! {
@@ -160,6 +273,10 @@ spider_tdl::register_tdl_package! {
         task_decl::generate_payload,
         task_decl::always_fail,
         task_decl::always_panic,
+        task_decl::MalformedSuccess,
+        task_decl::create_children,
+        task_decl::create_children_then_fail,
+        task_decl::create_children_then_panic,
         task_decl::sleep_and_echo,
         task_decl::assert_outputs_sum_zero,
         task_decl::assert_initialized,

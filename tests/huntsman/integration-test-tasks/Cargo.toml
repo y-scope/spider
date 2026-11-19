@@ -14,4 +14,5 @@ path = "src/lib.rs"
 [dependencies]
 rmp-serde = { workspace = true }
 serde = { workspace = true }
+spider-core = { workspace = true }
 spider-tdl = { workspace = true, features = ["derive"] }
