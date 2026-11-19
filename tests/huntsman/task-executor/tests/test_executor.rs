@@ -230,7 +230,7 @@ async fn child_submissions_preserve_storage_encoding_and_submission_order() -> a
             panic!("expected child-producing success, got {outcome:?}");
         };
         assert_eq!(decode_single_output::<u64>(&outputs), count);
-        assert_eq!(children.len() as u64, count);
+        assert_eq!(u64::try_from(children.len())?, count);
         for (index, child) in children.iter().enumerate() {
             let graph =
                 TaskGraph::from_zstd_compressed_json(&child.compressed_serialized_task_graph)?;
@@ -247,7 +247,7 @@ async fn child_submissions_preserve_storage_encoding_and_submission_order() -> a
                 &child.compressed_serialized_job_inputs,
             )?;
             let inputs = inputs.into_positional_inputs(|bytes| bytes);
-            assert_eq!(inputs, vec![rmp_serde::to_vec(&(index as u64))?]);
+            assert_eq!(inputs, vec![rmp_serde::to_vec(&u64::try_from(index)?)?]);
         }
     }
     handle.shutdown_clean().await;
