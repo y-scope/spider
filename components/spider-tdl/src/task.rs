@@ -555,14 +555,14 @@ mod tests {
                 SubmitMode::FailExecution | SubmitMode::FailSerialization => {
                     let bytes = result.expect_err("task must fail");
                     let error: TdlError = rmp_serde::from_slice(&bytes)?;
-                    assert!(matches!(
-                        (mode, error),
-                        (SubmitMode::FailExecution, TdlError::ExecutionError(_))
-                            | (
-                                SubmitMode::FailSerialization,
-                                TdlError::SerializationError(_)
-                            )
-                    ));
+                    let reason = match (mode, error) {
+                        (SubmitMode::FailExecution, TdlError::ExecutionError(reason))
+                        | (SubmitMode::FailSerialization, TdlError::SerializationError(reason)) => {
+                            reason
+                        }
+                        (_, error) => panic!("unexpected task error: {error:?}"),
+                    };
+                    assert_eq!(reason, INTENTIONAL_FAILURE);
                 }
             }
             let retained = RETAINED_CONTEXT

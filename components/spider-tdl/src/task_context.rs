@@ -325,10 +325,12 @@ mod tests {
         let input = builder.build();
         for task_id in [TaskId::Commit, TaskId::Cleanup] {
             let ctx = create_context(task_id);
-            assert!(matches!(
+            assert_eq!(
                 ctx.create_child_job(&graph, &input),
-                Err(TdlError::InvalidTaskContext(_))
-            ));
+                Err(TdlError::InvalidTaskContext(
+                    "termination tasks cannot submit child jobs".to_owned()
+                ))
+            );
             assert_eq!(ctx.child_jobs().take(), Vec::new());
         }
         Ok(())

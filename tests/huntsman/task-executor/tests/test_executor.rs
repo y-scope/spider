@@ -330,13 +330,10 @@ async fn termination_tasks_reject_child_creation() -> anyhow::Result<()> {
             panic!("expected child-creation rejection, got {outcome:?}");
         };
         let error: ExecutorError = rmp_serde::from_slice(&error)?;
-        assert!(
-            matches!(
-                error,
-                ExecutorError::TaskError(TdlError::InvalidTaskContext(_))
-            ),
-            "got {error:?}"
-        );
+        let ExecutorError::TaskError(TdlError::InvalidTaskContext(message)) = error else {
+            panic!("expected invalid task context, got {error:?}");
+        };
+        assert_eq!(message, "termination tasks cannot submit child jobs");
     }
     handle.shutdown_clean().await;
     Ok(())
