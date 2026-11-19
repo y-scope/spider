@@ -121,6 +121,11 @@ pub async fn call_with_retry<
     .await
 }
 
+/// The default number of retries allowed after the initial attempt.
+const DEFAULT_MAX_RETRIES: usize = 10;
+/// The default upper bound on the exponential backoff between attempts.
+const DEFAULT_MAX_BACKOFF: Duration = Duration::from_secs(3);
+
 /// Classifies a gRPC [`Status`] as retriable.
 ///
 /// # Returns
@@ -139,11 +144,6 @@ fn is_retriable_status(status: &Status) -> bool {
         _ => false,
     }
 }
-
-/// The default number of retries allowed after the initial attempt.
-const DEFAULT_MAX_RETRIES: usize = 10;
-/// The default upper bound on the exponential backoff between attempts.
-const DEFAULT_MAX_BACKOFF: Duration = Duration::from_secs(3);
 
 /// Computes the delay before the `retry`-th retry.
 ///
