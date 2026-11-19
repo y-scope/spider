@@ -454,18 +454,30 @@ mod tests {
 
     #[test]
     fn success_outcome_rejects_malformed_child_frame() -> anyhow::Result<()> {
-        assert!(
-            ExecutionSuccessOutcome::from_wire(TaskOutputsSerializer::new().release()).is_err()
-        );
-
         let outputs = TaskOutputsSerializer::new().release();
-        let mut bytes = WireFrameBuilder::with_prefix(outputs.clone()).release();
-        bytes.push(0);
-        assert!(ExecutionSuccessOutcome::from_wire(bytes).is_err());
-
-        let mut builder = WireFrameBuilder::with_prefix(outputs);
+        let mut trailing_bytes = WireFrameBuilder::with_prefix(outputs.clone()).release();
+        trailing_bytes.push(0);
+        let mut builder = WireFrameBuilder::with_prefix(outputs.clone());
         builder.append_payload(b"graph")?;
-        assert!(ExecutionSuccessOutcome::from_wire(builder.release()).is_err());
+
+        for (bytes, diagnostic) in [
+            (
+                outputs,
+                "invalid wire format: buffer too small for the payload count header",
+            ),
+            (
+                trailing_bytes,
+                "invalid wire format: bytes after child submissions frame",
+            ),
+            (
+                builder.release(),
+                "invalid wire format: child submission is missing its inputs payload",
+            ),
+        ] {
+            let error = ExecutionSuccessOutcome::from_wire(bytes)
+                .expect_err("malformed child frame must fail");
+            assert_eq!(error, TdlError::DeserializationError(diagnostic.to_owned()));
+        }
         Ok(())
     }
 
