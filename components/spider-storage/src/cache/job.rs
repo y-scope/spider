@@ -294,6 +294,14 @@ impl<
 
     /// # Returns
     ///
+    /// Whether the job is a root, i.e., has no parent.
+    #[must_use]
+    pub fn is_root(&self) -> bool {
+        self.inner.parent_id.is_none()
+    }
+
+    /// # Returns
+    ///
     /// The job's depth in its tree, 0 for a root.
     #[must_use]
     pub fn depth(&self) -> u32 {

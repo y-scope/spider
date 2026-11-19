@@ -319,6 +319,16 @@ async fn child_insertions_return_their_ids_in_order_across_chunks() -> anyhow::R
         storage.get_state(parent_id).await?,
         JobState::BlockingOnChildren
     );
+    assert_eq!(
+        storage.get_state_and_parent(parent_id).await?,
+        (JobState::BlockingOnChildren, None)
+    );
+    for child_id in child_ids {
+        assert_eq!(
+            storage.get_state_and_parent(child_id).await?,
+            (JobState::Running, Some(parent_id))
+        );
+    }
     pool.close().await;
     drop(storage);
     isolated_test_db.drop_database().await;
