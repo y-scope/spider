@@ -21,6 +21,8 @@ use crate::cache::tree::Pending;
 use crate::cache::tree::TreeControlBlock;
 use crate::cache::tree::TreeEvent;
 use crate::cache::tree::TreeEventKind;
+#[cfg(feature = "test-hooks")]
+use crate::cache::tree::TreeEventOutcome;
 use crate::cache::tree::TreeEventReply;
 use crate::db::DbError;
 use crate::inbound_queue::InboundQueueSender;
@@ -167,6 +169,52 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
             .push_back(error);
     }
 
+    /// Makes the next successful tree transition of the mock database return `child_id_count` child
+    /// IDs in place of one per insertion.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the mutex of the injected child ID counts is poisoned.
+    pub(super) fn inject_child_id_count(&self, child_id_count: usize) {
+        self.db
+            .injected_child_id_counts
+            .lock()
+            .expect("the injected child ID counts' mutex should not be poisoned")
+            .push_back(child_id_count);
+    }
+
+    /// Checks that `child_id` is a running child of `parent_id` at `depth`, both in the job cache
+    /// and as a child row of the mock database in the tree's root and in the root's resource group.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any check fails.
+    pub(super) async fn assert_running_child(&self, child_id: JobId, parent_id: JobId, depth: u32) {
+        assert_eq!(
+            (
+                self.db.parents.get(&child_id).map(|entry| *entry),
+                self.db.roots.get(&child_id).map(|entry| *entry),
+                self.db.child_owner_ids.get(&child_id).map(|entry| *entry),
+            ),
+            (Some(parent_id), Some(ROOT_ID), Some(self.owner_id)),
+            "the child {child_id:?} should be a row under its parent in the tree's root and owner"
+        );
+        let child = self
+            .job_cache
+            .get(child_id)
+            .await
+            .expect("a registered child should be cached");
+        assert_eq!(
+            (
+                child.state().await,
+                child.parent_id(),
+                child.depth(),
+                child.owner_id()
+            ),
+            (JobState::Running, Some(parent_id), depth, self.owner_id)
+        );
+    }
+
     /// Waits until the tree's committer exits.
     ///
     /// # Panics
@@ -194,25 +242,86 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
         )
     }
 
+    /// Starts the root, then registers `children` of it in a later round.
+    ///
+    /// # Returns
+    ///
+    /// The IDs of the registered children, in ascending order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the root does not start or does not block on its registered children.
+    #[cfg(feature = "test-hooks")]
+    pub(super) async fn start_and_register_children(
+        &self,
+        children: Vec<PreparedChild>,
+    ) -> Vec<JobId> {
+        let start = reply(self.submit(start())).await;
+        assert!(
+            matches!(start, Ok(TreeEventOutcome::Applied(JobState::Running))),
+            "a start gave {start:?}"
+        );
+        let registration = reply(self.submit(registration(children))).await;
+        assert!(
+            matches!(
+                registration,
+                Ok(TreeEventOutcome::Applied(JobState::BlockingOnChildren))
+            ),
+            "a registration gave {registration:?}"
+        );
+        let mut child_ids: Vec<JobId> = self
+            .db
+            .parents
+            .iter()
+            .filter(|entry| *entry.value() == ROOT_ID)
+            .map(|entry| *entry.key())
+            .collect();
+        child_ids.sort_unstable_by_key(JobId::get);
+        child_ids
+    }
+
     /// Submits an event of each of `kinds` of the root, in order, while the tree's committer is
     /// paused before it receives the queued events, so that one round receives them all.
     ///
     /// # Returns
     ///
     /// The tasks that wait for the events' replies, in the order of `kinds`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the committer does not wake for the first event within 5 seconds.
     #[cfg(feature = "test-hooks")]
     pub(super) async fn submit_in_one_round(
         &self,
         kinds: Vec<TreeEventKind>,
     ) -> Vec<JoinHandle<TreeEventReply>> {
+        self.submit_events_in_one_round(
+            kinds
+                .into_iter()
+                .map(|kind| TreeEvent {
+                    job_id: ROOT_ID,
+                    kind,
+                })
+                .collect(),
+        )
+        .await
+    }
+
+    /// Submits each of `events`, in order, while the tree's committer is paused before it receives
+    /// the queued events, so that one round receives them all.
+    ///
+    /// # Returns
+    ///
+    /// The tasks that wait for the events' replies, in the order of `events`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the committer does not wake for the first event within 5 seconds.
+    #[cfg(feature = "test-hooks")]
+    pub(super) async fn submit_events_in_one_round(
+        &self,
+        events: Vec<TreeEvent>,
+    ) -> Vec<JoinHandle<TreeEventReply>> {
         let pause = self.arm_pause(HookPoint::CommitterBeforeReceive);
-        let reply_join_handles = kinds
+        let reply_join_handles = events
             .into_iter()
-            .map(|kind| tokio::spawn(self.submit(kind)))
+            .map(|event| tokio::spawn(self.control_block.submit(event)))
             .collect();
         pause
             .reached(1, TIMEOUT)

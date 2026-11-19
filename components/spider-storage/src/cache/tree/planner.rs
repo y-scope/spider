@@ -32,8 +32,8 @@ pub struct Plan {
     /// The outcome of each event of the round, in the round's order.
     pub outcomes: Vec<RoundOutcome>,
 
-    /// The children to register, at most one parent's.
-    pub registration: Option<PlannedRegistration>,
+    /// The child sets to register, one per registering event, in the round's order.
+    pub registrations: Vec<PlannedRegistration>,
 
     /// The number of bytes of job outputs and child payloads that the plan writes.
     payload_size: u64,
@@ -45,7 +45,6 @@ impl Plan {
     /// Whether `event_plan` can join this plan:
     ///
     /// * [`Admission::JobConflict`] if it changes a job that this plan changes.
-    /// * [`Admission::ChildSetAlreadyPlanned`] if it registers children and this plan does too.
     /// * [`Admission::PayloadBudgetExceeded`] if it writes payload, this plan writes payload too,
     ///   and the payload of both exceeds [`MAX_ROUND_PAYLOAD`].
     /// * [`Admission::Admitted`] otherwise.
@@ -56,9 +55,6 @@ impl Plan {
                 .any(|planned_update| planned_update.job_id == update.job_id)
         }) {
             return Admission::JobConflict(update.job_id);
-        }
-        if event_plan.registration.is_some() && self.registration.is_some() {
-            return Admission::ChildSetAlreadyPlanned;
         }
         let payload_size = event_plan.payload_size();
         if payload_size == 0
@@ -79,7 +75,7 @@ impl Plan {
             children,
         }) = event_plan.registration
         {
-            self.registration = Some(PlannedRegistration {
+            self.registrations.push(PlannedRegistration {
                 event_index: self.outcomes.len(),
                 parent_id,
                 children,
@@ -158,10 +154,6 @@ pub(super) enum Admission {
     /// already changes.
     JobConflict(JobId),
 
-    /// The event is deferred to a later round: it registers children while the round's plan already
-    /// registers a child set.
-    ChildSetAlreadyPlanned,
-
     /// The event is deferred to a later round: its outputs and children would push the round's
     /// payload over [`MAX_ROUND_PAYLOAD`].
     PayloadBudgetExceeded,
@@ -188,8 +180,8 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
     }
 
     /// Plans `event` against the overlay, then applies its admission: an admitted event's plan is
-    /// merged into the round's plan and the overlay; an event that registers a second child set or
-    /// is over the payload budget is deferred; a job conflict applies nothing.
+    /// merged into the round's plan and the overlay; an event over the payload budget is deferred;
+    /// a job conflict applies nothing.
     ///
     /// # Returns
     ///
@@ -203,7 +195,7 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
                 self.plan.merge(event_plan);
             }
             Admission::JobConflict(_) => {}
-            Admission::ChildSetAlreadyPlanned | Admission::PayloadBudgetExceeded => {
+            Admission::PayloadBudgetExceeded => {
                 self.plan.defer();
             }
         }
@@ -660,24 +652,41 @@ mod tests {
     }
 
     #[test]
-    fn a_second_child_set_is_deferred_but_an_event_without_one_is_admitted() {
+    fn every_child_set_of_a_round_is_planned_in_order_within_the_payload_budget() {
         let children = ChildJobUsage { count: 1, size: 1 };
         let mut plan = Plan::default();
         plan.merge(completion(2, 1));
         plan.merge(registration(3, children));
         assert_eq!(
-            plan.registration,
-            Some(PlannedRegistration {
-                event_index: 1,
-                parent_id: JobId::from(3),
-                children,
-            })
+            plan.admission(&registration(4, children)),
+            Admission::Admitted
         );
 
+        plan.merge(registration(4, children));
         assert_eq!(
-            plan.admission(&registration(4, children)),
-            Admission::ChildSetAlreadyPlanned
+            plan.registrations,
+            [
+                PlannedRegistration {
+                    event_index: 1,
+                    parent_id: JobId::from(3),
+                    children,
+                },
+                PlannedRegistration {
+                    event_index: 2,
+                    parent_id: JobId::from(4),
+                    children,
+                },
+            ]
         );
-        assert_eq!(plan.admission(&completion(4, 1)), Admission::Admitted);
+        assert_eq!(
+            plan.admission(&registration(
+                5,
+                ChildJobUsage {
+                    count: 1,
+                    size: MAX_ROUND_PAYLOAD,
+                }
+            )),
+            Admission::PayloadBudgetExceeded
+        );
     }
 }
