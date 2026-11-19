@@ -61,7 +61,13 @@ fn encode_complex_vec_pair(a: &ComplexVec, b: &ComplexVec) -> anyhow::Result<Vec
     Ok(inputs.release())
 }
 
-/// Decodes a single complex number from a result with no child submissions.
+/// # Returns
+///
+/// The decoded complex number on success.
+///
+/// # Panics
+///
+/// Panics if the result contains child submissions.
 fn decode_complex(outcome: &ExecutionSuccessOutcome) -> anyhow::Result<Complex> {
     assert_eq!(outcome.children, []);
     let outputs = TaskOutputsSerializer::deserialize(&outcome.outputs)?;
@@ -73,7 +79,13 @@ fn decode_complex(outcome: &ExecutionSuccessOutcome) -> anyhow::Result<Complex> 
     Ok(rmp_serde::from_slice(&outputs[0])?)
 }
 
-/// Decodes a single complex vector from a result with no child submissions.
+/// # Returns
+///
+/// The decoded complex vector on success.
+///
+/// # Panics
+///
+/// Panics if the result contains child submissions.
 fn decode_complex_vec(outcome: &ExecutionSuccessOutcome) -> anyhow::Result<ComplexVec> {
     assert_eq!(outcome.children, []);
     let outputs = TaskOutputsSerializer::deserialize(&outcome.outputs)?;

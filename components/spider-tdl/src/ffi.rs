@@ -170,8 +170,8 @@ impl TaskExecutionResult {
     ///
     /// # Returns
     ///
-    /// `Ok(bytes)` on success, containing the outputs frame followed by the child submissions
-    /// frame for task execution, or an empty buffer for package initialization.
+    /// `Ok(bytes)` on success, containing the outputs frame followed by the child submissions frame
+    /// for task execution, or an empty buffer for package initialization.
     ///
     /// # Errors
     ///
