@@ -44,23 +44,25 @@ impl ExecutionSuccessOutcome {
     ///
     /// Returns an error if:
     ///
-    /// * [`WireError::InvalidFormat`] if a child payload is missing its pair or bytes follow the
-    ///   second frame.
-    /// * Forwards [`WireFrameBuilder::unframe_payload_slices`]'s return values on failure.
-    pub fn from_wire(bytes: &[u8]) -> Result<Self, WireError> {
-        let (_, remaining) = WireFrameBuilder::unframe_payload_slices(bytes)?;
+    /// * [`TdlError::DeserializationError`] if either frame is malformed, a child payload is
+    ///   missing its pair, or bytes follow the second frame.
+    pub fn from_wire(bytes: &[u8]) -> Result<Self, TdlError> {
+        let to_decode_error = |error: WireError| TdlError::DeserializationError(error.to_string());
+        let (_, remaining) =
+            WireFrameBuilder::unframe_payload_slices(bytes).map_err(to_decode_error)?;
         let outputs_len = bytes.len() - remaining.len();
-        let (child_payloads, remaining) = WireFrameBuilder::unframe_payload_slices(remaining)?;
+        let (child_payloads, remaining) =
+            WireFrameBuilder::unframe_payload_slices(remaining).map_err(to_decode_error)?;
         if !remaining.is_empty() {
-            return Err(WireError::InvalidFormat(
+            return Err(to_decode_error(WireError::InvalidFormat(
                 "bytes after child submissions frame",
-            ));
+            )));
         }
         let (children, unpaired) = child_payloads.as_chunks::<2>();
         if !unpaired.is_empty() {
-            return Err(WireError::InvalidFormat(
+            return Err(to_decode_error(WireError::InvalidFormat(
                 "child submission is missing its inputs payload",
-            ));
+            )));
         }
         Ok(Self {
             outputs: bytes[..outputs_len].to_vec(),
