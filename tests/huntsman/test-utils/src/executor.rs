@@ -16,6 +16,7 @@
 
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::time::Duration;
 
 use bytes::Bytes;
 use futures_util::SinkExt;
@@ -37,6 +38,7 @@ use tokio::process::Child;
 use tokio::process::ChildStdin;
 use tokio::process::ChildStdout;
 use tokio::process::Command;
+use tokio::time::timeout;
 use tokio_util::codec::FramedRead;
 use tokio_util::codec::FramedWrite;
 use tokio_util::codec::LengthDelimitedCodec;
@@ -92,13 +94,16 @@ impl ExecutorHandle {
     ///
     /// # Panics
     ///
-    /// Panics if encoding fails or the stdin pipe cannot be written.
+    /// Panics if encoding fails or writing to stdin fails or times out.
     pub async fn send(&mut self, req: &Request) {
         let bytes = bincode::serialize(req).expect("bincode encode Request");
-        self.requests
-            .send(Bytes::from(bytes))
-            .await
-            .expect("write request frame");
+        timeout(
+            EXECUTOR_WAIT_TIMEOUT,
+            self.requests.send(Bytes::from(bytes)),
+        )
+        .await
+        .expect("timed out writing executor request")
+        .expect("write request frame");
     }
 
     /// Reads exactly one length-delimited frame from the executor's stdout and bincode-decodes it.
@@ -109,15 +114,11 @@ impl ExecutorHandle {
     ///
     /// # Panics
     ///
-    /// Panics if stdout closes before a frame arrives, the frame I/O fails, or decoding fails.
+    /// Panics if stdout closes before a frame arrives.
     pub async fn recv(&mut self) -> Response {
-        let frame = self
-            .responses
-            .next()
+        self.try_recv()
             .await
             .expect("executor closed stdout before reply")
-            .expect("read response frame");
-        bincode::deserialize(&frame).expect("bincode decode Response")
     }
 
     /// Reads at most one length-delimited frame, tolerating a clean EOF (which crash-path tests
@@ -129,9 +130,11 @@ impl ExecutorHandle {
     ///
     /// # Panics
     ///
-    /// Panics if the frame I/O fails for a reason other than EOF or if decoding fails.
+    /// Panics if the frame read fails or times out, or if decoding fails.
     pub async fn try_recv(&mut self) -> Option<Response> {
-        let frame = self.responses.next().await?;
+        let frame = timeout(EXECUTOR_WAIT_TIMEOUT, self.responses.next())
+            .await
+            .expect("timed out waiting for executor response")?;
         let bytes = frame.expect("read response frame");
         Some(bincode::deserialize(&bytes).expect("bincode decode Response"))
     }
@@ -140,17 +143,14 @@ impl ExecutorHandle {
     ///
     /// # Panics
     ///
-    /// Panics if waiting on the child fails or the child exits non-zero.
+    /// Panics if the executor exits with a non-zero status.
     pub async fn shutdown_clean(mut self) {
         self.send(&Request::Shutdown).await;
-        // Close the stdin pipe so the child sees EOF after `Shutdown` is drained.
-        drop(self.requests);
-        let status = self.child.wait().await.expect("wait for executor");
+        let status = self.wait_for_exit().await;
         assert!(status.success(), "executor exited with status {status:?}");
     }
 
-    /// Closes stdin and waits for the child to exit. Used by crash-path tests that don't expect
-    /// a clean shutdown.
+    /// Closes stdin and waits for the executor to exit.
     ///
     /// # Returns
     ///
@@ -158,10 +158,13 @@ impl ExecutorHandle {
     ///
     /// # Panics
     ///
-    /// Panics if waiting on the child fails.
+    /// Panics if waiting on the executor fails or times out.
     pub async fn wait_for_exit(mut self) -> std::process::ExitStatus {
         drop(self.requests);
-        self.child.wait().await.expect("wait for executor")
+        timeout(EXECUTOR_WAIT_TIMEOUT, self.child.wait())
+            .await
+            .expect("timed out waiting for executor to exit")
+            .expect("wait for executor")
     }
 }
 
@@ -370,3 +373,6 @@ pub fn commit_execute_request<ValueType: serde::Serialize>(
         raw_inputs: encode_no_inputs(),
     }
 }
+
+/// Maximum wait for a request write, response read, or subprocess exit.
+const EXECUTOR_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
