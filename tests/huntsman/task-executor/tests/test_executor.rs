@@ -22,6 +22,21 @@ use test_utils::execute_request;
 
 /// Asserts that `outcome` is a task [`TdlError::ExecutionError`] whose message contains `needle`.
 fn assert_task_execution_error(outcome: ExecutorOutcome, needle: &str) {
+    let message = task_execution_error_message(outcome);
+    assert!(
+        message.contains(needle),
+        "unexpected error message: {message}",
+    );
+}
+
+/// # Returns
+///
+/// The decoded [`TdlError::ExecutionError`] message.
+///
+/// # Panics
+///
+/// Panics if the outcome does not contain an encoded task execution error.
+fn task_execution_error_message(outcome: ExecutorOutcome) -> String {
     match outcome {
         ExecutorOutcome::Success { outputs, .. } => {
             panic!("expected Failure, got Success with {} bytes", outputs.len());
@@ -29,13 +44,10 @@ fn assert_task_execution_error(outcome: ExecutorOutcome, needle: &str) {
         ExecutorOutcome::Failure { error } => {
             let err: ExecutorError =
                 rmp_serde::from_slice(&error).expect("decode ExecutorError payload");
-            let ExecutorError::TaskError(TdlError::ExecutionError(message)) = &err else {
+            let ExecutorError::TaskError(TdlError::ExecutionError(message)) = err else {
                 panic!("expected TaskError(ExecutionError), got {err:?}");
             };
-            assert!(
-                message.contains(needle),
-                "unexpected error message: {message}",
-            );
+            message
         }
     }
 }
@@ -323,7 +335,10 @@ async fn failed_execution_discards_child_submissions() -> anyhow::Result<()> {
         ))
         .await;
     let Response::Result { outcome, .. } = handle.recv().await;
-    assert_task_execution_error(outcome, "intentional failure after child creation");
+    assert_eq!(
+        task_execution_error_message(outcome),
+        "intentional failure after child creation"
+    );
     handle
         .send(&execute_request("fibonacci", encode_single_input(&7_u64)))
         .await;
