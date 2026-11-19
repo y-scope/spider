@@ -35,7 +35,7 @@ pub struct TaskContext {
     pub resource_group_id: ResourceGroupId,
     serialized_task_graph_outputs: Option<Vec<u8>>,
     #[serde(skip)]
-    child_jobs: Arc<Mutex<Vec<CompressedJobSubmission>>>,
+    child_jobs: ChildJobSubmissions,
 }
 
 impl TaskContext {
@@ -82,7 +82,7 @@ impl TaskContext {
             task_instance_id,
             resource_group_id,
             serialized_task_graph_outputs,
-            child_jobs: Arc::default(),
+            child_jobs: ChildJobSubmissions::default(),
         })
     }
 
@@ -120,6 +120,7 @@ impl TaskContext {
                 .map_err(|e| TdlError::SerializationError(e.to_string()))?,
         };
         self.child_jobs
+            .submissions
             .lock()
             .expect("child submission lock must not be poisoned")
             .push(child);
@@ -148,17 +149,29 @@ impl TaskContext {
         }
     }
 
+    pub(crate) const fn child_jobs(&self) -> &ChildJobSubmissions {
+        &self.child_jobs
+    }
+}
+
+/// Shared collection of child job submissions.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ChildJobSubmissions {
+    submissions: Arc<Mutex<Vec<CompressedJobSubmission>>>,
+}
+
+impl ChildJobSubmissions {
     /// Takes the collected child submissions.
     ///
     /// # Returns
     ///
     /// The collected child submissions in submission order.
-    pub(crate) fn take_child_jobs(&self) -> Vec<CompressedJobSubmission> {
-        let mut child_jobs = self
-            .child_jobs
+    pub(crate) fn take(&self) -> Vec<CompressedJobSubmission> {
+        let mut submissions = self
+            .submissions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        std::mem::take(&mut *child_jobs)
+        std::mem::take(&mut *submissions)
     }
 }
 
@@ -250,7 +263,7 @@ mod tests {
             ctx.create_child_job(&graph, &input)?;
             expected_inputs.push(input);
         }
-        let children = ctx.take_child_jobs();
+        let children = ctx.child_jobs().take();
         assert_eq!(children.len(), expected_inputs.len());
         for (child, expected_input) in children.iter().zip(expected_inputs) {
             assert_eq!(
@@ -277,8 +290,8 @@ mod tests {
         let input = builder.build();
         ctx.create_child_job(&graph, &input)?;
         cloned.create_child_job(&graph, &input)?;
-        assert_eq!(cloned.take_child_jobs().len(), 2);
-        assert_eq!(ctx.take_child_jobs(), Vec::new());
+        assert_eq!(cloned.child_jobs().take().len(), 2);
+        assert_eq!(ctx.child_jobs().take(), Vec::new());
         Ok(())
     }
 
@@ -294,7 +307,7 @@ mod tests {
                 ctx.create_child_job(&graph, &input),
                 Err(TdlError::InvalidTaskContext(_))
             ));
-            assert_eq!(ctx.take_child_jobs(), Vec::new());
+            assert_eq!(ctx.child_jobs().take(), Vec::new());
         }
         Ok(())
     }
