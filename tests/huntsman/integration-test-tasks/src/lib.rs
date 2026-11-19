@@ -38,6 +38,27 @@ mod task_decl {
 
     use crate::INSTRUMENT_SLEEP_US;
 
+    #[derive(serde::Deserialize)]
+    pub struct EmptyParams {}
+
+    /// A task that returns malformed bytes from its return serializer.
+    pub struct MalformedSuccess;
+
+    impl spider_tdl::Task for MalformedSuccess {
+        type Params = EmptyParams;
+        type Return = ();
+
+        const NAME: &'static str = "malformed_success";
+
+        fn execute(_ctx: TaskContext, _params: Self::Params) -> Result<Self::Return, TdlError> {
+            Ok(())
+        }
+
+        fn serialize_return(_result: &Self::Return) -> Result<Vec<u8>, TdlError> {
+            Ok(Vec::new())
+        }
+    }
+
     /// Package init hook. Records that init ran, or fails when `SPIDER_TEST_TDL_INIT_SHOULD_FAIL`
     /// is set (used by the executor's init integration test).
     ///
@@ -252,6 +273,7 @@ spider_tdl::register_tdl_package! {
         task_decl::generate_payload,
         task_decl::always_fail,
         task_decl::always_panic,
+        task_decl::MalformedSuccess,
         task_decl::create_children,
         task_decl::create_children_then_fail,
         task_decl::create_children_then_panic,

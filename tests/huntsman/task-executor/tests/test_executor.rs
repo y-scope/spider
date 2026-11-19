@@ -97,6 +97,29 @@ async fn always_fail_reports_task_error() {
 
 #[tokio::test]
 #[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn malformed_success_reports_deserialization_failure() -> anyhow::Result<()> {
+    let mut handle = ExecutorHandle::spawn();
+    handle
+        .send(&execute_request("malformed_success", encode_no_inputs()))
+        .await;
+    let Response::Result { outcome, .. } = handle.recv().await;
+    let ExecutorOutcome::Failure { error } = outcome else {
+        panic!("expected failure for malformed success, got {outcome:?}");
+    };
+    let error: ExecutorError = rmp_serde::from_slice(&error)?;
+    let ExecutorError::SuccessPayloadDeserializationFailure(message) = error else {
+        panic!("expected success payload deserialization failure, got {error:?}");
+    };
+    assert_eq!(
+        message,
+        "deserialization error: invalid wire format: buffer too small for the payload count header"
+    );
+    handle.shutdown_clean().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
 async fn always_panic_crashes_the_process() {
     let mut handle = ExecutorHandle::spawn();
     handle
