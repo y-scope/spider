@@ -149,8 +149,8 @@ impl ExecutorHandle {
         assert!(status.success(), "executor exited with status {status:?}");
     }
 
-    /// Closes stdin and waits for the child to exit. Used by crash-path tests that don't expect
-    /// a clean shutdown.
+    /// Closes stdin and waits for the child to exit. Used by crash-path tests that don't expect a
+    /// clean shutdown.
     ///
     /// # Returns
     ///

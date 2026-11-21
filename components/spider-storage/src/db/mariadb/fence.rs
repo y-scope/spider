@@ -99,8 +99,8 @@ impl MariaDbStorageConnector {
 /// [`DatabaseConfig::fence_id`](crate::config::DatabaseConfig::fence_id) overrides it.
 pub(super) const DEFAULT_FENCE_ID: u64 = 0;
 
-/// The parameters of a write statement's fence predicate: the statement writes only while the
-/// fence row `fence_id` holds `session_id`.
+/// The parameters of a write statement's fence predicate: the statement writes only while the fence
+/// row `fence_id` holds `session_id`.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct FencePredicate {
     pub(super) fence_id: u64,

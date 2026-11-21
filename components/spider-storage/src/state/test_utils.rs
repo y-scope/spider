@@ -557,8 +557,8 @@ pub fn create_test_task_graph_input() -> TaskGraphInput {
 
 /// # Returns
 ///
-/// A task graph input of `num_inputs` positional inputs, each the msgpack serialization of a
-/// 4-byte zero array.
+/// A task graph input of `num_inputs` positional inputs, each the msgpack serialization of a 4-byte
+/// zero array.
 ///
 /// # Panics
 ///
@@ -660,7 +660,7 @@ pub async fn create_test_incompressible_prepared_child(input_size: u64) -> Prepa
 
 /// # Returns
 ///
-/// The prepared children of [`create_test_prepared_child`] for the input bytes `0` to
+/// The prepared children of [`create_test_prepared_child`] for the input bytes from `0` to
 /// `num_children - 1`, in order.
 pub async fn create_test_prepared_children(num_children: u8) -> Vec<PreparedChild> {
     let mut children = Vec::with_capacity(usize::from(num_children));

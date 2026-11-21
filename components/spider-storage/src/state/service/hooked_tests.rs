@@ -92,8 +92,8 @@ async fn start_job_with_instance(service: &TestServiceState) -> (JobId, TaskInst
     (job_id, context.task_instance_id)
 }
 
-/// Registers and starts a one-task job with a commit task and a cleanup task in `service`,
-/// drives the job until `task_id` is ready, and creates an instance of `task_id`.
+/// Registers and starts a one-task job with a commit task and a cleanup task in `service`, drives
+/// the job until `task_id` is ready, and creates an instance of `task_id`.
 ///
 /// # Returns
 ///
@@ -203,8 +203,7 @@ async fn wait_for_tasks(service: &TestServiceState) {
         .expect("every task of the task tracker should exit");
 }
 
-/// Asserts that `result` is an internal error, and that the service has shut down
-/// fatally.
+/// Asserts that `result` is an internal error, and that the service has shut down fatally.
 ///
 /// # Type Parameters
 ///
@@ -212,8 +211,7 @@ async fn wait_for_tasks(service: &TestServiceState) {
 ///
 /// # Panics
 ///
-/// Panics if `result` is not an internal error, or if the service has not shut down
-/// fatally.
+/// Panics if `result` is not an internal error, or if the service has not shut down fatally.
 fn assert_shut_down_fatally<ValueType: Debug>(
     service: &TestServiceState,
     result: &Result<ValueType, StorageServerError>,

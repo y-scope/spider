@@ -45,8 +45,8 @@ pub enum WireError {
         source: rmp_serde::decode::Error,
     },
 
-    /// The wire buffer is malformed -- truncated, corrupted, or otherwise not a valid framing
-    /// of a payload sequence.
+    /// The wire buffer is malformed -- truncated, corrupted, or otherwise not a valid framing of a
+    /// payload sequence.
     #[error("invalid wire format: {0}")]
     InvalidFormat(&'static str),
 
@@ -54,8 +54,8 @@ pub enum WireError {
     #[error("wire format overflow: {0}")]
     Overflow(String),
 
-    /// Catch-all bucket required by [`serde::de::Error`] for deserializer-reported errors that
-    /// do not fit any specific variant.
+    /// Catch-all bucket required by [`serde::de::Error`] for deserializer-reported errors that do
+    /// not fit any specific variant.
     #[error("{0}")]
     Custom(String),
 }
@@ -72,12 +72,12 @@ impl ser::Error for WireError {
     }
 }
 
-/// Serializes a tuple by decomposing it into individual elements, encoding each element as
-/// msgpack, and framing them in the wire format.
+/// Serializes a tuple by decomposing it into individual elements, encoding each element as msgpack,
+/// and framing them in the wire format.
 ///
-/// This drives serde's `Serialize` impl for the tuple: serde calls `serialize_tuple(len)`
-/// followed by `serialize_element` for each element. A custom [`TupleOutputSerializer`]
-/// intercepts these calls and frames each element into the wire buffer.
+/// This drives serde's `Serialize` impl for the tuple: serde calls `serialize_tuple(len)` followed
+/// by `serialize_element` for each element. A custom [`TupleOutputSerializer`] intercepts these
+/// calls and frames each element into the wire buffer.
 ///
 /// # Type Parameters
 ///
@@ -148,8 +148,8 @@ const FIELD_LEN_PREFIX_LEN: usize = 4;
 
 /// Streaming wire-format builder that frames a sequence of byte payloads.
 ///
-/// Reserves space for the `u32` count header upfront and patches it in [`Self::release`] once
-/// the final count is known. Each [`Self::append_payload`] call writes a length-prefixed payload
+/// Reserves space for the `u32` count header upfront and patches it in [`Self::release`] once the
+/// final count is known. Each [`Self::append_payload`] call writes a length-prefixed payload
 /// directly into the buffer.
 pub struct WireFrameBuilder {
     buffer: Vec<u8>,
@@ -361,9 +361,9 @@ impl Default for WireFrameBuilder {
 
 /// Single-pass, zero-copy cursor over a wire-format byte stream.
 ///
-/// Holds a borrowed slice of the wire buffer and a position cursor. The cursor advances each
-/// time a field is consumed, yielding borrowed slices into the buffer that can be handed to
-/// `rmp_serde` for payload deserialization.
+/// Holds a borrowed slice of the wire buffer and a position cursor. The cursor advances each time a
+/// field is consumed, yielding borrowed slices into the buffer that can be handed to `rmp_serde`
+/// for payload deserialization.
 ///
 /// The cursor implements [`serde::Deserializer`] (on `&mut StreamDeserializer`), driving struct
 /// deserialization where each struct field positionally consumes one wire-format payload.
@@ -414,8 +414,8 @@ impl<'de> StreamDeserializer<'de> {
         })
     }
 
-    /// Advances the cursor past the next length-prefixed payload and returns a borrowed slice
-    /// of the payload bytes.
+    /// Advances the cursor past the next length-prefixed payload and returns a borrowed slice of
+    /// the payload bytes.
     ///
     /// The returned slice is a zero-copy view into the original wire buffer; it can be handed
     /// directly to `rmp_serde` without an intermediate allocation.
@@ -453,14 +453,14 @@ impl<'de> StreamDeserializer<'de> {
     }
 }
 
-/// Serde [`serde::Deserializer`] impl that drives struct deserialization from a wire-format
-/// byte stream.
+/// Serde [`serde::Deserializer`] impl that drives struct deserialization from a wire-format byte
+/// stream.
 ///
 /// Only [`Self::deserialize_struct`] is meaningful: it validates the payload count against the
-/// struct's field count, stores the struct name and field names for error reporting, and
-/// delegates to [`FieldSeqAccess`] to visit each field positionally. All other `deserialize_*`
-/// methods route through [`Self::deserialize_any`], which always returns [`WireError::Custom`]
-/// since the wire format only carries struct-shaped data.
+/// struct's field count, stores the struct name and field names for error reporting, and delegates
+/// to [`FieldSeqAccess`] to visit each field positionally. All other `deserialize_*` methods route
+/// through [`Self::deserialize_any`], which always returns [`WireError::Custom`] since the wire
+/// format only carries struct-shaped data.
 impl<'de> serde::Deserializer<'de> for &mut StreamDeserializer<'de> {
     type Error = WireError;
 

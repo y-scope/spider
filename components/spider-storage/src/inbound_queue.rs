@@ -70,8 +70,7 @@ pub trait InboundQueueSender: Clone + Send + Sync {
         task_indices: Vec<TaskIndex>,
     ) -> Result<(), InternalError>;
 
-    /// Enqueues a signal indicating that the commit task of the given job is ready to be
-    /// scheduled.
+    /// Enqueues a signal indicating that the commit task of the given job is ready to be scheduled.
     ///
     /// # Parameters
     ///

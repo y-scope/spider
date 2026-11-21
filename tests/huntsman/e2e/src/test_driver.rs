@@ -1,5 +1,5 @@
-//! The shared end-to-end test driver that submits jobs to a live Spider deployment and drives
-//! them to a terminal state.
+//! The shared end-to-end test driver that submits jobs to a live Spider deployment and drives them
+//! to a terminal state.
 //!
 //! The driver is a lazily initialized process-wide singleton. It reads its Spider endpoint and
 //! concurrency configuration from environment variables and serializes access to the underlying

@@ -113,8 +113,8 @@ impl std::fmt::Debug for ChildJobInsertion<'_> {
     }
 }
 
-/// The database part of one tree state transaction: every job row it updates and every child row
-/// it inserts.
+/// The database part of one tree state transaction: every job row it updates and every child row it
+/// inserts.
 ///
 /// # Type Parameters
 ///
@@ -336,8 +336,8 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///
     /// # Returns
     ///
-    /// All persisted jobs in [`JobState::Ready`], [`JobState::Running`],
-    /// [`JobState::CommitReady`], or [`JobState::CleanupReady`] on success.
+    /// All persisted jobs in [`JobState::Ready`], [`JobState::Running`], [`JobState::CommitReady`],
+    /// or [`JobState::CleanupReady`] on success.
     ///
     /// # Errors
     ///

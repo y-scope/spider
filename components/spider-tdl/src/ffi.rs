@@ -1,7 +1,7 @@
 //! `#[repr(C)]` types shared across the TDL package / task executor C-FFI boundary.
 //!
-//! Both sides of the boundary live in the same process and share the same Rust global allocator,
-//! so buffers allocated on one side can be reclaimed on the other via [`Box::into_raw`] /
+//! Both sides of the boundary live in the same process and share the same Rust global allocator, so
+//! buffers allocated on one side can be reclaimed on the other via [`Box::into_raw`] /
 //! [`Box::from_raw`].
 
 use std::ffi::c_char;
@@ -13,8 +13,8 @@ use std::str::Utf8Error;
 
 /// Borrowed, C-ABI-compatible view of a contiguous slice `&'borrow_lifetime [ElementType]`.
 ///
-/// [`CArray`] implements [`Deref<Target = [ElementType]>`][Deref] so that all slice methods
-/// are available directly, without requiring a conversion call.
+/// [`CArray`] implements [`Deref<Target = [ElementType]>`][Deref] so that all slice methods are
+/// available directly, without requiring a conversion call.
 ///
 /// # Type Parameters
 ///
@@ -140,8 +140,8 @@ pub type CByteArray<'borrow_lifetime> = CArray<'borrow_lifetime, u8>;
 ///
 /// The buffer is allocated on the TDL-package side by leaking a `Box<[u8]>` via [`Box::into_raw`]
 /// and reclaimed on the executor side via [`Box::from_raw`]. This only works because both sides
-/// share the same global allocator, which is true when the package is loaded via `dlopen` into
-/// the executor process.
+/// share the same global allocator, which is true when the package is loaded via `dlopen` into the
+/// executor process.
 #[repr(C)]
 pub struct TaskExecutionResult {
     is_error: bool,
@@ -166,8 +166,8 @@ impl TaskExecutionResult {
     ///
     /// # Returns
     ///
-    /// `Ok(bytes)` on success, where `bytes` is the wire-format output payload produced by the
-    /// user task.
+    /// `Ok(bytes)` on success, where `bytes` is the wire-format output payload produced by the user
+    /// task.
     ///
     /// # Errors
     ///
