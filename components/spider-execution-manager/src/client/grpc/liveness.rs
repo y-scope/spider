@@ -114,8 +114,8 @@ fn status_to_error(status: &Status) -> LivenessResponseError {
 
 /// # Returns
 ///
-/// [`storage::RegisterExecutionManagerResponse`] converted into [`Result<RegistrationResponse,
-/// LivenessResponseError>`].
+/// [`storage::RegisterExecutionManagerResponse`] converted into
+/// [`Result<RegistrationResponse, LivenessResponseError>`].
 fn register_response_to_result(
     response: storage::RegisterExecutionManagerResponse,
 ) -> Result<RegistrationResponse, LivenessResponseError> {

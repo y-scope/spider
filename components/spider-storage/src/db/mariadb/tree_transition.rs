@@ -601,8 +601,8 @@ fn exceeds_max_allowed_packet(chunk: &[ChildJobInsertion<'_>], max_allowed_packe
     payload > max_allowed_packet.saturating_sub(MAX_STATEMENT_OVERHEAD)
 }
 
-/// Inserts `chunk` as child jobs in [`JobState::Running`] with one multi-row `INSERT ...
-/// RETURNING`.
+/// Inserts `chunk` as child jobs in [`JobState::Running`] with one multi-row
+/// `INSERT ... RETURNING`.
 ///
 /// # Returns
 ///

@@ -66,8 +66,9 @@
 //!
 //! # Generic test design
 //!
-//! All test logic is generic over `DbConnectorType` via an async factory callback `AsyncFnOnce() ->
-//! DbConnectorType`, so the same tests can be rerun with a real DB connector later.
+//! All test logic is generic over `DbConnectorType` via an async factory callback
+//! `AsyncFnOnce() -> DbConnectorType`, so the same tests can be rerun with a real DB connector
+//! later.
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
