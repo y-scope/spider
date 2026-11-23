@@ -371,7 +371,7 @@ fn spawn_scheduler_with_reschedule(
 ///
 /// Returns an error if:
 ///
-/// * Fewer than `n` assignments arrive within [`DRAIN_DEADLINE`].
+/// * [`anyhow::Error`] if fewer than `n` assignments arrive within [`DRAIN_DEADLINE`].
 /// * Forwards [`DispatchQueueHandle::dequeue`]'s return values on failure.
 async fn drain_n(
     dispatch_queue_handle: &dyn DispatchQueueHandle,
@@ -559,7 +559,7 @@ fn make_scheduler_with_reschedule(
 ///
 /// Returns an error if:
 ///
-/// * The predicate does not hold within [`DRAIN_DEADLINE`].
+/// * [`anyhow::Error`] if the predicate does not hold within [`DRAIN_DEADLINE`].
 /// * Forwards [`RoundRobin::tick`]'s return values on failure.
 async fn tick_until(
     scheduler: &mut TestScheduler,
@@ -588,7 +588,7 @@ async fn tick_until(
 ///
 /// Returns an error if:
 ///
-/// * Fewer than `n` assignments arrive within [`DRAIN_DEADLINE`].
+/// * [`anyhow::Error`] if fewer than `n` assignments arrive within [`DRAIN_DEADLINE`].
 /// * Forwards [`RoundRobin::tick`]'s return values on failure.
 /// * Forwards [`DispatchQueueHandle::dequeue`]'s return values on failure.
 async fn tick_and_drain_n(
@@ -659,7 +659,7 @@ async fn assert_no_further_assignments(
 ///
 /// Returns an error if:
 ///
-/// * `finalizing_task_id` is a regular [`TaskId::Index`] task.
+/// * [`anyhow::Error`] if `finalizing_task_id` is a regular [`TaskId::Index`] task.
 /// * Forwards [`tick_until`]'s return values on failure.
 /// * Forwards [`tick_and_drain_n`]'s return values on failure.
 /// * Forwards [`assert_no_further_assignments`]'s return values on failure.

@@ -280,7 +280,7 @@ mod tests {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`tokio::task::JoinHandle`]'s return values on failure (indicating a task panic).
+    /// * [`tokio::task::JoinError`] if the writer task panics or is cancelled.
     async fn run_pair_consistency_stress(reader_count: usize, rng_seed: u64) -> Result<()> {
         const INIT_SESSION: SessionId = 1;
         const ROUNDS: usize = 20;
