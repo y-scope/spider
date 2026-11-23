@@ -18,9 +18,9 @@ pub use grpc::GrpcSchedulerStorageClient;
 
 /// The scheduler's view of the storage layer.
 ///
-/// Abstracts the storage-owned inbound queue and the read-only queries a scheduling algorithm
-/// needs to make placement decisions. Modeled as a trait so the scheduler runtime can be driven by
-/// a real storage client in production or a mock in tests.
+/// Abstracts the storage-owned inbound queue and the read-only queries a scheduling algorithm needs
+/// to make placement decisions. Modeled as a trait so the scheduler runtime can be driven by a real
+/// storage client in production or a mock in tests.
 #[async_trait]
 pub trait SchedulerStorageClient: Send + Sync + Clone {
     /// Registers this scheduler with the storage service, advertising the endpoint execution

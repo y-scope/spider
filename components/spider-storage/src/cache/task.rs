@@ -497,8 +497,7 @@ impl SharedTaskControlBlock {
                 }
 
                 // In practice, this update is guarded by a read lock on the task graph, which
-                // guarantees that the child tasks shouldn't be terminated, as the parent is
-                // not.
+                // guarantees that the child tasks shouldn't be terminated, as the parent is not.
                 if child_tcb.base.state.is_terminal() {
                     return Err(InternalError::TaskGraphCorrupted(
                         "child task is already in a terminal state when processing parent \
@@ -938,8 +937,8 @@ struct TaskControlBlockBase {
 impl TaskControlBlockBase {
     /// Registers a new task instance to the control block.
     ///
-    /// On success, the task instance ID will be added to the instance pool, and the task will
-    /// be in [`TaskState::Running`] state on return.
+    /// On success, the task instance ID will be added to the instance pool, and the task will be in
+    /// [`TaskState::Running`] state on return.
     ///
     /// # Errors
     ///
@@ -1692,8 +1691,8 @@ mod tests {
     ///
     /// `register_task_instance` and `fail_task_instance` share the same call signature across both
     /// types, so they are called directly inside the macro body. The differing return types of
-    /// `register_task_instance` are handled by [`spawn_concurrent_registrations`]'s generic
-    /// closure parameter.
+    /// `register_task_instance` are handled by [`spawn_concurrent_registrations`]'s generic closure
+    /// parameter.
     ///
     /// # Generated tests
     ///
@@ -1901,8 +1900,8 @@ mod tests {
                      {result:?}"
                 );
 
-                // Attempting to succeed the surviving instance should also be rejected
-                // because the task is already in a terminal Failed state.
+                // Attempting to succeed the surviving instance should also be rejected because the
+                // task is already in a terminal Failed state.
                 let result = {
                     let ($s_tcb, $s_id) = (&tcb, id_b);
                     $succeed

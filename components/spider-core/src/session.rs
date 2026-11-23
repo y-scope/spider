@@ -41,8 +41,8 @@ impl SessionTracker {
 
     /// Attempts to advance the stored session id to `new_sid`.
     ///
-    /// CAS-loop: if the stored value is already `>= new_sid`, the call no-ops. Otherwise the
-    /// stored value is bumped to `new_sid`. Coherent under concurrent writers.
+    /// CAS-loop: if the stored value is already `>= new_sid`, the call no-ops. Otherwise the stored
+    /// value is bumped to `new_sid`. Coherent under concurrent writers.
     ///
     /// # Returns
     ///

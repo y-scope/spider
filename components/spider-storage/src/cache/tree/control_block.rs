@@ -48,8 +48,8 @@ impl TreeControlBlock {
     }
 
     /// Sends `event` to the tree's committer at the call, before the returned future is first
-    /// polled: a [`TreeEventKind::CancelRoot`](crate::cache::tree::TreeEventKind::CancelRoot) or
-    /// a [`TreeEventKind::TerminalFailure`](crate::cache::tree::TreeEventKind::TerminalFailure) on
+    /// polled: a [`TreeEventKind::CancelRoot`](crate::cache::tree::TreeEventKind::CancelRoot) or a
+    /// [`TreeEventKind::TerminalFailure`](crate::cache::tree::TreeEventKind::TerminalFailure) on
     /// the fast-forward channel, any other event on the regular channel.
     ///
     /// # Returns

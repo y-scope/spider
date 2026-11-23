@@ -3,8 +3,8 @@
 //!
 //! [`Version`] is `#[repr(C)]` so it can be returned directly from a TDL package's
 //! `__spider_tdl_package_get_version` FFI entry point. The package manager reads the value via
-//! `dlsym` at load time and refuses to install packages whose declared version is incompatible
-//! with the executor's [`Version::SPIDER_TDL`].
+//! `dlsym` at load time and refuses to install packages whose declared version is incompatible with
+//! the executor's [`Version::SPIDER_TDL`].
 
 /// `#[repr(C)]` semantic-version triple shared across the TDL package / task executor FFI boundary.
 ///

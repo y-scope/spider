@@ -9,9 +9,9 @@
 //! `${SPIDER_TDL_PACKAGE_DIR}/${package}/${package}.so` and caches the loaded library by name.
 //!
 //! Execution model: requests are processed strictly sequentially on a single-threaded tokio
-//! runtime. Tokio is used only to match the async I/O surface on the execution manager side;
-//! the executor itself has no concurrency requirements, and exactly one task runs for the
-//! lifetime of the process.
+//! runtime. Tokio is used only to match the async I/O surface on the execution manager side; the
+//! executor itself has no concurrency requirements, and exactly one task runs for the lifetime of
+//! the process.
 
 use std::path::Path;
 use std::path::PathBuf;

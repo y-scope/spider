@@ -150,8 +150,8 @@ pub(super) enum Admission {
     /// The event's plan is merged into the round's plan.
     Admitted,
 
-    /// Nothing is applied: the event's plan changes the carried job, which the round's plan
-    /// already changes.
+    /// Nothing is applied: the event's plan changes the carried job, which the round's plan already
+    /// changes.
     JobConflict(JobId),
 
     /// The event is deferred to a later round: its outputs and children would push the round's
@@ -159,8 +159,8 @@ pub(super) enum Admission {
     PayloadBudgetExceeded,
 }
 
-/// The planner of a round of events: it plans each event against the result of the round's
-/// earlier events and builds the round's plan.
+/// The planner of a round of events: it plans each event against the result of the round's earlier
+/// events and builds the round's plan.
 pub(super) struct RoundPlanner<'structure_lifetime> {
     overlay: Overlay<'structure_lifetime>,
     plan: Plan,
@@ -348,8 +348,8 @@ impl EventPlan {
     ///
     /// # Returns
     ///
-    /// The plan of starting the root `root_id`: [`JobState::Ready`] to [`JobState::Running`],
-    /// with the tasks of `ready_task_indices` published.
+    /// The plan of starting the root `root_id`: [`JobState::Ready`] to [`JobState::Running`], with
+    /// the tasks of `ready_task_indices` published.
     fn start_root(root_id: JobId, ready_task_indices: Vec<TaskIndex>) -> Self {
         Self::applying_and_publishing(
             JobStateUpdate::new(root_id, JobState::Ready, JobState::Running),

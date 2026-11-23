@@ -78,8 +78,8 @@ mod task_decl {
         Ok(())
     }
 
-    /// Computes the `index`-th Fibonacci number with a deliberately naive recursive
-    /// implementation so the call has measurable CPU cost for the overhead benchmark.
+    /// Computes the `index`-th Fibonacci number with a deliberately naive recursive implementation
+    /// so the call has measurable CPU cost for the overhead benchmark.
     #[task(name = "fibonacci")]
     pub fn fibonacci(_ctx: TaskContext, index: u64) -> Result<u64, TdlError> {
         Ok(fib(index))

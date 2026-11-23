@@ -72,9 +72,9 @@ fn assignment_with_session(session_id: u64) -> SchedulerResponse {
     }
 }
 
-/// Builds an [`ExecutionContext`] pointing at `task_func` in the integration package with the
-/// given inputs. Uses a generous hard timeout so well-behaved tasks always finish before the
-/// process pool kills them.
+/// Builds an [`ExecutionContext`] pointing at `task_func` in the integration package with the given
+/// inputs. Uses a generous hard timeout so well-behaved tasks always finish before the process pool
+/// kills them.
 ///
 /// # Returns
 ///
@@ -389,8 +389,8 @@ async fn newer_bundle_triggers_liveness_refresh() -> anyhow::Result<()> {
     let storage = MockStorage::new();
     let liveness = MockLiveness::with_initial_session(CURRENT_SESSION);
 
-    // Slow interval so we can be sure the second observed heartbeat is the refresh-induced one
-    // (the periodic tick is 5 s away).
+    // Slow interval so we can be sure the second observed heartbeat is the refresh-induced one (the
+    // periodic tick is 5 s away).
     let (runtime, token) = Runtime::create(
         scheduler.clone(),
         storage.clone(),

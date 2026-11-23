@@ -2,8 +2,7 @@
 //! task-executor binary.
 //!
 //! Mirrors `tests/executor.rs` but exercises the pool's `execute` API rather than the raw
-//! [`task_executor_tests::ExecutorHandle`]. Adds coverage for the paths that respawn the
-//! executor:
+//! [`task_executor_tests::ExecutorHandle`]. Adds coverage for the paths that respawn the executor:
 //!
 //! * Hard timeout — a long-running task is force-killed when the parent's timer fires.
 //! * Invalid response — malformed and oversized frames require a fresh executor.

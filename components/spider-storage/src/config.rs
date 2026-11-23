@@ -61,8 +61,8 @@ pub struct DatabaseConfig {
     /// * Database username: `SPIDER_STORAGE_DB_USERNAME`
     /// * Database password: `SPIDER_STORAGE_DB_PASSWORD`
     ///
-    /// These can be overridden by explicitly supplying the `credentials` field in the
-    /// configuration file.
+    /// These can be overridden by explicitly setting the `credentials` field in the configuration
+    /// file.
     #[serde(skip_serializing)]
     pub credentials: DatabaseCredentials,
 

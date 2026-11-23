@@ -937,8 +937,8 @@ mod tests {
         // Give the pool coroutine time to process both messages.
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // The liveness store should have been called exactly once (for the first registration).
-        // The second registration should have hit the cached live-set fast path.
+        // The liveness store should have been called exactly once (for the first registration). The
+        // second registration should have hit the cached live-set fast path.
         assert_eq!(
             liveness_store.alive_call_count.load(Ordering::Relaxed),
             1,

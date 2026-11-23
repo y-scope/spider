@@ -201,10 +201,10 @@ impl UpdateStatement {
     /// Groups `updates` into guarded statements.
     ///
     /// Updates are grouped by their `from` and `to` states, whether they carry outputs, and their
-    /// error message. Groups that carry outputs come first. Each group is cut into statements of
-    /// at most [`IN_LIST_MAX_IDS`] rows. Serialized outputs and the shared error message count
-    /// toward `max_payload`, capped at `max_row_payload`. A single row may exceed `max_payload`
-    /// provided its outputs and error message together fit `max_row_payload`.
+    /// error message. Groups that carry outputs come first. Each group is cut into statements of at
+    /// most [`IN_LIST_MAX_IDS`] rows. Serialized outputs and the shared error message count toward
+    /// `max_payload`, capped at `max_row_payload`. A single row may exceed `max_payload` provided
+    /// its outputs and error message together fit `max_row_payload`.
     ///
     /// # Returns
     ///
@@ -445,8 +445,8 @@ impl<RowType> UpdateGroup<RowType> {
         error_message: Option<String>,
         row: RowType,
     ) {
-        // A transition has few distinct groups, so a linear scan is cheap, and it keeps the
-        // groups in the order their first update arrived.
+        // A transition has few distinct groups, so a linear scan is cheap, and it keeps the groups
+        // in the order their first update arrived.
         if let Some(group) = groups.iter_mut().find(|group| {
             group.from == from && group.to == to && group.error_message == error_message
         }) {
@@ -461,10 +461,9 @@ impl<RowType> UpdateGroup<RowType> {
         }
     }
 
-    /// Cuts the group into statements of at most [`IN_LIST_MAX_IDS`] rows. A statement's payload
-    /// is the group's error message plus each row's `row_payload`, and a statement takes no
-    /// further row once that row would push its payload past `max_payload`, but always takes its
-    /// first row.
+    /// Cuts the group into statements of at most [`IN_LIST_MAX_IDS`] rows. A statement's payload is
+    /// the group's error message plus each row's `row_payload`, and a statement takes no further
+    /// row once that row would push its payload past `max_payload`, but always takes its first row.
     ///
     /// # Type Parameters
     ///
@@ -602,8 +601,8 @@ fn exceeds_max_allowed_packet(chunk: &[ChildJobInsertion<'_>], max_allowed_packe
     payload > max_allowed_packet.saturating_sub(MAX_STATEMENT_OVERHEAD)
 }
 
-/// Inserts `chunk` as child jobs in [`JobState::Running`] with one multi-row `INSERT ...
-/// RETURNING`.
+/// Inserts `chunk` as child jobs in [`JobState::Running`] with one multi-row
+/// `INSERT ... RETURNING`.
 ///
 /// # Returns
 ///

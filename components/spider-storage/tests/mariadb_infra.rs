@@ -97,8 +97,8 @@ impl IsolatedTestDb {
         }
     }
 
-    /// Creates a user that holds every privilege on this database and no global privilege. The
-    /// user is dropped with the database.
+    /// Creates a user that holds every privilege on this database and no global privilege. The user
+    /// is dropped with the database.
     ///
     /// # Returns
     ///
@@ -262,8 +262,8 @@ pub fn create_mariadb_config() -> DatabaseConfig {
     config
 }
 
-/// Overrides the database flags of `config` with the values of the following environment
-/// variables, for each one that is set:
+/// Overrides the database flags of `config` with the values of the following environment variables,
+/// for each one that is set:
 ///
 /// * `SPIDER_TEST_DB_CHECK_CONNECTION_BEFORE_USE` (`true` or `false`):
 ///   `pool.check_connection_before_use`.
@@ -327,8 +327,8 @@ pub fn root_credentials() -> DatabaseCredentials {
     }
 }
 
-/// Creates a pool connected to `config`'s database with `config`'s credentials, without any of
-/// the storage connector's initialization.
+/// Creates a pool connected to `config`'s database with `config`'s credentials, without any of the
+/// storage connector's initialization.
 ///
 /// # Returns
 ///
@@ -384,8 +384,8 @@ pub fn has_mysql_error_number(error: &sqlx::Error, number: u16) -> bool {
         .is_some_and(|mysql_error| mysql_error.number() == number)
 }
 
-/// Waits until an exclusive lock request on the fence row `fence_id` is queued, which a shared
-/// lock request without waiting then conflicts with.
+/// Waits until an exclusive lock request on the fence row `fence_id` is queued, which a shared lock
+/// request without waiting then conflicts with.
 ///
 /// # Panics
 ///
@@ -412,9 +412,9 @@ pub async fn wait_for_queued_fence_bump(pool: &MySqlPool, fence_id: u64) {
 
 /// Kills every connection to the database `name` over a new connection made with `root_options`.
 ///
-/// A test that panics can leave a transaction open on a connection that only its own, now
-/// blocked, runtime would roll back. Killing the connection releases the transaction's locks, so
-/// that the database can be dropped.
+/// A test that panics can leave a transaction open on a connection that only its own, now blocked,
+/// runtime would roll back. Killing the connection releases the transaction's locks, so that the
+/// database can be dropped.
 ///
 /// # Errors
 ///
@@ -489,8 +489,8 @@ async fn drop_isolated_test_db(
 
 /// # Returns
 ///
-/// The name of the user that [`IsolatedTestDb::create_user`] creates for the database `name`,
-/// with the global `PROCESS` privilege if `has_process_privilege` is set.
+/// The name of the user that [`IsolatedTestDb::create_user`] creates for the database `name`, with
+/// the global `PROCESS` privilege if `has_process_privilege` is set.
 fn isolated_test_db_username(name: &str, has_process_privilege: bool) -> String {
     if has_process_privilege {
         return format!("{name}_process_user");
