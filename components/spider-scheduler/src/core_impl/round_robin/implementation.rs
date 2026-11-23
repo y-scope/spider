@@ -501,9 +501,9 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
 
     /// Re-injects assignments recovered from lost execution managers into the scheduler.
     ///
-    /// The assignments are grouped by task kind and processed through the same
-    /// commit-ready, cleanup-ready, and ready paths as inbound entries. This ensures that
-    /// finalization semantics and buffered-task deduplication are applied consistently.
+    /// The assignments are grouped by task kind and processed through the same commit-ready,
+    /// cleanup-ready, and ready paths as inbound entries. This ensures that finalization semantics
+    /// and buffered-task deduplication are applied consistently.
     ///
     /// Rescheduled assignments are enqueued without respecting the internal buffer's capacity
     /// limit. As a result, the buffer may temporarily contain more assignments than its configured

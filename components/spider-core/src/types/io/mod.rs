@@ -304,9 +304,9 @@ impl TaskInputsSerializer {
 
     /// Deserializes a wire-format byte stream directly into a struct of type `TargetType`.
     ///
-    /// This is the deserialization counterpart to [`Self::append`] + [`Self::release`]. Each
-    /// field of `TargetType` positionally consumes one wire-format payload, which is then
-    /// deserialized from msgpack via a zero-copy borrowed slice into `data`.
+    /// This is the deserialization counterpart to [`Self::append`] + [`Self::release`]. Each field
+    /// of `TargetType` positionally consumes one wire-format payload, which is then deserialized
+    /// from msgpack via a zero-copy borrowed slice into `data`.
     ///
     /// # Type Parameters
     ///
@@ -336,11 +336,11 @@ impl TaskInputsSerializer {
 
 /// Streaming wire-format serializer and deserializer for task outputs.
 ///
-/// On the serialization side, pre-encoded msgpack payloads (one per tuple element) are appended
-/// via [`Self::append`], and the final wire buffer is obtained from [`Self::release`].
+/// On the serialization side, pre-encoded msgpack payloads (one per tuple element) are appended via
+/// [`Self::append`], and the final wire buffer is obtained from [`Self::release`].
 ///
-/// On the deserialization side, [`Self::deserialize`] extracts each payload as an opaque
-/// `Vec<u8>` without decoding the msgpack contents.
+/// On the deserialization side, [`Self::deserialize`] extracts each payload as an opaque `Vec<u8>`
+/// without decoding the msgpack contents.
 pub struct TaskOutputsSerializer {
     builder: WireFrameBuilder,
 }
@@ -398,8 +398,8 @@ impl TaskOutputsSerializer {
 
     /// Deserializes a wire-format byte stream into a vector of [`TaskOutput`] values.
     ///
-    /// Each payload is extracted as an opaque `Vec<u8>`. The msgpack contents are **not**
-    /// decoded here since the storage layer only stores the raw bytes.
+    /// Each payload is extracted as an opaque `Vec<u8>`. The msgpack contents are **not** decoded
+    /// here since the storage layer only stores the raw bytes.
     ///
     /// # Returns
     ///
@@ -416,9 +416,9 @@ impl TaskOutputsSerializer {
 
     /// Serializes `value` into msgpack and appends the encoded bytes directly to the wire buffer.
     ///
-    /// The msgpack encoding is written in-place: a placeholder length prefix is reserved, the
-    /// value is serialized into the buffer, and the prefix is back-patched with the actual
-    /// payload size. This avoids allocating an intermediate `Vec<u8>` per element.
+    /// The msgpack encoding is written in-place: a placeholder length prefix is reserved, the value
+    /// is serialized into the buffer, and the prefix is back-patched with the actual payload size.
+    /// This avoids allocating an intermediate `Vec<u8>` per element.
     ///
     /// # Errors
     ///

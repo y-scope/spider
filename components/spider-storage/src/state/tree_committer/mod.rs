@@ -165,16 +165,16 @@ impl PendingQueue {
     }
 }
 
-/// The committer's context: the tree's event receivers, its received events not yet planned and
-/// the events of the round that is running. Dropping it armed shuts the service down fatally
-/// before its fields drop; they then drop every unanswered event's reply, which wakes its
-/// waiter with [`InternalError::TreePoisoned`](crate::cache::error::InternalError::TreePoisoned).
+/// The committer's context: the tree's event receivers, its received events not yet planned and the
+/// events of the round that is running. Dropping it armed shuts the service down fatally before its
+/// fields drop; they then drop every unanswered event's reply, which wakes its waiter with
+/// [`InternalError::TreePoisoned`](crate::cache::error::InternalError::TreePoisoned).
 struct CommitterContextGuard {
     receivers: EventReceivers,
     pending_queue: PendingQueue,
 
     /// The events of the round that is running, which the round answers and removes, leaving the
-    /// events to put back in the pending queue (see [`Committer::run_round`]). The guard owns
+    /// events to put back into the pending queue (see [`Committer::run_round`]). The guard owns
     /// them, rather than the round, so that a round that errors or panics before answering drops
     /// them only after [`Drop::drop`] has shut the service down: an event's waiter never sees
     /// `TreePoisoned` before the service is fatal.

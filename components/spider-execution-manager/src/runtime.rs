@@ -50,8 +50,8 @@ pub struct RuntimeConfig {
     pub scheduler_heartbeat_interval: Duration,
 
     /// How long, in milliseconds, the scheduler is asked to block each
-    /// [`SchedulerClient::next_task`] long poll before returning `NoTask`. Passed verbatim to
-    /// the scheduler gRPC as `wait_time_ms`.
+    /// [`SchedulerClient::next_task`] long poll before returning `NoTask`. Passed verbatim to the
+    /// scheduler gRPC as `wait_time_ms`.
     pub scheduler_poll_wait_ms: u64,
 
     /// Absolute path to the `spider-task-executor` binary the process pool spawns.

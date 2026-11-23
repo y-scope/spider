@@ -3,9 +3,9 @@
 //!
 //! Drives the `sleep_and_echo` task — which sleeps for a known constant
 //! [`INSTRUMENT_SLEEP_US`](integration_test_tasks::INSTRUMENT_SLEEP_US) and then echoes its
-//! `Vec<String>` payload — against a *long-lived* executor subprocess (the FFI library is
-//! cached after the first call, so subsequent dispatches measure steady-state overhead, not
-//! one-time dlopen cost). With the work portion held constant we can split the cost into:
+//! `Vec<String>` payload — against a *long-lived* executor subprocess (the FFI library is cached
+//! after the first call, so subsequent dispatches measure steady-state overhead, not one-time
+//! dlopen cost). With the work portion held constant we can split the cost into:
 //!
 //! * `e2e`: parent's wall-clock around `send(Execute)` → `recv(Response::Result)`.
 //! * `executor`: the in-executor FFI duration, taken straight from

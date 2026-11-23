@@ -27,8 +27,8 @@ pub fn compress_task_graph(task_graph: &SubmittedTaskGraph) -> Result<Vec<u8>> {
     Ok(task_graph.to_zstd_compressed_json()?)
 }
 
-/// Compresses job inputs into the zstd-compressed serialized [`TaskGraphInput`] format the
-/// database persists.
+/// Compresses job inputs into the zstd-compressed serialized [`TaskGraphInput`] format the database
+/// persists.
 ///
 /// # Errors
 ///

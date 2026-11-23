@@ -411,9 +411,8 @@ impl<
         Ok(())
     }
 
-    /// Checks that the tree's structure keeps the tree invariants, and that the committer holds
-    /// the control blocks of exactly the structure's jobs, each in the job's state in the
-    /// structure.
+    /// Checks that the tree's structure keeps the tree invariants, and that the committer holds the
+    /// control blocks of exactly the structure's jobs, each in the job's state in the structure.
     ///
     /// # Panics
     ///
