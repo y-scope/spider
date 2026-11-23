@@ -189,6 +189,46 @@ mod tests {
 
     type TestJcb = SharedJobControlBlock<MockInboundQueueSender, MockTaskInstancePoolConnector>;
 
+    /// A tracking inbound queue sender that records the number of calls.
+    #[derive(Clone, Default)]
+    struct TrackingInboundQueueSender {
+        call_count: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl InboundQueueSender for TrackingInboundQueueSender {
+        async fn send_task_ready(
+            &self,
+            _rg_id: spider_core::types::id::ResourceGroupId,
+            _job_id: JobId,
+            _task_indices: Vec<usize>,
+        ) -> Result<(), InternalError> {
+            self.call_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(())
+        }
+
+        async fn send_commit_ready(
+            &self,
+            _rg_id: spider_core::types::id::ResourceGroupId,
+            _job_id: JobId,
+        ) -> Result<(), InternalError> {
+            self.call_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(())
+        }
+
+        async fn send_cleanup_ready(
+            &self,
+            _rg_id: spider_core::types::id::ResourceGroupId,
+            _job_id: JobId,
+        ) -> Result<(), InternalError> {
+            self.call_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(())
+        }
+    }
+
     async fn create_test_jcb(job_id: JobId) -> TestJcb {
         let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
         let mut submitted =
@@ -402,46 +442,6 @@ mod tests {
 
         tracker.close();
         tracker.wait().await;
-    }
-
-    /// A tracking inbound queue sender that records the number of calls.
-    #[derive(Clone, Default)]
-    struct TrackingInboundQueueSender {
-        call_count: Arc<std::sync::atomic::AtomicUsize>,
-    }
-
-    #[async_trait::async_trait]
-    impl InboundQueueSender for TrackingInboundQueueSender {
-        async fn send_task_ready(
-            &self,
-            _rg_id: spider_core::types::id::ResourceGroupId,
-            _job_id: JobId,
-            _task_indices: Vec<usize>,
-        ) -> Result<(), InternalError> {
-            self.call_count
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            Ok(())
-        }
-
-        async fn send_commit_ready(
-            &self,
-            _rg_id: spider_core::types::id::ResourceGroupId,
-            _job_id: JobId,
-        ) -> Result<(), InternalError> {
-            self.call_count
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            Ok(())
-        }
-
-        async fn send_cleanup_ready(
-            &self,
-            _rg_id: spider_core::types::id::ResourceGroupId,
-            _job_id: JobId,
-        ) -> Result<(), InternalError> {
-            self.call_count
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            Ok(())
-        }
     }
 
     #[tokio::test]

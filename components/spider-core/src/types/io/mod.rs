@@ -257,12 +257,6 @@ pub struct TaskInputsSerializer {
     builder: WireFrameBuilder,
 }
 
-impl Default for TaskInputsSerializer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TaskInputsSerializer {
     /// Factory function.
     ///
@@ -333,6 +327,12 @@ impl TaskInputsSerializer {
     }
 }
 
+impl Default for TaskInputsSerializer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Streaming wire-format serializer and deserializer for task outputs.
 ///
 /// On the serialization side, pre-encoded msgpack payloads (one per tuple element) are appended via
@@ -342,12 +342,6 @@ impl TaskInputsSerializer {
 /// without decoding the msgpack contents.
 pub struct TaskOutputsSerializer {
     builder: WireFrameBuilder,
-}
-
-impl Default for TaskOutputsSerializer {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl TaskOutputsSerializer {
@@ -430,6 +424,12 @@ impl TaskOutputsSerializer {
         value: &ValueType,
     ) -> Result<(), WireError> {
         self.builder.append_serialize(value)
+    }
+}
+
+impl Default for TaskOutputsSerializer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -57,6 +57,78 @@ pub enum ValueTypeDescriptor {
     },
 }
 
+impl ValueTypeDescriptor {
+    #[must_use]
+    pub const fn int8() -> Self {
+        Self::Primitive(PrimitiveTypeDescriptor::Int(IntTypeDescriptor::Int8))
+    }
+
+    #[must_use]
+    pub const fn int16() -> Self {
+        Self::Primitive(PrimitiveTypeDescriptor::Int(IntTypeDescriptor::Int16))
+    }
+
+    #[must_use]
+    pub const fn int32() -> Self {
+        Self::Primitive(PrimitiveTypeDescriptor::Int(IntTypeDescriptor::Int32))
+    }
+
+    #[must_use]
+    pub const fn int64() -> Self {
+        Self::Primitive(PrimitiveTypeDescriptor::Int(IntTypeDescriptor::Int64))
+    }
+
+    #[must_use]
+    pub const fn float32() -> Self {
+        Self::Primitive(PrimitiveTypeDescriptor::Float(FloatTypeDescriptor::Float32))
+    }
+
+    #[must_use]
+    pub const fn float64() -> Self {
+        Self::Primitive(PrimitiveTypeDescriptor::Float(FloatTypeDescriptor::Float64))
+    }
+
+    #[must_use]
+    pub const fn bool() -> Self {
+        Self::Primitive(PrimitiveTypeDescriptor::Boolean)
+    }
+
+    #[must_use]
+    pub const fn bytes() -> Self {
+        Self::Bytes(BytesTypeDescriptor {})
+    }
+
+    /// Creates a `Struct` type descriptor from the given struct name.
+    ///
+    /// # Returns
+    ///
+    /// The [`ValueTypeDescriptor::Struct`] variant with the provided struct name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`Error::InvalidStructName`] if the provided struct name is empty.
+    pub fn struct_from_name(name: impl Into<String>) -> Result<Self, Error> {
+        Ok(Self::Struct(NonEmptyString::new(name.into()).map_err(
+            |_| Error::InvalidStructName(EMPTY_STRUCT_NAME_ERROR.to_owned()),
+        )?))
+    }
+
+    #[must_use]
+    pub fn list(element_type: Self) -> Self {
+        Self::List(Box::new(element_type))
+    }
+
+    #[must_use]
+    pub fn map(key: MapKeyTypeDescriptor, value: Self) -> Self {
+        Self::Map {
+            key,
+            value: Box::new(value),
+        }
+    }
+}
+
 /// Type descriptor for all supported data types.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DataTypeDescriptor {
@@ -127,78 +199,6 @@ impl DataTypeDescriptor {
     /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
     pub fn from_msgpack(bytes: &[u8]) -> Result<Self, Error> {
         rmp_serde::from_slice(bytes).map_err(Into::into)
-    }
-}
-
-impl ValueTypeDescriptor {
-    #[must_use]
-    pub const fn int8() -> Self {
-        Self::Primitive(PrimitiveTypeDescriptor::Int(IntTypeDescriptor::Int8))
-    }
-
-    #[must_use]
-    pub const fn int16() -> Self {
-        Self::Primitive(PrimitiveTypeDescriptor::Int(IntTypeDescriptor::Int16))
-    }
-
-    #[must_use]
-    pub const fn int32() -> Self {
-        Self::Primitive(PrimitiveTypeDescriptor::Int(IntTypeDescriptor::Int32))
-    }
-
-    #[must_use]
-    pub const fn int64() -> Self {
-        Self::Primitive(PrimitiveTypeDescriptor::Int(IntTypeDescriptor::Int64))
-    }
-
-    #[must_use]
-    pub const fn float32() -> Self {
-        Self::Primitive(PrimitiveTypeDescriptor::Float(FloatTypeDescriptor::Float32))
-    }
-
-    #[must_use]
-    pub const fn float64() -> Self {
-        Self::Primitive(PrimitiveTypeDescriptor::Float(FloatTypeDescriptor::Float64))
-    }
-
-    #[must_use]
-    pub const fn bool() -> Self {
-        Self::Primitive(PrimitiveTypeDescriptor::Boolean)
-    }
-
-    #[must_use]
-    pub const fn bytes() -> Self {
-        Self::Bytes(BytesTypeDescriptor {})
-    }
-
-    /// Creates a `Struct` type descriptor from the given struct name.
-    ///
-    /// # Returns
-    ///
-    /// The [`ValueTypeDescriptor::Struct`] variant with the provided struct name.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`Error::InvalidStructName`] if the provided struct name is empty.
-    pub fn struct_from_name(name: impl Into<String>) -> Result<Self, Error> {
-        Ok(Self::Struct(NonEmptyString::new(name.into()).map_err(
-            |_| Error::InvalidStructName(EMPTY_STRUCT_NAME_ERROR.to_owned()),
-        )?))
-    }
-
-    #[must_use]
-    pub fn list(element_type: Self) -> Self {
-        Self::List(Box::new(element_type))
-    }
-
-    #[must_use]
-    pub fn map(key: MapKeyTypeDescriptor, value: Self) -> Self {
-        Self::Map {
-            key,
-            value: Box::new(value),
-        }
     }
 }
 
