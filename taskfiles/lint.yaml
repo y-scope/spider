@@ -116,6 +116,7 @@ tasks:
     cmds:
       - task: "check-rust-format"
       - task: "check-rust-static"
+      - task: "check-rust-yscope-linter"
 
   fix-rust:
     cmds:
@@ -147,6 +148,13 @@ tasks:
       - task: "cargo-workspace-clippy"
         vars:
           CARGO_CLIPPY_FLAGS: "--fix --allow-dirty --allow-staged"
+
+  check-rust-yscope-linter:
+    dir: "{{.ROOT_DIR}}"
+    deps: ["toolchains:rust"]
+    cmd: |-
+      . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
+      cargo yscope-linter --workspace
 
   venv:
     internal: true
