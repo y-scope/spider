@@ -161,6 +161,11 @@ pub(super) enum Admission {
 
 /// The planner of a round of events: it plans each event against the result of the round's earlier
 /// events and builds the round's plan.
+///
+/// # Type Parameters
+///
+/// * `'structure_lifetime` - The lifetime of the [`TreeStructure`] that the round is planned
+///   against.
 pub(super) struct RoundPlanner<'structure_lifetime> {
     overlay: Overlay<'structure_lifetime>,
     plan: Plan,
@@ -212,6 +217,10 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
 
 /// The tree as the planner reads it: the tree's structure with the plan of the round's earlier
 /// events applied.
+///
+/// # Type Parameters
+///
+/// * `'structure_lifetime` - The lifetime of the [`TreeStructure`] that the overlay reads.
 struct Overlay<'structure_lifetime> {
     structure: &'structure_lifetime TreeStructure,
     planned_states: HashMap<JobId, JobState>,

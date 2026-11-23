@@ -52,6 +52,11 @@ pub(super) const ROOT_ID: JobId = JobId::from(1);
 pub(super) const TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A one-job tree whose committer runs in its own task tracker.
+///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The type of the inbound queue sender used by the tree's job control
+///   block and job cache.
 pub(super) struct TestTree<InboundQueueSenderType: InboundQueueSender + 'static> {
     pub(super) control_block: TreeControlBlock,
     pub(super) jcb: SharedJobControlBlock<InboundQueueSenderType, MockTaskInstancePoolConnector>,

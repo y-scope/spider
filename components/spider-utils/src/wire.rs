@@ -180,6 +180,10 @@ impl WireFrameBuilder {
     /// Writes a placeholder `u32` length, serializes the value in-place, then back-patches the
     /// length with the actual payload size.
     ///
+    /// # Type Parameters
+    ///
+    /// * `ValueType` - The type of the value to serialize, which may be unsized.
+    ///
     /// # Errors
     ///
     /// Returns an error if:

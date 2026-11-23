@@ -498,6 +498,12 @@ async fn restart_after_cleanup_ready(
 
 /// Registers and starts a flat recovery-test job.
 ///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The type of `service`'s inbound queue sender.
+/// * `DbConnectorType` - The type of `service`'s DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of `service`'s task instance pool connector.
+///
 /// # Returns
 ///
 /// The registered job ID on success.
@@ -523,6 +529,12 @@ async fn register_and_start_job<
 }
 
 /// Registers a flat recovery-test job without starting it.
+///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The type of `service`'s inbound queue sender.
+/// * `DbConnectorType` - The type of `service`'s DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of `service`'s task instance pool connector.
 ///
 /// # Returns
 ///
@@ -561,6 +573,12 @@ async fn register_job<
 
 /// Registers an execution manager and creates an instance for a recovered regular task.
 ///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The type of `service`'s inbound queue sender.
+/// * `DbConnectorType` - The type of `service`'s DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of `service`'s task instance pool connector.
+///
 /// # Returns
 ///
 /// The created task instance ID on success.
@@ -596,6 +614,12 @@ async fn run_recovered_regular_task<
 }
 
 /// Runs the ready task for a single-task job to completion.
+///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The type of `service`'s inbound queue sender.
+/// * `DbConnectorType` - The type of `service`'s DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of `service`'s task instance pool connector.
 ///
 /// # Returns
 ///
@@ -644,6 +668,12 @@ async fn run_single_task_job_to_succeed<
 /// Asserts that registering a regular task instance on the given job is rejected because the job
 /// has already reached a terminal state and is therefore no longer running.
 ///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The type of `service`'s inbound queue sender.
+/// * `DbConnectorType` - The type of `service`'s DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of `service`'s task instance pool connector.
+///
 /// # Panics
 ///
 /// Panics if the registration succeeds or fails with an error other than
@@ -679,6 +709,12 @@ async fn assert_regular_task_registration_rejected<
 
 /// Asserts that the job is in [`JobState::Succeeded`] state and its outputs match the expected.
 ///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The type of `service`'s inbound queue sender.
+/// * `DbConnectorType` - The type of `service`'s DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of `service`'s task instance pool connector.
+///
 /// # Errors
 ///
 /// Returns an error if:
@@ -702,6 +738,10 @@ async fn assert_job_outputs_on_success<
 }
 
 /// Collects the inbound-queue entries belonging to a job.
+///
+/// # Type Parameters
+///
+/// * `TaskKind` - The per-lane task specifier of `entries`.
 ///
 /// # Returns
 ///
