@@ -168,7 +168,7 @@ pub trait ExternalJobOrchestration {
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
     /// * [`DbError::Fenced`] if a newer storage session has fenced this one off.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn register(
         &self,
         resource_group_id: ResourceGroupId,
@@ -191,7 +191,7 @@ pub trait ExternalJobOrchestration {
     ///
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn get_state(&self, job_id: JobId) -> Result<JobState, DbError>;
 
     /// Gets the state of a job and the ID of its parent.
@@ -213,7 +213,7 @@ pub trait ExternalJobOrchestration {
     ///
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn get_state_and_parent(
         &self,
         job_id: JobId,
@@ -237,7 +237,7 @@ pub trait ExternalJobOrchestration {
     /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Succeeded`] state.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * [`DbError::ValueDeserializationFailure`] if the job outputs deserialization fails.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn get_outputs(&self, job_id: JobId) -> Result<Vec<TaskOutput>, DbError>;
 
     /// Gets the error message of a job.
@@ -257,7 +257,7 @@ pub trait ExternalJobOrchestration {
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Failed`] state.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn get_error(&self, job_id: JobId) -> Result<String, DbError>;
 }
 
@@ -297,7 +297,7 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///   * An update's row is missing or not in its `from` state.
     ///   * The storage fence row does not exist.
     ///   * The database returns a different number of child IDs than it was asked to insert.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn apply_tree_transition(
         &self,
         transition: TreeTransition<'_>,
@@ -326,7 +326,7 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///
     /// * [`DbError::Fenced`] if a newer storage session has fenced this one off.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn delete_expired_terminated_jobs(
         &self,
         expire_after_sec: u64,
@@ -345,7 +345,7 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///
     /// * [`DbError::TaskGraphDeserializationFailure`] if a persisted task graph is invalid.
     /// * [`DbError::ValueDeserializationFailure`] if persisted inputs or outputs are invalid.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn get_recoverable_jobs(&self) -> Result<Vec<RecoverableJobContext>, DbError>;
 }
 
@@ -368,7 +368,7 @@ pub trait ResourceGroupManagement {
     ///
     /// * [`DbError::ResourceGroupAlreadyExists`] if the external resource group ID already exists.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn add(
         &self,
         credentials: ExternalResourceGroupCredentials,
@@ -391,7 +391,7 @@ pub trait ResourceGroupManagement {
     /// Returns an error if:
     ///
     /// * [`DbError::InvalidPassword`] if the existing resource group's password is incorrect.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn add_or_verify(
         &self,
         credentials: ExternalResourceGroupCredentials,
@@ -410,7 +410,7 @@ pub trait ResourceGroupManagement {
     ///
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
     /// * [`DbError::InvalidPassword`] if the password is incorrect.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn verify(
         &self,
         resource_group_id: ResourceGroupId,
@@ -431,7 +431,7 @@ pub trait ResourceGroupManagement {
     /// Returns an error if:
     ///
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn delete(&self, resource_group_id: ResourceGroupId) -> Result<(), DbError>;
 }
 
@@ -460,7 +460,7 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
     /// * [`DbError::ExternalResourceGroupNotFound`] if the external resource group ID does not
     ///   exist.
     /// * [`DbError::InvalidPassword`] if the resource group password is incorrect.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn register_execution_manager(
         &self,
         ip_address: IpAddr,
@@ -479,7 +479,7 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
     ///
     /// * [`DbError::IllegalExecutionManagerId`] if the execution manager ID is illegal.
     /// * [`DbError::ExecutionManagerAlreadyDead`] if the execution manager is dead.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn update_execution_manager_heartbeat(
         &self,
         execution_manager_id: ExecutionManagerId,
@@ -500,7 +500,7 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
     /// Returns an error if:
     ///
     /// * [`DbError::IllegalExecutionManagerId`] if the execution manager ID is illegal.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn is_execution_manager_alive(
         &self,
         execution_manager_id: ExecutionManagerId,
@@ -524,7 +524,7 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn get_dead_execution_managers(
         &self,
         stale_after_sec: u64,
@@ -552,7 +552,7 @@ pub trait SchedulerRegistrationManagement: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn register_scheduler(&self, host: &str, port: u16) -> Result<SchedulerId, DbError>;
 
     /// Gets registered schedulers.
@@ -565,7 +565,7 @@ pub trait SchedulerRegistrationManagement: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn get_schedulers(&self) -> Result<Vec<RegisteredScheduler>, DbError>;
 
     /// Checks whether the scheduler with the given ID is registered.
@@ -582,7 +582,7 @@ pub trait SchedulerRegistrationManagement: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    /// * [`DbError::Sql`] if a DB operation fails.
     async fn is_scheduler_registered(&self, scheduler_id: SchedulerId) -> Result<bool, DbError>;
 }
 

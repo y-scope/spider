@@ -934,7 +934,11 @@ fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>)
 ///
 /// # Errors
 ///
-/// Forwards all errors that are not [`CacheError::StaleState`].
+/// Returns an error if:
+///
+/// * Forwards [`process_task`]'s return values on failure, except [`CacheError::StaleState`].
+/// * Forwards [`process_commit`]'s return values on failure, except [`CacheError::StaleState`].
+/// * Forwards [`process_cleanup`]'s return values on failure, except [`CacheError::StaleState`].
 async fn run_execution_manager(mut ctx: EmContext) -> anyhow::Result<()> {
     let mut rng = rand::rngs::StdRng::from_os_rng();
     loop {
@@ -1064,7 +1068,7 @@ async fn process_task(
 /// Returns an error if:
 ///
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
-/// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values of failure.
+/// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values on failure.
 ///
 /// # Panics
 ///
@@ -1100,7 +1104,7 @@ async fn process_commit(ctx: &EmContext) -> Result<(), CacheError> {
 /// Returns an error if:
 ///
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
-/// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values of failure.
+/// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values on failure.
 async fn process_cleanup(ctx: &EmContext) -> Result<(), CacheError> {
     let exec_ctx = ctx
         .jcb

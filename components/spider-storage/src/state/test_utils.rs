@@ -154,30 +154,6 @@ impl MockDbConnector {
     }
 }
 
-impl Default for MockDbConnector {
-    fn default() -> Self {
-        Self {
-            states: Arc::new(DashMap::new()),
-            errors: Arc::new(DashMap::new()),
-            outputs: Arc::new(DashMap::new()),
-            parents: Arc::new(DashMap::new()),
-            roots: Arc::new(DashMap::new()),
-            child_owner_ids: Arc::new(DashMap::new()),
-            next_job_id: Arc::new(AtomicU64::new(MOCK_FIRST_JOB_ID)),
-            injected_transition_errors: Arc::new(Mutex::new(VecDeque::new())),
-            injected_child_id_counts: Arc::new(Mutex::new(VecDeque::new())),
-            injected_state_and_parent_errors: Arc::new(Mutex::new(VecDeque::new())),
-            resource_groups: Arc::new(DashMap::new()),
-            resource_group_ids: Arc::new(DashMap::new()),
-            next_resource_group_id: Arc::new(AtomicUsize::new(1)),
-            execution_managers: Arc::new(DashMap::new()),
-            next_execution_manager_id: Arc::new(AtomicUsize::new(1)),
-            next_scheduler_id: Arc::new(AtomicUsize::new(1)),
-            session_id: 0,
-        }
-    }
-}
-
 #[async_trait::async_trait]
 impl ExternalJobOrchestration for MockDbConnector {
     async fn register(
@@ -485,6 +461,30 @@ impl SessionManagement for MockDbConnector {
 }
 
 impl DbStorage for MockDbConnector {}
+
+impl Default for MockDbConnector {
+    fn default() -> Self {
+        Self {
+            states: Arc::new(DashMap::new()),
+            errors: Arc::new(DashMap::new()),
+            outputs: Arc::new(DashMap::new()),
+            parents: Arc::new(DashMap::new()),
+            roots: Arc::new(DashMap::new()),
+            child_owner_ids: Arc::new(DashMap::new()),
+            next_job_id: Arc::new(AtomicU64::new(MOCK_FIRST_JOB_ID)),
+            injected_transition_errors: Arc::new(Mutex::new(VecDeque::new())),
+            injected_child_id_counts: Arc::new(Mutex::new(VecDeque::new())),
+            injected_state_and_parent_errors: Arc::new(Mutex::new(VecDeque::new())),
+            resource_groups: Arc::new(DashMap::new()),
+            resource_group_ids: Arc::new(DashMap::new()),
+            next_resource_group_id: Arc::new(AtomicUsize::new(1)),
+            execution_managers: Arc::new(DashMap::new()),
+            next_execution_manager_id: Arc::new(AtomicUsize::new(1)),
+            next_scheduler_id: Arc::new(AtomicUsize::new(1)),
+            session_id: 0,
+        }
+    }
+}
 
 /// A mock task instance pool connector for testing.
 #[derive(Clone, Default)]

@@ -102,8 +102,7 @@ pub async fn execute_with_retry<
 ///
 /// Returns an error if:
 ///
-/// * Forwards `grpc_call`'s [`Status`] on failure if the status is non-retriable or the retry
-///   budget is exhausted.
+/// * Forwards [`execute_with_retry`]'s return values on failure.
 pub async fn call_with_retry<
     ResponseType,
     GrpcCall: FnMut() -> FutureType,
@@ -120,6 +119,11 @@ pub async fn call_with_retry<
     )
     .await
 }
+
+/// The default number of retries allowed after the initial attempt.
+const DEFAULT_MAX_RETRIES: usize = 10;
+/// The default upper bound on the exponential backoff between attempts.
+const DEFAULT_MAX_BACKOFF: Duration = Duration::from_secs(3);
 
 /// Classifies a gRPC [`Status`] as retriable.
 ///
@@ -139,11 +143,6 @@ fn is_retriable_status(status: &Status) -> bool {
         _ => false,
     }
 }
-
-/// The default number of retries allowed after the initial attempt.
-const DEFAULT_MAX_RETRIES: usize = 10;
-/// The default upper bound on the exponential backoff between attempts.
-const DEFAULT_MAX_BACKOFF: Duration = Duration::from_secs(3);
 
 /// Computes the delay before the `retry`-th retry.
 ///
