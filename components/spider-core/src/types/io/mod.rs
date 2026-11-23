@@ -420,6 +420,10 @@ impl TaskOutputsSerializer {
     /// is serialized into the buffer, and the prefix is back-patched with the actual payload size.
     /// This avoids allocating an intermediate `Vec<u8>` per element.
     ///
+    /// # Type Parameters
+    ///
+    /// * `ValueType` - The type of the value to serialize, which may be unsized.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
@@ -508,6 +512,10 @@ mod tests {
     }
 
     /// msgpack-encodes a single value as a payload.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `ValueType` - The type of the value to encode.
     fn encode<ValueType: serde::Serialize>(value: &ValueType) -> Vec<u8> {
         rmp_serde::to_vec(value).expect("msgpack encoding failed")
     }

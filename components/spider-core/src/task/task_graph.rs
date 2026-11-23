@@ -2650,6 +2650,10 @@ mod tests {
         }));
     }
 
+    /// # Type Parameters
+    ///
+    /// * `T` - The type of the result's success value.
+    ///
     /// # Panics
     ///
     /// If the result is not [`Error::InvalidTaskInputs`].
@@ -2660,6 +2664,10 @@ mod tests {
         }
     }
 
+    /// # Type Parameters
+    ///
+    /// * `T` - The type of the result's success value.
+    ///
     /// # Panics
     ///
     /// If the result is not [`Error::InvalidExecutionPolicy`].
@@ -2670,6 +2678,10 @@ mod tests {
         }
     }
 
+    /// # Type Parameters
+    ///
+    /// * `T` - The type of the result's success value.
+    ///
     /// # Panics
     ///
     /// If the result is not [`Error::InvalidTimeoutPolicy`].
