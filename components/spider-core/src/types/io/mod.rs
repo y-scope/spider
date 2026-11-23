@@ -157,8 +157,7 @@ impl SerializedTaskOutputs {
     ///
     /// Returns an error if:
     ///
-    /// * [`TaskOutputsError::Empty`] if `raw_bytes` is empty.
-    /// * [`TaskOutputsError::UnknownOption`] if the leading option byte maps to no known option.
+    /// * Forwards [`Self::split_raw`]'s return values on failure.
     pub fn from_raw(raw_bytes: &[u8]) -> Result<Self, TaskOutputsError> {
         let (option, payload_bytes) = Self::split_raw(raw_bytes)?;
         Ok(Self {
@@ -258,12 +257,6 @@ pub struct TaskInputsSerializer {
     builder: WireFrameBuilder,
 }
 
-impl Default for TaskInputsSerializer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TaskInputsSerializer {
     /// Factory function.
     ///
@@ -304,9 +297,9 @@ impl TaskInputsSerializer {
 
     /// Deserializes a wire-format byte stream directly into a struct of type `TargetType`.
     ///
-    /// This is the deserialization counterpart to [`Self::append`] + [`Self::release`]. Each
-    /// field of `TargetType` positionally consumes one wire-format payload, which is then
-    /// deserialized from msgpack via a zero-copy borrowed slice into `data`.
+    /// This is the deserialization counterpart to [`Self::append`] + [`Self::release`]. Each field
+    /// of `TargetType` positionally consumes one wire-format payload, which is then deserialized
+    /// from msgpack via a zero-copy borrowed slice into `data`.
     ///
     /// # Type Parameters
     ///
@@ -334,21 +327,21 @@ impl TaskInputsSerializer {
     }
 }
 
-/// Streaming wire-format serializer and deserializer for task outputs.
-///
-/// On the serialization side, pre-encoded msgpack payloads (one per tuple element) are appended
-/// via [`Self::append`], and the final wire buffer is obtained from [`Self::release`].
-///
-/// On the deserialization side, [`Self::deserialize`] extracts each payload as an opaque
-/// `Vec<u8>` without decoding the msgpack contents.
-pub struct TaskOutputsSerializer {
-    builder: WireFrameBuilder,
-}
-
-impl Default for TaskOutputsSerializer {
+impl Default for TaskInputsSerializer {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Streaming wire-format serializer and deserializer for task outputs.
+///
+/// On the serialization side, pre-encoded msgpack payloads (one per tuple element) are appended via
+/// [`Self::append`], and the final wire buffer is obtained from [`Self::release`].
+///
+/// On the deserialization side, [`Self::deserialize`] extracts each payload as an opaque `Vec<u8>`
+/// without decoding the msgpack contents.
+pub struct TaskOutputsSerializer {
+    builder: WireFrameBuilder,
 }
 
 impl TaskOutputsSerializer {
@@ -398,8 +391,8 @@ impl TaskOutputsSerializer {
 
     /// Deserializes a wire-format byte stream into a vector of [`TaskOutput`] values.
     ///
-    /// Each payload is extracted as an opaque `Vec<u8>`. The msgpack contents are **not**
-    /// decoded here since the storage layer only stores the raw bytes.
+    /// Each payload is extracted as an opaque `Vec<u8>`. The msgpack contents are **not** decoded
+    /// here since the storage layer only stores the raw bytes.
     ///
     /// # Returns
     ///
@@ -416,9 +409,13 @@ impl TaskOutputsSerializer {
 
     /// Serializes `value` into msgpack and appends the encoded bytes directly to the wire buffer.
     ///
-    /// The msgpack encoding is written in-place: a placeholder length prefix is reserved, the
-    /// value is serialized into the buffer, and the prefix is back-patched with the actual
-    /// payload size. This avoids allocating an intermediate `Vec<u8>` per element.
+    /// The msgpack encoding is written in-place: a placeholder length prefix is reserved, the value
+    /// is serialized into the buffer, and the prefix is back-patched with the actual payload size.
+    /// This avoids allocating an intermediate `Vec<u8>` per element.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `ValueType` - The type of the value to serialize, which may be unsized.
     ///
     /// # Errors
     ///
@@ -431,6 +428,12 @@ impl TaskOutputsSerializer {
         value: &ValueType,
     ) -> Result<(), WireError> {
         self.builder.append_serialize(value)
+    }
+}
+
+impl Default for TaskOutputsSerializer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -508,6 +511,10 @@ mod tests {
     }
 
     /// msgpack-encodes a single value as a payload.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `ValueType` - The type of the value to encode.
     fn encode<ValueType: serde::Serialize>(value: &ValueType) -> Vec<u8> {
         rmp_serde::to_vec(value).expect("msgpack encoding failed")
     }

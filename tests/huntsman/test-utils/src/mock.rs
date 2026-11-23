@@ -17,6 +17,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use dashmap::DashSet;
+use spider_core::job::submission::CompressedJobSubmission;
+use spider_core::job::submission::TaskSuccessOutcome;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -177,6 +179,7 @@ pub struct SuccessReport {
     pub em_id: ExecutionManagerId,
     pub session_id: SessionId,
     pub serialized_outputs: Option<Vec<u8>>,
+    pub children: Vec<CompressedJobSubmission>,
 }
 
 /// Captured arguments of one `report_task_failure` call.
@@ -201,8 +204,8 @@ impl MockStorage {
     ///
     /// # Returns
     ///
-    /// A storage mock with no programmed responses. Tests must push register responses before
-    /// they fire; success / failure reports default to `Ok(())`.
+    /// A storage mock with no programmed responses. Tests must push register responses before they
+    /// fire; success / failure reports default to `Ok(())`.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -325,8 +328,15 @@ impl StorageClient for MockStorage {
         task_instance_id: TaskInstanceId,
         em_id: ExecutionManagerId,
         session_id: SessionId,
-        serialized_outputs: Option<Vec<u8>>,
+        outcome: TaskSuccessOutcome,
     ) -> Result<(), StorageResponseError> {
+        let (serialized_outputs, children) = match outcome {
+            TaskSuccessOutcome::Regular {
+                serialized_outputs,
+                children,
+            } => (Some(serialized_outputs), children),
+            TaskSuccessOutcome::Finalizing => (None, Vec::new()),
+        };
         lock(&self.inner.success_reports).push(SuccessReport {
             job_id,
             task_id,
@@ -334,6 +344,7 @@ impl StorageClient for MockStorage {
             em_id,
             session_id,
             serialized_outputs,
+            children,
         });
         self.inner.notify.notify_waiters();
         lock(&self.inner.success_responses)
@@ -518,8 +529,8 @@ struct SchedulerInner {
     notify: Notify,
     call_count: AtomicU64,
     resource_group_ids: Mutex<Vec<Option<ResourceGroupId>>>,
-    /// Records of the assignments handed out by `next_task` that have not yet been checked off by
-    /// a `prev_assignment` acknowledgement. An empty set on exit means the runtime reported every
+    /// Records of the assignments handed out by `next_task` that are not yet checked off by a
+    /// `prev_assignment` acknowledgement. An empty set on exit means the runtime reported every
     /// assignment it was given as consumed.
     outstanding: DashSet<TaskAssignmentRecord>,
     heartbeat_count: AtomicU64,

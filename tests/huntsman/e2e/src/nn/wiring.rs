@@ -1,7 +1,7 @@
 //! Topology wiring for the end-to-end neural-network test workload.
 //!
-//! Layer 0 neurons read graph inputs directly; inner-layer neurons each draw a fixed fan-in
-//! from the previous layer's outputs.
+//! Layer 0 neurons read graph inputs directly; inner-layer neurons each draw a fixed fan-in from
+//! the previous layer's outputs.
 
 use huntsman_nn_core::NUM_INPUTS;
 use rand::rngs::StdRng;

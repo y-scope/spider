@@ -53,25 +53,19 @@ pub struct TdlContext {
     pub task_func: String,
 }
 
-/// The minimum allowed timeout value in milliseconds.
-const MIN_TIMEOUT_MS: u64 = 100;
-
-/// The maximum allowed timeout value in milliseconds.
-const MAX_TIMEOUT_MS: u64 = 1000 * 60 * 60 * 24; // 24 hours
-
 /// Timeout policy for a task.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimeoutPolicy {
-    /// The soft timeout for the task, in milliseconds. If the task execution exceeds this
-    /// duration, Spider may create a new task instance to mitigate potential blocking or
-    /// stalled executions.
+    /// The soft timeout for the task, in milliseconds. If the task's execution exceeds this
+    /// duration, Spider may create a new task instance to mitigate potential blocking or stalled
+    /// executions.
     ///
     /// Default to 150,000ms (2.5 minutes).
     ///
     /// Must be within the range of [[`MIN_TIMEOUT_MS`], [`MAX_TIMEOUT_MS`]] (inclusive).
     pub soft_timeout_ms: u64,
 
-    /// The hard timeout for the task, in milliseconds. If the task execution exceeds this
+    /// The hard timeout for the task, in milliseconds. If the task's execution exceeds this
     /// duration, the task will be terminated and considered failed.
     ///
     /// Default to 300,000ms (5 minutes).
@@ -661,6 +655,16 @@ impl TaskGraph {
         self.dataflow_deps.len()
     }
 
+    #[must_use]
+    pub const fn get_commit_task_descriptor(&self) -> Option<&TerminationTaskDescriptor> {
+        self.commit_task.as_ref()
+    }
+
+    #[must_use]
+    pub const fn get_cleanup_task_descriptor(&self) -> Option<&TerminationTaskDescriptor> {
+        self.cleanup_task.as_ref()
+    }
+
     /// Computes the input data-flow dependencies and parent task indices for a task based on its
     /// inputs.
     ///
@@ -803,7 +807,7 @@ impl TaskGraph {
     ///
     /// # Type Parameters
     ///
-    /// * `SequenceSerializer`: Serializer for the sequence of task descriptors.
+    /// * `SequenceSerializer` - Serializer for the sequence of task descriptors.
     ///
     /// # Returns
     ///
@@ -878,16 +882,6 @@ impl TaskGraph {
         }
         Ok(())
     }
-
-    #[must_use]
-    pub const fn get_commit_task_descriptor(&self) -> Option<&TerminationTaskDescriptor> {
-        self.commit_task.as_ref()
-    }
-
-    #[must_use]
-    pub const fn get_cleanup_task_descriptor(&self) -> Option<&TerminationTaskDescriptor> {
-        self.cleanup_task.as_ref()
-    }
 }
 
 impl Serialize for TaskGraph {
@@ -935,6 +929,12 @@ const TASK_GRAPH_SCHEMA_VERSION: &str = "0.1.0";
 
 /// Task graph schema version compatibility requirement.
 const TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION: &str = ">=0.1.0,<0.2.0";
+
+/// The minimum allowed timeout value in milliseconds.
+const MIN_TIMEOUT_MS: u64 = 100;
+
+/// The maximum allowed timeout value in milliseconds.
+const MAX_TIMEOUT_MS: u64 = 1000 * 60 * 60 * 24; // 24 hours
 
 static TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION_REQUIREMENT: std::sync::LazyLock<VersionReq> =
     std::sync::LazyLock::new(|| {
@@ -1063,6 +1063,10 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
 }
 
 /// Wrapper of a task graph that enables streaming serialization of the underlying tasks.
+///
+/// # Type Parameters
+///
+/// * `'task_graph_lifetime` - The lifetime of the borrowed [`TaskGraph`].
 struct TaskDescriptorSequence<'task_graph_lifetime> {
     graph: &'task_graph_lifetime TaskGraph,
 }
@@ -2646,6 +2650,10 @@ mod tests {
         }));
     }
 
+    /// # Type Parameters
+    ///
+    /// * `T` - The type of the result's success value.
+    ///
     /// # Panics
     ///
     /// If the result is not [`Error::InvalidTaskInputs`].
@@ -2656,6 +2664,10 @@ mod tests {
         }
     }
 
+    /// # Type Parameters
+    ///
+    /// * `T` - The type of the result's success value.
+    ///
     /// # Panics
     ///
     /// If the result is not [`Error::InvalidExecutionPolicy`].
@@ -2666,6 +2678,10 @@ mod tests {
         }
     }
 
+    /// # Type Parameters
+    ///
+    /// * `T` - The type of the result's success value.
+    ///
     /// # Panics
     ///
     /// If the result is not [`Error::InvalidTimeoutPolicy`].

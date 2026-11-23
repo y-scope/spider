@@ -1,3 +1,5 @@
+pub mod submission;
+
 use spider_derive::MySqlEnum;
 
 /// Represents a job in the Spider scheduling framework.

@@ -1,8 +1,9 @@
 //! Test TDL package used by the `task-executor` integration tests.
 //!
-//! Exposes six tasks that exercise distinct executor code paths:
+//! Exposes seven tasks that exercise distinct executor code paths:
 //!
 //! * [`task_decl::fibonacci`] — basic compute + correctness.
+//! * [`task_decl::generate_payload`] — produces a requested number of bytes.
 //! * [`task_decl::always_fail`] — in-task error reporting.
 //! * [`task_decl::always_panic`] — process-level crash handling.
 //! * [`task_decl::sleep_and_echo`] — fixed-cost task: sleeps for a known [`INSTRUMENT_SLEEP_US`]
@@ -53,19 +54,21 @@ mod task_decl {
         Ok(())
     }
 
-    /// Computes the `index`-th Fibonacci number with a deliberately naive recursive
-    /// implementation so the call has measurable CPU cost for the overhead benchmark.
+    /// Computes the `index`-th Fibonacci number with a deliberately naive recursive implementation
+    /// so the call has measurable CPU cost for the overhead benchmark.
     #[task(name = "fibonacci")]
     pub fn fibonacci(_ctx: TaskContext, index: u64) -> Result<u64, TdlError> {
         Ok(fib(index))
     }
 
-    fn fib(index: u64) -> u64 {
-        if index < 2 {
-            index
-        } else {
-            fib(index - 1) + fib(index - 2)
-        }
+    /// Produces a string containing `size` copies of `x`.
+    ///
+    /// # Returns
+    ///
+    /// The generated string on success.
+    #[task(name = "generate_payload")]
+    pub fn generate_payload(_ctx: TaskContext, size: usize) -> Result<String, TdlError> {
+        Ok("x".repeat(size))
     }
 
     /// Always returns a [`TdlError::ExecutionError`].
@@ -139,6 +142,14 @@ mod task_decl {
 
     /// Set by [`package_init`] so [`assert_initialized`] can confirm the init hook ran on load.
     static INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+    fn fib(index: u64) -> u64 {
+        if index < 2 {
+            index
+        } else {
+            fib(index - 1) + fib(index - 2)
+        }
+    }
 }
 
 spider_tdl::register_tdl_package! {
@@ -146,6 +157,7 @@ spider_tdl::register_tdl_package! {
     init: task_decl::package_init,
     tasks: [
         task_decl::fibonacci,
+        task_decl::generate_payload,
         task_decl::always_fail,
         task_decl::always_panic,
         task_decl::sleep_and_echo,

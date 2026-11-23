@@ -6,6 +6,7 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use spider_core::job::submission::TaskSuccessOutcome;
 use spider_core::session::SessionTracker;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
@@ -49,8 +50,8 @@ pub struct RuntimeConfig {
     pub scheduler_heartbeat_interval: Duration,
 
     /// How long, in milliseconds, the scheduler is asked to block each
-    /// [`SchedulerClient::next_task`] long poll before returning `NoTask`. Passed verbatim to
-    /// the scheduler gRPC as `wait_time_ms`.
+    /// [`SchedulerClient::next_task`] long poll before returning `NoTask`. Passed verbatim to the
+    /// scheduler gRPC as `wait_time_ms`.
     pub scheduler_poll_wait_ms: u64,
 
     /// Absolute path to the `spider-task-executor` binary the process pool spawns.
@@ -532,8 +533,9 @@ struct ReportTarget {
 
 /// A task outcome prepared for transmission to storage. Splits the storage API's two reporting
 /// endpoints (success / failure) and carries their payloads.
+#[derive(Debug)]
 enum Report {
-    Success(Option<Vec<u8>>),
+    Success(TaskSuccessOutcome),
     Failure(String),
 }
 
@@ -545,15 +547,28 @@ impl Report {
         match outcome {
             Outcome::Success {
                 outputs,
+                children,
                 elapsed_us,
             } => {
+                let outcome = match TaskSuccessOutcome::new(target.task, outputs, children) {
+                    Ok(outcome) => outcome,
+                    Err(error) => {
+                        tracing::warn!(
+                            job_id = ? target.job,
+                            task_id = ? target.task,
+                            error = ? error,
+                            "Task returned an invalid success outcome."
+                        );
+                        return Self::Failure(format!("invalid success payload: {error}"));
+                    }
+                };
                 tracing::info!(
                     job_id = ? target.job,
                     task_id = ? target.task,
                     elapsed_us,
                     "Task completed successfully."
                 );
-                Self::Success(Some(outputs))
+                Self::Success(outcome)
             }
             Outcome::InTaskFailure { error, elapsed_us } => {
                 tracing::info!(
@@ -566,6 +581,15 @@ impl Report {
                     "in-task failure: {}",
                     String::from_utf8_lossy(&error)
                 ))
+            }
+            Outcome::InvalidResponse { message } => {
+                tracing::warn!(
+                    job_id = ? target.job,
+                    task_id = ? target.task,
+                    message = % message,
+                    "Task executor returned an invalid response."
+                );
+                Self::Failure(format!("invalid executor response: {message}"))
             }
             Outcome::Timeout { hard_timeout } => {
                 tracing::warn!(
@@ -591,7 +615,7 @@ impl Report {
         }
     }
 
-    /// Consumes `self` and sends it to storage via the matching reporting endpoint.
+    /// Sends the report to storage, reporting an oversized success as a task failure instead.
     ///
     /// # Type Parameters
     ///
@@ -601,7 +625,8 @@ impl Report {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`StorageClient::report_task_success`]'s return values on failure.
+    /// * Forwards [`StorageClient::report_task_success`]'s return values on failure, except
+    ///   [`StorageResponseError::ReportTooLarge`].
     /// * Forwards [`StorageClient::report_task_failure`]'s return values on failure.
     async fn send<StorageClientType: StorageClient>(
         self,
@@ -616,10 +641,25 @@ impl Report {
             session,
         } = target;
         match self {
-            Self::Success(outputs) => {
-                storage_client
-                    .report_task_success(job, task, task_instance_id, em, session, outputs)
+            Self::Success(outcome) => {
+                match storage_client
+                    .report_task_success(job, task, task_instance_id, em, session, outcome)
                     .await
+                {
+                    Err(error @ StorageResponseError::ReportTooLarge { .. }) => {
+                        storage_client
+                            .report_task_failure(
+                                job,
+                                task,
+                                task_instance_id,
+                                em,
+                                session,
+                                format!("invalid success payload: {error}"),
+                            )
+                            .await
+                    }
+                    result => result,
+                }
             }
             Self::Failure(message) => {
                 storage_client

@@ -10,13 +10,13 @@ use clap::Parser;
 use spider_proto_rust::storage::ExecutionManagerLivenessServiceServer;
 use spider_proto_rust::storage::InboundQueueServiceServer;
 use spider_proto_rust::storage::JobOrchestrationServiceServer;
+use spider_proto_rust::storage::MAX_TASK_INSTANCE_MESSAGE_SIZE;
 use spider_proto_rust::storage::ResourceGroupManagementServiceServer;
 use spider_proto_rust::storage::SchedulerRegistrationServiceServer;
 use spider_proto_rust::storage::SessionManagementServiceServer;
 use spider_proto_rust::storage::TaskInstanceManagementServiceServer;
 use spider_storage::ServerConfig;
 use spider_storage::grpc::GrpcServiceState;
-use spider_storage::limits::MAX_TASK_INSTANCE_MESSAGE_SIZE;
 use spider_storage::state::StorageServerError;
 use spider_storage::state::runtime::create_runtime;
 use spider_utils::config::YamlConfig;
@@ -30,8 +30,8 @@ use tokio::task::JoinHandle;
 use tonic::transport::Server;
 use tonic::transport::server::TcpIncoming;
 
-/// How long the storage service may take to shut down once its cancellation token is cancelled.
-/// The hardcoded 30-second budget matches Kubernetes' default termination grace period
+/// How long the storage service may take to shut down once its cancellation token is cancelled. The
+/// hardcoded 30-second budget matches Kubernetes' default termination grace period
 /// [`terminationGracePeriodSeconds`][k8s].
 ///
 /// [k8s]: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination-flow

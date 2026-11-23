@@ -9,9 +9,9 @@
 //! `${SPIDER_TDL_PACKAGE_DIR}/${package}/${package}.so` and caches the loaded library by name.
 //!
 //! Execution model: requests are processed strictly sequentially on a single-threaded tokio
-//! runtime. Tokio is used only to match the async I/O surface on the execution manager side;
-//! the executor itself has no concurrency requirements, and exactly one task runs for the
-//! lifetime of the process.
+//! runtime. Tokio is used only to match the async I/O surface on the execution manager side; the
+//! executor itself has no concurrency requirements, and exactly one task runs for the lifetime of
+//! the process.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -25,6 +25,7 @@ use futures_util::StreamExt;
 use spider_task_executor::ExecutorError;
 use spider_task_executor::TdlPackageManager;
 use spider_task_executor::protocol::ExecutorOutcome;
+use spider_task_executor::protocol::MAX_FRAME_SIZE;
 use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
 use tokio::io::stdin;
@@ -92,7 +93,12 @@ async fn main() -> Result<()> {
         .ok_or_else(|| anyhow!("{SPIDER_TDL_PACKAGE_DIR} env var not set"))?;
 
     let mut requests = FramedRead::new(stdin(), LengthDelimitedCodec::new());
-    let mut responses = FramedWrite::new(stdout(), LengthDelimitedCodec::new());
+    let mut responses = FramedWrite::new(
+        stdout(),
+        LengthDelimitedCodec::builder()
+            .max_frame_length(MAX_FRAME_SIZE)
+            .new_codec(),
+    );
 
     let mut manager = TdlPackageManager::new();
 
@@ -118,7 +124,10 @@ async fn main() -> Result<()> {
                     &raw_ctx,
                     &raw_inputs,
                 ) {
-                    Ok(outputs) => ExecutorOutcome::Success { outputs },
+                    Ok(outputs) => ExecutorOutcome::Success {
+                        outputs,
+                        children: Vec::new(),
+                    },
                     Err(e) => ExecutorOutcome::Failure {
                         error: rmp_serde::to_vec(&e).inspect_err(
                             |e| tracing::error!(err = ? e, "Failed to serialize execution result."),

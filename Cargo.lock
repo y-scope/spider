@@ -2004,6 +2004,7 @@ dependencies = [
  "bytes",
  "clap",
  "futures-util",
+ "prost",
  "rmp-serde",
  "serde",
  "spider-core",
@@ -2486,6 +2487,7 @@ dependencies = [
 name = "task-executor-tests"
 version = "0.1.0-dev"
 dependencies = [
+ "anyhow",
  "integration-test-tasks",
  "rmp-serde",
  "spider-core",

@@ -259,8 +259,8 @@ fn validate_has_parameters(func: &ItemFn) -> syn::Result<()> {
 
 /// Extracts the `Ok` type of a `Result<...>` return type as a tuple.
 ///
-/// If the user wrote a tuple type (e.g., `Result<(int32, int32), TdlError>`), it is returned
-/// as-is. If the user wrote a bare type (e.g., `Result<int32, TdlError>`), it is wrapped into a
+/// If the user wrote a tuple type (e.g., `Result<(int32, int32), TdlError>`), it is returned as-is.
+/// If the user wrote a bare type (e.g., `Result<int32, TdlError>`), it is wrapped into a
 /// single-element tuple (`(int32,)`).
 ///
 /// # Returns

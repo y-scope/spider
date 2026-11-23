@@ -17,8 +17,8 @@
 //!     Execution Managers -- "latency samples" --> Instrumentation|
 //! ```
 //!
-//! **Data flow**: The harness creates a JCB, spawns its tree's committer and calls `start()`,
-//! whose committer enqueues initially ready tasks into the MPMC channel. 64 execution managers
+//! **Data flow**: The harness creates a JCB, spawns its tree's committer and calls `start()`, whose
+//! committer enqueues initially ready tasks into the MPMC channel. 64 execution managers
 //! concurrently dequeue one task at a time, call JCB methods (register -> succeed/fail), which may
 //! enqueue newly ready child tasks back into the channel. When an execution manager observes a
 //! terminal [`JobState`], it broadcasts via a `watch` channel. The harness receives the signal and
@@ -42,9 +42,9 @@
 //! are cheaply cloneable via `Arc` or built-in `Clone`). Execution managers `tokio::select!`
 //! between the inbound-queue receiver and a done signal (`watch<bool>`).
 //!
-//! **Failure injection**: 50% of first-seen tasks spawn 2 concurrent `tokio::spawn` coroutines
-//! that each independently register and fail a task instance. This exercises both the retry
-//! counter (`max_num_retry >= 3`) and the concurrent instance limit (`max_num_instances >= 2`).
+//! **Failure injection**: 50% of first-seen tasks spawn 2 concurrent `tokio::spawn` coroutines that
+//! each independently register and fail a task instance. This exercises both the retry counter
+//! (`max_num_retry >= 3`) and the concurrent instance limit (`max_num_instances >= 2`).
 //!
 //! # Instrumentation
 //!
@@ -67,8 +67,8 @@
 //! # Generic test design
 //!
 //! All test logic is generic over `DbConnectorType` via an async factory callback
-//! `AsyncFnOnce() -> DbConnectorType`, so the same tests can be rerun with a real
-//! DB connector later.
+//! `AsyncFnOnce() -> DbConnectorType`, so the same tests can be rerun with a real DB connector
+//! later.
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -209,6 +209,10 @@ pub struct WorkloadResult {
 }
 
 /// Type alias for the DB connector factory return type.
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation that the factory returns.
 pub type FactoryReturn<DbConnectorType> = (DbConnectorType, JobId, ResourceGroupId);
 
 /// An async DB connector factory for [`run_workload`].
@@ -623,9 +627,8 @@ impl TaskInstancePoolConnector for MockTaskInstancePool {
     }
 }
 
-/// Thin wrapper around [`TestJcb`] that optionally records latency samples for each JCB
-/// operation. When `instrument_sender` is `None`, calls are forwarded without any timing
-/// overhead.
+/// Thin wrapper around [`TestJcb`] that optionally records latency samples for each JCB operation.
+/// When `instrument_sender` is `None`, calls are forwarded without any timing overhead.
 #[derive(Clone)]
 struct InstrumentedJcb {
     jcb: TestJcb,
@@ -931,7 +934,11 @@ fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>)
 ///
 /// # Errors
 ///
-/// Forwards all errors that are not [`CacheError::StaleState`].
+/// Returns an error if:
+///
+/// * Forwards [`process_task`]'s return values on failure, except [`CacheError::StaleState`].
+/// * Forwards [`process_commit`]'s return values on failure, except [`CacheError::StaleState`].
+/// * Forwards [`process_cleanup`]'s return values on failure, except [`CacheError::StaleState`].
 async fn run_execution_manager(mut ctx: EmContext) -> anyhow::Result<()> {
     let mut rng = rand::rngs::StdRng::from_os_rng();
     loop {
@@ -1061,7 +1068,7 @@ async fn process_task(
 /// Returns an error if:
 ///
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
-/// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values of failure.
+/// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values on failure.
 ///
 /// # Panics
 ///
@@ -1097,7 +1104,7 @@ async fn process_commit(ctx: &EmContext) -> Result<(), CacheError> {
 /// Returns an error if:
 ///
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
-/// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values of failure.
+/// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values on failure.
 async fn process_cleanup(ctx: &EmContext) -> Result<(), CacheError> {
     let exec_ctx = ctx
         .jcb

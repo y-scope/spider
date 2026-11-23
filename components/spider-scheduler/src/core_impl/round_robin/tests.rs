@@ -62,8 +62,8 @@ struct MockStorageInner {
 
 /// A mock [`SchedulerStorageClient`] backed by scripted poll batches.
 ///
-/// Each lane serves its scripted batches in FIFO order, one batch per poll; when a lane's script
-/// is empty, polls return an empty batch under the mock's current session immediately (the `wait`
+/// Each lane serves its scripted batches in FIFO order, one batch per poll; when a lane's script is
+/// empty, polls return an empty batch under the mock's current session immediately (the `wait`
 /// parameter is ignored to keep tests fast).
 #[derive(Clone)]
 struct MockStorageClient {
@@ -223,8 +223,8 @@ fn make_jobs(n: usize) -> Vec<(JobId, ResourceGroupId)> {
         .collect()
 }
 
-/// Builds one inbound ready batch containing `tasks_per_job` tasks per job, interleaved across
-/// jobs in per-job FIFO order (task 0 of every job, then task 1 of every job, and so on).
+/// Builds one inbound ready batch containing `tasks_per_job` tasks per job, interleaved across jobs
+/// in per-job FIFO order (task 0 of every job, then task 1 of every job, and so on).
 ///
 /// When `dup_every` is non-zero, every `dup_every`-th entry is duplicated adjacently within the
 /// batch, emulating the duplicate task assignments a real storage may return.
@@ -371,7 +371,7 @@ fn spawn_scheduler_with_reschedule(
 ///
 /// Returns an error if:
 ///
-/// * Fewer than `n` assignments arrive within [`DRAIN_DEADLINE`].
+/// * [`anyhow::Error`] if fewer than `n` assignments arrive within [`DRAIN_DEADLINE`].
 /// * Forwards [`DispatchQueueHandle::dequeue`]'s return values on failure.
 async fn drain_n(
     dispatch_queue_handle: &dyn DispatchQueueHandle,
@@ -559,7 +559,7 @@ fn make_scheduler_with_reschedule(
 ///
 /// Returns an error if:
 ///
-/// * The predicate does not hold within [`DRAIN_DEADLINE`].
+/// * [`anyhow::Error`] if the predicate does not hold within [`DRAIN_DEADLINE`].
 /// * Forwards [`RoundRobin::tick`]'s return values on failure.
 async fn tick_until(
     scheduler: &mut TestScheduler,
@@ -588,7 +588,7 @@ async fn tick_until(
 ///
 /// Returns an error if:
 ///
-/// * Fewer than `n` assignments arrive within [`DRAIN_DEADLINE`].
+/// * [`anyhow::Error`] if fewer than `n` assignments arrive within [`DRAIN_DEADLINE`].
 /// * Forwards [`RoundRobin::tick`]'s return values on failure.
 /// * Forwards [`DispatchQueueHandle::dequeue`]'s return values on failure.
 async fn tick_and_drain_n(
@@ -642,8 +642,8 @@ async fn assert_no_further_assignments(
 
 /// Drives the shared scenario where a finalizing batch drops one active and one pending job.
 ///
-/// The finalizing lane is selected by `finalizing_task_id`: commit-ready for [`TaskId::Commit`],
-/// or cleanup-ready for [`TaskId::Cleanup`]. The scenario:
+/// The finalizing lane is selected by `finalizing_task_id`: commit-ready for [`TaskId::Commit`], or
+/// cleanup-ready for [`TaskId::Cleanup`]. The scenario:
 ///
 /// 1. Buffers four jobs (two active, two pending) and freezes dispatch via a full dispatch queue.
 /// 2. Delivers a finalizing batch for one active job and one pending job mid-stream.
@@ -659,7 +659,7 @@ async fn assert_no_further_assignments(
 ///
 /// Returns an error if:
 ///
-/// * `finalizing_task_id` is a regular [`TaskId::Index`] task.
+/// * [`anyhow::Error`] if `finalizing_task_id` is a regular [`TaskId::Index`] task.
 /// * Forwards [`tick_until`]'s return values on failure.
 /// * Forwards [`tick_and_drain_n`]'s return values on failure.
 /// * Forwards [`assert_no_further_assignments`]'s return values on failure.
@@ -758,9 +758,9 @@ async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyho
     );
 
     // Step 4: unfreeze. Every remaining assignment is accounted for below: the pre-freeze
-    // assignments already queued, one finalizing task per finalizing job, `job_a`'s remaining
-    // tasks (its first task dispatched pre-freeze), and the full task set of `job_p`, which
-    // backfills `job_b`'s freed slot.
+    // assignments already queued, one finalizing task per finalizing job, `job_a`'s remaining tasks
+    // (its first task dispatched pre-freeze), and the full task set of `job_p`, which backfills
+    // `job_b`'s freed slot.
 
     // total number of assignments = pre-freeze assignments + finalizing assignments +
     //     remaining `job_a` assignments + full `job_p` assignments
@@ -832,9 +832,9 @@ async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyho
 
     assert!(scheduler.buffered_tasks.is_empty());
     assert!(scheduler.pending_jobs.is_empty());
-    assert!(scheduler.pending_job_queue.is_empty());
-    assert!(scheduler.commit_ready_jobs.is_empty());
-    assert!(scheduler.cleanup_ready_jobs.is_empty());
+    assert_eq!(scheduler.pending_job_queue, VecDeque::new());
+    assert_eq!(scheduler.commit_ready_jobs, VecDeque::new());
+    assert_eq!(scheduler.cleanup_ready_jobs, VecDeque::new());
     assert_eq!(scheduler.finalizing_jobs.len(), NUM_FINALIZING_JOBS);
 
     assert!(scheduler.finalizing_jobs.contains(&job_b.0));

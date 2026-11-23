@@ -17,7 +17,7 @@ use test_utils::execute_request;
 /// Asserts that `outcome` is a task [`TdlError::ExecutionError`] whose message contains `needle`.
 fn assert_task_execution_error(outcome: ExecutorOutcome, needle: &str) {
     match outcome {
-        ExecutorOutcome::Success { outputs } => {
+        ExecutorOutcome::Success { outputs, .. } => {
             panic!("expected Failure, got Success with {} bytes", outputs.len());
         }
         ExecutorOutcome::Failure { error } => {
@@ -44,7 +44,11 @@ async fn fibonacci_returns_correct_value() {
         .await;
     let Response::Result { outcome, .. } = handle.recv().await;
     match outcome {
-        ExecutorOutcome::Success { outputs } => {
+        ExecutorOutcome::Success { outputs, children } => {
+            assert_eq!(
+                children,
+                [] as [spider_core::job::submission::CompressedJobSubmission; 0]
+            );
             let got: u64 = decode_single_output(&outputs);
             // Fib(10) = 55
             assert_eq!(got, 55);
@@ -67,7 +71,7 @@ async fn always_fail_reports_task_error() {
         .await;
     let Response::Result { outcome, .. } = handle.recv().await;
     match outcome {
-        ExecutorOutcome::Success { outputs } => {
+        ExecutorOutcome::Success { outputs, .. } => {
             panic!("expected Failure, got Success with {} bytes", outputs.len());
         }
         ExecutorOutcome::Failure { error } => {
@@ -93,8 +97,8 @@ async fn always_panic_crashes_the_process() {
         .send(&execute_request("always_panic", encode_no_inputs()))
         .await;
 
-    // A panic across the `extern "C"` boundary aborts the executor process. The parent must
-    // observe stdout EOF (no further frames) and a non-zero exit status.
+    // A panic across the `extern "C"` boundary aborts the executor process. The parent must observe
+    // stdout EOF (no further frames) and a non-zero exit status.
     let frame = handle.try_recv().await;
     assert!(
         frame.is_none(),
@@ -171,5 +175,32 @@ async fn assert_outputs_sum_zero_fails_for_non_commit_task() {
         .await;
     let Response::Result { outcome, .. } = handle.recv().await;
     assert_task_execution_error(outcome, "commit task");
+    handle.shutdown_clean().await;
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn response_larger_than_eight_mib_preserves_outputs() {
+    const PAYLOAD_SIZE: usize = 10 * 1024 * 1024;
+    let mut handle = ExecutorHandle::spawn();
+    handle
+        .send(&execute_request(
+            "generate_payload",
+            encode_single_input(&PAYLOAD_SIZE),
+        ))
+        .await;
+    let Response::Result { outcome, .. } = handle.recv().await;
+    let ExecutorOutcome::Success { outputs, children } = outcome else {
+        panic!("expected Success, got {outcome:?}");
+    };
+    assert!(outputs.len() > 8 * 1024 * 1024);
+    assert_eq!(
+        decode_single_output::<String>(&outputs),
+        "x".repeat(PAYLOAD_SIZE)
+    );
+    assert_eq!(
+        children,
+        [] as [spider_core::job::submission::CompressedJobSubmission; 0]
+    );
     handle.shutdown_clean().await;
 }
