@@ -171,17 +171,16 @@ impl TaskExecutionResult {
     ///
     /// # Errors
     ///
-    /// Returns an error if:
-    ///
-    /// * The result represents a failure. The error is the msgpack-encoded [`crate::TdlError`] that
-    ///   the TDL package produced. The caller is responsible for decoding it via
-    ///   [`rmp_serde::from_slice`].
+    /// Returns `Err(bytes)` if the result represented failure, where `bytes` is a msgpack-encoded
+    /// [`crate::TdlError`] produced inside the TDL package. The caller is responsible for decoding
+    /// it via [`rmp_serde::from_slice`].
     ///
     /// # Safety
     ///
     /// The caller must guarantee that `self.pointer` / `self.length` originated from a prior call
     /// to [`Self::from_outputs`] or [`Self::from_error`] in a component that shares this process's
     /// global allocator.
+    // yscope-linter: allow-item(DOC002): the error is a msgpack-serialized `TdlError` buffer
     pub fn into_result(self) -> Result<Vec<u8>, Vec<u8>> {
         // Prevent the destructor from running after we reconstruct the `Box`.
         let this = ManuallyDrop::new(self);
