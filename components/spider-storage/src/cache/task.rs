@@ -67,50 +67,6 @@ impl TaskGraph {
         Self::from_parts(submitted_task_graph, task_graph_input).await
     }
 
-    /// Recovers a task graph from the commit-ready state.
-    ///
-    /// # Returns
-    ///
-    /// The task graph with task outputs, the commit task, and the cleanup task (if any) recovered,
-    /// while the underlying task graph is initialized to empty.
-    pub(super) fn recover_from_commit_ready(
-        commit_task_descriptor: &TerminationTaskDescriptor,
-        cleanup_task_descriptor: Option<&TerminationTaskDescriptor>,
-        outputs: Vec<TaskOutput>,
-    ) -> Self {
-        let outputs = outputs
-            .into_iter()
-            .map(|output_payload| Reader::new(SharedRw::new(RwLock::new(Some(output_payload)))))
-            .collect();
-        Self {
-            tasks: vec![],
-            outputs,
-            commit_task: Some(SharedTerminationTaskControlBlock::create(
-                commit_task_descriptor,
-            )),
-            cleanup_task: cleanup_task_descriptor.map(SharedTerminationTaskControlBlock::create),
-        }
-    }
-
-    /// Recovers a task graph from the cleanup-ready state.
-    ///
-    /// # Returns
-    ///
-    /// The task graph with the cleanup task recovered, while the underlying task graph and the
-    /// outputs are initialized to empty.
-    pub(super) fn recover_from_cleanup_ready(
-        cleanup_task_descriptor: &TerminationTaskDescriptor,
-    ) -> Self {
-        Self {
-            tasks: vec![],
-            outputs: vec![],
-            commit_task: None,
-            cleanup_task: Some(SharedTerminationTaskControlBlock::create(
-                cleanup_task_descriptor,
-            )),
-        }
-    }
-
     /// Finalizes the task graph, indicating the job state has transitioned from
     /// [`JobState::Running`] to the next state.
     ///
@@ -225,6 +181,50 @@ impl TaskGraph {
     #[must_use]
     pub const fn has_cleanup_task(&self) -> bool {
         self.cleanup_task.is_some()
+    }
+
+    /// Recovers a task graph from the commit-ready state.
+    ///
+    /// # Returns
+    ///
+    /// The task graph with task outputs, the commit task, and the cleanup task (if any) recovered,
+    /// while the underlying task graph is initialized to empty.
+    pub(super) fn recover_from_commit_ready(
+        commit_task_descriptor: &TerminationTaskDescriptor,
+        cleanup_task_descriptor: Option<&TerminationTaskDescriptor>,
+        outputs: Vec<TaskOutput>,
+    ) -> Self {
+        let outputs = outputs
+            .into_iter()
+            .map(|output_payload| Reader::new(SharedRw::new(RwLock::new(Some(output_payload)))))
+            .collect();
+        Self {
+            tasks: vec![],
+            outputs,
+            commit_task: Some(SharedTerminationTaskControlBlock::create(
+                commit_task_descriptor,
+            )),
+            cleanup_task: cleanup_task_descriptor.map(SharedTerminationTaskControlBlock::create),
+        }
+    }
+
+    /// Recovers a task graph from the cleanup-ready state.
+    ///
+    /// # Returns
+    ///
+    /// The task graph with the cleanup task recovered, while the underlying task graph and the
+    /// outputs are initialized to empty.
+    pub(super) fn recover_from_cleanup_ready(
+        cleanup_task_descriptor: &TerminationTaskDescriptor,
+    ) -> Self {
+        Self {
+            tasks: vec![],
+            outputs: vec![],
+            commit_task: None,
+            cleanup_task: Some(SharedTerminationTaskControlBlock::create(
+                cleanup_task_descriptor,
+            )),
+        }
     }
 
     /// Creates a new task graph from a submitted task graph and its job inputs, which must be
@@ -1191,6 +1191,15 @@ mod tests {
     use crate::state::test_utils::create_test_child_submission;
     use crate::state::test_utils::create_test_prepared_child;
 
+    /// Precomputed expected values for the diamond task graph XOR transformations.
+    struct DiamondExpectedValues {
+        graph_inputs: [Vec<u8>; 2],
+        a_outputs: [Vec<u8>; 2],
+        b_output: Vec<u8>,
+        c_output: Vec<u8>,
+        d_output: Vec<u8>,
+    }
+
     /// Marks the task instance `id` of `tcb` as succeeded with `task_outputs`, with no hook armed.
     ///
     /// # Returns
@@ -1298,15 +1307,6 @@ mod tests {
     fn xor_bytes(a: &[u8], b: &[u8]) -> Vec<u8> {
         assert_eq!(a.len(), b.len(), "xor_bytes requires equal-length slices");
         a.iter().zip(b.iter()).map(|(x, y)| x ^ y).collect()
-    }
-
-    /// Precomputed expected values for the diamond task graph XOR transformations.
-    struct DiamondExpectedValues {
-        graph_inputs: [Vec<u8>; 2],
-        a_outputs: [Vec<u8>; 2],
-        b_output: Vec<u8>,
-        c_output: Vec<u8>,
-        d_output: Vec<u8>,
     }
 
     /// Computes all expected intermediate and final values for the diamond task graph.

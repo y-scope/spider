@@ -411,6 +411,7 @@ async fn restart_after_starting_job(
 /// Returns an error if:
 ///
 /// * Forwards [`restart_after_starting_job`]'s return values on failure.
+/// * Forwards [`ServiceState::resend_ready_tasks`]'s return values on failure.
 /// * Forwards [`ServiceState::poll_ready_tasks`]'s return values on failure.
 /// * Forwards [`run_recovered_regular_task`]'s return values on failure.
 /// * Forwards [`serialized_single_output`]'s return values on failure.
@@ -532,7 +533,8 @@ async fn register_and_start_job<
 /// Returns an error if:
 ///
 /// * Forwards [`ServiceState::add_resource_group`]'s return values on failure.
-/// * Forwards [`spider_core::task::TaskGraph::to_json`]'s return values on failure.
+/// * Forwards [`compress_task_graph`]'s return values on failure.
+/// * Forwards [`compress_job_inputs`]'s return values on failure.
 /// * Forwards [`ServiceState::register_job`]'s return values on failure.
 async fn register_job<
     InboundQueueSenderType: spider_storage::inbound_queue::InboundQueueSender,
@@ -681,8 +683,8 @@ async fn assert_regular_task_registration_rejected<
 ///
 /// Returns an error if:
 ///
-/// * Forwards [`ServiceState::get_job_state`]'s return values.
-/// * Forwards [`ServiceState::get_job_outputs`]'s return values.
+/// * Forwards [`ServiceState::get_job_state`]'s return values on failure.
+/// * Forwards [`ServiceState::get_job_outputs`]'s return values on failure.
 async fn assert_job_outputs_on_success<
     InboundQueueSenderType: spider_storage::inbound_queue::InboundQueueSender,
     DbConnectorType: spider_storage::db::DbStorage,

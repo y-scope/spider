@@ -212,12 +212,6 @@ impl<TaskType: Task> TaskHandlerImpl<TaskType> {
     }
 }
 
-impl<TaskType: Task> Default for TaskHandlerImpl<TaskType> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<TaskType: Task + Send + Sync> TaskHandler for TaskHandlerImpl<TaskType> {
     fn execute_raw(&self, raw_ctx: &[u8], raw_args: &[u8]) -> ExecutionResult {
         let ctx: TaskContext = rmp_serde::from_slice(raw_ctx).map_err(|e| {
@@ -240,6 +234,12 @@ impl<TaskType: Task + Send + Sync> TaskHandler for TaskHandlerImpl<TaskType> {
 
     fn name(&self) -> &'static str {
         TaskType::NAME
+    }
+}
+
+impl<TaskType: Task> Default for TaskHandlerImpl<TaskType> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

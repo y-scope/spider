@@ -157,8 +157,7 @@ impl SerializedTaskOutputs {
     ///
     /// Returns an error if:
     ///
-    /// * [`TaskOutputsError::Empty`] if `raw_bytes` is empty.
-    /// * [`TaskOutputsError::UnknownOption`] if the leading option byte maps to no known option.
+    /// * Forwards [`Self::split_raw`]'s return values on failure.
     pub fn from_raw(raw_bytes: &[u8]) -> Result<Self, TaskOutputsError> {
         let (option, payload_bytes) = Self::split_raw(raw_bytes)?;
         Ok(Self {
@@ -258,12 +257,6 @@ pub struct TaskInputsSerializer {
     builder: WireFrameBuilder,
 }
 
-impl Default for TaskInputsSerializer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TaskInputsSerializer {
     /// Factory function.
     ///
@@ -334,6 +327,12 @@ impl TaskInputsSerializer {
     }
 }
 
+impl Default for TaskInputsSerializer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Streaming wire-format serializer and deserializer for task outputs.
 ///
 /// On the serialization side, pre-encoded msgpack payloads (one per tuple element) are appended via
@@ -343,12 +342,6 @@ impl TaskInputsSerializer {
 /// without decoding the msgpack contents.
 pub struct TaskOutputsSerializer {
     builder: WireFrameBuilder,
-}
-
-impl Default for TaskOutputsSerializer {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl TaskOutputsSerializer {
@@ -431,6 +424,12 @@ impl TaskOutputsSerializer {
         value: &ValueType,
     ) -> Result<(), WireError> {
         self.builder.append_serialize(value)
+    }
+}
+
+impl Default for TaskOutputsSerializer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
