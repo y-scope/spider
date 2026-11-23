@@ -18,8 +18,9 @@ vars:
   # `nightly-2026-10-31`) to pin it if a nightly regression breaks linting.
   G_RUST_NIGHTLY_TOOLCHAIN: "nightly"
 
-  # The commit of `yscope-linter` to install, since the repository has no release tags to pin.
-  G_YSCOPE_LINTER_REV: "3004562aef287f301576701a526b4f416692fd5b"
+  # The `cargo install` git ref flag selecting the `yscope-linter` revision to install. Set it to
+  # `--rev <commit>` (e.g., `--rev 3004562`) to pin it if a linter change breaks linting.
+  G_YSCOPE_LINTER_REF: "--branch main"
 
   # Rust toolchain checksum file
   G_RUST_TOOLCHAIN_CHECKSUM_FILE: "{{.G_BUILD_DIR}}/toolchains-rust.md5"
@@ -121,7 +122,7 @@ tasks:
         rustup default stable
         cargo install --locked cargo-nextest
         cargo install --locked --git https://github.com/y-scope/yscope-linter \
-          --rev "{{.G_YSCOPE_LINTER_REV}}" yscope-linter
+          {{.G_YSCOPE_LINTER_REF}} yscope-linter
         rustup set auto-self-update disable
 
       # This command must be last
