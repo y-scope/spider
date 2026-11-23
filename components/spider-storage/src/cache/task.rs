@@ -1191,6 +1191,15 @@ mod tests {
     use crate::state::test_utils::create_test_child_submission;
     use crate::state::test_utils::create_test_prepared_child;
 
+    /// Precomputed expected values for the diamond task graph XOR transformations.
+    struct DiamondExpectedValues {
+        graph_inputs: [Vec<u8>; 2],
+        a_outputs: [Vec<u8>; 2],
+        b_output: Vec<u8>,
+        c_output: Vec<u8>,
+        d_output: Vec<u8>,
+    }
+
     /// Marks the task instance `id` of `tcb` as succeeded with `task_outputs`, with no hook armed.
     ///
     /// # Returns
@@ -1298,15 +1307,6 @@ mod tests {
     fn xor_bytes(a: &[u8], b: &[u8]) -> Vec<u8> {
         assert_eq!(a.len(), b.len(), "xor_bytes requires equal-length slices");
         a.iter().zip(b.iter()).map(|(x, y)| x ^ y).collect()
-    }
-
-    /// Precomputed expected values for the diamond task graph XOR transformations.
-    struct DiamondExpectedValues {
-        graph_inputs: [Vec<u8>; 2],
-        a_outputs: [Vec<u8>; 2],
-        b_output: Vec<u8>,
-        c_output: Vec<u8>,
-        d_output: Vec<u8>,
     }
 
     /// Computes all expected intermediate and final values for the diamond task graph.

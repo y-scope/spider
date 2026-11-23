@@ -18,10 +18,10 @@ use crate::state::test_utils::create_test_task_graph;
 use crate::state::test_utils::create_test_task_graph_input;
 use crate::test_hooks::TestHooks;
 
+pub(super) const TEST_SESSION_ID: SessionId = 0;
+
 pub(super) type TestServiceState =
     ServiceState<MockInboundQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
-
-pub(super) const TEST_SESSION_ID: SessionId = 0;
 
 pub(super) fn create_test_service() -> TestServiceState {
     create_test_service_with_db(MockDbConnector::default())
