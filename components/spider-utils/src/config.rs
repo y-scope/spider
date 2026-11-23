@@ -27,6 +27,10 @@ pub enum ConfigError {
 pub trait YamlConfig: DeserializeOwned {
     /// Loads the configuration from the YAML file at `path`.
     ///
+    /// # Parameters
+    ///
+    /// * `path` - The path to the YAML configuration file.
+    ///
     /// # Returns
     ///
     /// The parsed configuration on success.
