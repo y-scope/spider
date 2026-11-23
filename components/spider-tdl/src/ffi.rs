@@ -180,6 +180,7 @@ impl TaskExecutionResult {
     /// The caller must guarantee that `self.pointer` / `self.length` originated from a prior call
     /// to [`Self::from_outputs`] or [`Self::from_error`] in a component that shares this process's
     /// global allocator.
+    // yscope-linter: allow-item(DOC002): the error is a msgpack-serialized `TdlError` buffer
     pub fn into_result(self) -> Result<Vec<u8>, Vec<u8>> {
         // Prevent the destructor from running after we reconstruct the `Box`.
         let this = ManuallyDrop::new(self);

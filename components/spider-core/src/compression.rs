@@ -15,7 +15,9 @@ pub enum Error {
 ///
 /// # Errors
 ///
-/// Returns [`Error::ZstdCompression`] if zstd compression fails.
+/// Returns an error if:
+///
+/// * [`Error::ZstdCompression`] if zstd compression fails.
 pub fn encode_zstd_bytes(raw: &[u8]) -> Result<Vec<u8>, Error> {
     const ZSTD_LEVEL: i32 = 0;
     zstd::stream::encode_all(raw, ZSTD_LEVEL).map_err(Error::ZstdCompression)
@@ -25,7 +27,9 @@ pub fn encode_zstd_bytes(raw: &[u8]) -> Result<Vec<u8>, Error> {
 ///
 /// # Errors
 ///
-/// Returns [`Error::ZstdDecompression`] if zstd decompression fails.
+/// Returns an error if:
+///
+/// * [`Error::ZstdDecompression`] if zstd decompression fails.
 pub fn decode_zstd_bytes(compressed: &[u8]) -> Result<Vec<u8>, Error> {
     zstd::stream::decode_all(compressed).map_err(Error::ZstdDecompression)
 }
