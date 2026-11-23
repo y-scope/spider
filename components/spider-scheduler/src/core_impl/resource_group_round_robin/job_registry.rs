@@ -32,19 +32,6 @@ pub(super) struct JobEntry {
 }
 
 impl JobEntry {
-    /// Factory function.
-    ///
-    /// # Returns
-    ///
-    /// A newly created entry for `job_id` holding `task_indices`.
-    fn new(job_id: JobId, task_indices: Vec<TaskIndex>) -> Self {
-        Self {
-            job_id,
-            ready_task_queue: task_indices.into(),
-            downgrade_counter: DOWNGRADE_LIVES,
-        }
-    }
-
     /// # Returns
     ///
     /// The job ID of this entry.
@@ -101,6 +88,19 @@ impl JobEntry {
     /// Restores the job's full downgrade budget.
     pub(super) const fn reset_downgrade_counter(&mut self) {
         self.downgrade_counter = DOWNGRADE_LIVES;
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A newly created entry for `job_id` holding `task_indices`.
+    fn new(job_id: JobId, task_indices: Vec<TaskIndex>) -> Self {
+        Self {
+            job_id,
+            ready_task_queue: task_indices.into(),
+            downgrade_counter: DOWNGRADE_LIVES,
+        }
     }
 }
 

@@ -32,12 +32,6 @@ pub struct Id<TypeMarker: Debug + PartialEq + Eq> {
     _marker: PhantomData<TypeMarker>,
 }
 
-impl<TypeMarker: Debug + PartialEq + Eq> Default for Id<TypeMarker> {
-    fn default() -> Self {
-        Self::from(0)
-    }
-}
-
 impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
     /// Creates a random ID for tests.
     ///
@@ -58,6 +52,12 @@ impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
     #[must_use]
     pub const fn get(&self) -> u64 {
         self.raw
+    }
+}
+
+impl<TypeMarker: Debug + PartialEq + Eq> Default for Id<TypeMarker> {
+    fn default() -> Self {
+        Self::from(0)
     }
 }
 

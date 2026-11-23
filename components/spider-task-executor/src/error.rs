@@ -50,24 +50,6 @@ pub enum ExecutorError {
     ErrorPayloadDeserializationFailure(String),
 }
 
-impl From<libloading::Error> for ExecutorError {
-    fn from(value: libloading::Error) -> Self {
-        Self::InvalidLibrary(value.to_string())
-    }
-}
-
-impl From<std::str::Utf8Error> for ExecutorError {
-    fn from(value: std::str::Utf8Error) -> Self {
-        Self::InvalidUtf8(value.to_string())
-    }
-}
-
-impl From<rmp_serde::decode::Error> for ExecutorError {
-    fn from(value: rmp_serde::decode::Error) -> Self {
-        Self::ErrorPayloadDeserializationFailure(value.to_string())
-    }
-}
-
 impl ExecutorError {
     /// Constructs an [`ExecutorError::IncompatibleVersion`] from the package and executor
     /// [`Version`] values.
@@ -85,5 +67,23 @@ impl ExecutorError {
             executor_minor: executor.minor,
             executor_patch: executor.patch,
         }
+    }
+}
+
+impl From<libloading::Error> for ExecutorError {
+    fn from(value: libloading::Error) -> Self {
+        Self::InvalidLibrary(value.to_string())
+    }
+}
+
+impl From<std::str::Utf8Error> for ExecutorError {
+    fn from(value: std::str::Utf8Error) -> Self {
+        Self::InvalidUtf8(value.to_string())
+    }
+}
+
+impl From<rmp_serde::decode::Error> for ExecutorError {
+    fn from(value: rmp_serde::decode::Error) -> Self {
+        Self::ErrorPayloadDeserializationFailure(value.to_string())
     }
 }

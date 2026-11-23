@@ -228,7 +228,6 @@ impl CoreFixture {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`Self::seed_job`]'s return values on failure.
     /// * Forwards [`u64::try_from`]'s return values on failure.
     fn seed_backlogged_groups(&mut self, num_groups: usize) -> anyhow::Result<()> {
         for idx in 0..num_groups {
