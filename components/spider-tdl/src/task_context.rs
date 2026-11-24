@@ -139,11 +139,7 @@ impl TaskContext {
                 .to_zstd_compressed_bytes()
                 .map_err(|e| TdlError::SerializationError(e.to_string()))?,
         };
-        self.child_job_submissions
-            .submissions
-            .lock()
-            .expect("child submission lock must not be poisoned")
-            .push(child);
+        self.child_job_submissions.append(child);
         Ok(())
     }
 
@@ -192,6 +188,18 @@ impl ChildJobSubmissions {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         std::mem::take(&mut *submissions)
+    }
+
+    /// Appends a child job submission.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the submission lock is poisoned.
+    fn append(&self, submission: CompressedJobSubmission) {
+        self.submissions
+            .lock()
+            .expect("child submission lock must not be poisoned")
+            .push(submission);
     }
 }
 
