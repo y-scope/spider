@@ -212,8 +212,7 @@ pub trait TaskHandler: Send + Sync {
 
 /// Bridges a concrete [`Task`] implementation to the type-erased [`TaskHandler`] interface.
 ///
-/// Decodes task metadata and parameters, delegates to [`Task::execute`], and serializes the
-/// result.
+/// Decodes task metadata and parameters, delegates to [`Task::execute`], and serializes the result.
 ///
 /// # Type Parameters
 ///
