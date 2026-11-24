@@ -221,10 +221,10 @@ impl<TaskType: Task + Send + Sync> TaskHandler for TaskHandlerImpl<TaskType> {
         })?;
         let params: TaskType::Params = TaskInputsSerializer::deserialize(raw_args)
             .map_err(|e| serialize_error(&TdlError::DeserializationError(e.to_string())))?;
-        let child_jobs = ctx.child_jobs().clone();
+        let child_job_submissions = ctx.child_job_submissions().clone();
         let result = TaskType::execute(ctx, params)
             .and_then(|result_tuple| TaskType::serialize_return(&result_tuple));
-        let children = child_jobs.take();
+        let children = child_job_submissions.take();
         let outputs = result.map_err(|e| serialize_error(&e))?;
         let outcome = ExecutionSuccessOutcome { outputs, children };
         outcome
@@ -583,7 +583,7 @@ mod tests {
             let retained = RETAINED_CONTEXT
                 .with(|ctx| ctx.borrow_mut().take())
                 .expect("task must retain its context");
-            assert_eq!(retained.child_jobs().take(), Vec::new());
+            assert_eq!(retained.child_job_submissions().take(), Vec::new());
         }
         Ok(())
     }

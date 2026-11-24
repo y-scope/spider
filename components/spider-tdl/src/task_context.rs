@@ -35,7 +35,7 @@ pub struct TaskContext {
     resource_group_id: ResourceGroupId,
     serialized_task_graph_outputs: Option<Vec<u8>>,
     #[serde(skip)]
-    child_jobs: ChildJobSubmissions,
+    child_job_submissions: ChildJobSubmissions,
 }
 
 impl TaskContext {
@@ -82,7 +82,7 @@ impl TaskContext {
             task_instance_id,
             resource_group_id,
             serialized_task_graph_outputs,
-            child_jobs: ChildJobSubmissions::default(),
+            child_job_submissions: ChildJobSubmissions::default(),
         })
     }
 
@@ -139,7 +139,7 @@ impl TaskContext {
                 .to_zstd_compressed_bytes()
                 .map_err(|e| TdlError::SerializationError(e.to_string()))?,
         };
-        self.child_jobs
+        self.child_job_submissions
             .submissions
             .lock()
             .expect("child submission lock must not be poisoned")
@@ -169,8 +169,8 @@ impl TaskContext {
         }
     }
 
-    pub(crate) const fn child_jobs(&self) -> &ChildJobSubmissions {
-        &self.child_jobs
+    pub(crate) const fn child_job_submissions(&self) -> &ChildJobSubmissions {
+        &self.child_job_submissions
     }
 }
 
@@ -285,7 +285,7 @@ mod tests {
             ctx.create_child_job_submission(&graph, &input)?;
             expected_inputs.push(input);
         }
-        let children = ctx.child_jobs().take();
+        let children = ctx.child_job_submissions().take();
         assert_eq!(children.len(), expected_inputs.len());
         for (child, expected_input) in children.iter().zip(expected_inputs) {
             assert_eq!(
@@ -312,8 +312,8 @@ mod tests {
         let input = builder.build();
         ctx.create_child_job_submission(&graph, &input)?;
         cloned.create_child_job_submission(&graph, &input)?;
-        assert_eq!(cloned.child_jobs().take().len(), 2);
-        assert_eq!(ctx.child_jobs().take(), Vec::new());
+        assert_eq!(cloned.child_job_submissions().take().len(), 2);
+        assert_eq!(ctx.child_job_submissions().take(), Vec::new());
         Ok(())
     }
 
@@ -331,7 +331,7 @@ mod tests {
                     "termination tasks cannot submit child jobs".to_owned()
                 ))
             );
-            assert_eq!(ctx.child_jobs().take(), Vec::new());
+            assert_eq!(ctx.child_job_submissions().take(), Vec::new());
         }
         Ok(())
     }
