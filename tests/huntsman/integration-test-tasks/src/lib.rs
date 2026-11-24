@@ -110,11 +110,11 @@ mod task_decl {
         panic!("always_panic: intentional panic")
     }
 
-    /// Creates Fibonacci child jobs with sequential inputs and returns the number submitted.
+    /// Queues Fibonacci child job submissions with sequential inputs.
     ///
     /// # Returns
     ///
-    /// The number of child jobs on success.
+    /// The number of submissions queued on success.
     ///
     /// # Errors
     ///
@@ -129,13 +129,13 @@ mod task_decl {
         Ok(count)
     }
 
-    /// Creates a child job and then returns an error.
+    /// Queues a child job submission and then returns an error.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`TdlError::ExecutionError`] after creating the child.
+    /// * [`TdlError::ExecutionError`] after queuing the submission.
     /// * Forwards [`submit_child`]'s return values on failure.
     #[task(name = "create_children_then_fail")]
     pub fn create_children_then_fail(ctx: TaskContext) -> Result<(), TdlError> {
@@ -145,7 +145,7 @@ mod task_decl {
         ))
     }
 
-    /// Creates a child job and then panics.
+    /// Queues a child job submission and then panics.
     ///
     /// # Errors
     ///
@@ -155,7 +155,7 @@ mod task_decl {
     ///
     /// # Panics
     ///
-    /// Panics after creating the child.
+    /// Panics after queuing the submission.
     #[task(name = "create_children_then_panic")]
     pub fn create_children_then_panic(ctx: TaskContext) -> Result<(), TdlError> {
         submit_child(&ctx, 1)?;
