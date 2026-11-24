@@ -6,6 +6,7 @@
 
 use serde::Deserialize;
 use serde::Serialize;
+use spider_core::task::TaskContextRaw;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -78,15 +79,15 @@ fn translate(_ctx: TaskContext, p: Point, dx: int32, dy: int32) -> Result<(Point
 ///
 /// A mocked encoded task context for testing.
 fn make_encoded_ctx() -> Vec<u8> {
-    let ctx = TaskContext::new(
+    let ctx = TaskContextRaw::new(
         JobId::random(),
         TaskId::Index(0),
         1,
         ResourceGroupId::random(),
         None,
     )
-    .expect("failed to build `TaskContext`");
-    rmp_serde::to_vec(&ctx).expect("failed to serialize `TaskContext`")
+    .expect("failed to build task metadata");
+    rmp_serde::to_vec(&ctx).expect("failed to serialize task metadata")
 }
 
 /// Appends the given value to the input serializer.
@@ -303,30 +304,5 @@ fn handler_propagates_task_error() -> anyhow::Result<()> {
 
     let err: TdlError = rmp_serde::from_slice(&bytes)?;
     assert!(matches!(err, TdlError::ExecutionError(ref msg) if msg == "division by zero"));
-    Ok(())
-}
-
-#[test]
-fn direct_execute_call_round_trips() -> anyhow::Result<()> {
-    const OPERAND_A: int32 = 7;
-    const OPERAND_B: int32 = 35;
-    const EXPECTED_SUM: int32 = OPERAND_A + OPERAND_B;
-
-    let ctx = TaskContext::new(
-        JobId::random(),
-        TaskId::Index(0),
-        1,
-        ResourceGroupId::random(),
-        None,
-    )?;
-
-    let mut inputs = TaskInputsSerializer::new();
-    append_value(&mut inputs, &OPERAND_A)?;
-    append_value(&mut inputs, &OPERAND_B)?;
-    let raw_args = inputs.release();
-
-    let params = TaskInputsSerializer::deserialize::<<add as Task>::Params>(&raw_args)?;
-    let (sum,) = <add as Task>::execute(ctx, params)?;
-    assert_eq!(sum, EXPECTED_SUM);
     Ok(())
 }

@@ -1,13 +1,10 @@
-//! Runtime metadata passed to every task function.
-//!
-//! [`TaskContext`] is constructed and msgpack-serialized by the execution manager, passed opaquely
-//! through the task executor, and deserialized inside the TDL package before being handed to the
-//! user's task function as the first parameter.
+//! Task execution metadata and child job submission handles.
 
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use spider_core::job::submission::CompressedJobSubmission;
+use spider_core::task::TaskContextRaw;
 use spider_core::task::TaskGraph;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -19,102 +16,42 @@ use spider_core::types::io::TaskOutput;
 
 use crate::error::TdlError;
 
-/// Runtime metadata about the current task execution.
-///
-/// Every task function receives a [`TaskContext`] as its first parameter. It carries identifiers
-/// that link the execution back to the job and task definitions in the storage layer.
-///
-/// Serialized via plain msgpack ([`rmp_serde::to_vec`] or [`rmp_serde::from_slice`]), separately
-/// from the task inputs wire stream. Clones share child submissions for this execution; those
-/// submissions are omitted from serialized metadata.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+/// Runtime context for a task execution. Clones share child job submissions.
+#[derive(Debug, Clone)]
 pub struct TaskContext {
-    job_id: JobId,
-    task_id: TaskId,
-    task_instance_id: TaskInstanceId,
-    resource_group_id: ResourceGroupId,
-    serialized_task_graph_outputs: Option<Vec<u8>>,
-    #[serde(skip)]
-    child_job_submissions: ChildJobSubmissions,
+    raw: TaskContextRaw,
+    child_job_submission_sender: ChildJobSubmissionSender,
 }
 
 impl TaskContext {
-    /// Creates a new [`TaskContext`], validating that the job's task-graph outputs are present for
-    /// a commit task and omitted for any other task.
-    ///
-    /// The raw serialized outputs are stored as-is and only deserialized on demand by
-    /// [`Self::get_task_graph_outputs`].
-    ///
-    /// # Returns
-    ///
-    /// The constructed [`TaskContext`] on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`TdlError::InvalidTaskContext`] if:
-    ///   * The task is a commit task but no task-graph outputs are provided, or,
-    ///   * The task is not a commit task but task-graph outputs are provided.
-    pub fn new(
-        job_id: JobId,
-        task_id: TaskId,
-        task_instance_id: TaskInstanceId,
-        resource_group_id: ResourceGroupId,
-        serialized_task_graph_outputs: Option<Vec<u8>>,
-    ) -> Result<Self, TdlError> {
-        let is_commit_task = task_id == TaskId::Commit;
-        if is_commit_task && serialized_task_graph_outputs.is_none() {
-            return Err(TdlError::InvalidTaskContext(
-                "task-graph outputs are required for a commit task but were not provided"
-                    .to_owned(),
-            ));
-        }
-        if !is_commit_task && serialized_task_graph_outputs.is_some() {
-            return Err(TdlError::InvalidTaskContext(format!(
-                "task-graph outputs are only valid for a commit task, but the current task is \
-                 {task_id}"
-            )));
-        }
-        Ok(Self {
-            job_id,
-            task_id,
-            task_instance_id,
-            resource_group_id,
-            serialized_task_graph_outputs,
-            child_job_submissions: ChildJobSubmissions::default(),
-        })
-    }
-
     #[must_use]
     pub const fn job_id(&self) -> JobId {
-        self.job_id
+        self.raw.job_id()
     }
 
     #[must_use]
     pub const fn task_id(&self) -> TaskId {
-        self.task_id
+        self.raw.task_id()
     }
 
     #[must_use]
     pub const fn task_instance_id(&self) -> TaskInstanceId {
-        self.task_instance_id
+        self.raw.task_instance_id()
     }
 
     #[must_use]
     pub const fn resource_group_id(&self) -> ResourceGroupId {
-        self.resource_group_id
+        self.raw.resource_group_id()
     }
 
     /// Creates a child job submission to be processed if this task succeeds.
-    ///
-    /// Call this method before the task returns.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`TdlError::InvalidTaskContext`] if this is a commit or cleanup task.
+    /// * [`TdlError::InvalidTaskContext`] if this is a commit or cleanup task, or the receiver has
+    ///   closed.
     /// * [`TdlError::SerializationError`] if [`TaskGraph::to_zstd_compressed_json`] or
     ///   [`TaskGraphInput::to_zstd_compressed_bytes`] fails.
     ///
@@ -126,21 +63,13 @@ impl TaskContext {
         task_graph: &TaskGraph,
         task_graph_input: &TaskGraphInput,
     ) -> Result<(), TdlError> {
-        if !matches!(self.task_id, TaskId::Index(_)) {
+        if !matches!(self.task_id(), TaskId::Index(_)) {
             return Err(TdlError::InvalidTaskContext(
                 "termination tasks cannot submit child jobs".to_owned(),
             ));
         }
-        let child = CompressedJobSubmission {
-            compressed_serialized_task_graph: task_graph
-                .to_zstd_compressed_json()
-                .map_err(|e| TdlError::SerializationError(e.to_string()))?,
-            compressed_serialized_job_inputs: task_graph_input
-                .to_zstd_compressed_bytes()
-                .map_err(|e| TdlError::SerializationError(e.to_string()))?,
-        };
-        self.child_job_submissions.append(child);
-        Ok(())
+        self.child_job_submission_sender
+            .create(task_graph, task_graph_input)
     }
 
     /// Deserializes the job's task-graph outputs carried by this context.
@@ -151,11 +80,9 @@ impl TaskContext {
     ///
     /// # Errors
     ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`SerializedTaskOutputs::deserialize_from_raw`]'s return values on failure.
+    /// Returns [`TdlError::DeserializationError`] if the task-graph outputs cannot be deserialized.
     pub fn get_task_graph_outputs(&self) -> Result<Option<Vec<TaskOutput>>, TdlError> {
-        match &self.serialized_task_graph_outputs {
+        match self.raw.serialized_task_graph_outputs() {
             Some(bytes) => {
                 let task_graph_outputs = SerializedTaskOutputs::deserialize_from_raw(bytes)
                     .map_err(|e| TdlError::DeserializationError(e.to_string()))?;
@@ -165,46 +92,109 @@ impl TaskContext {
         }
     }
 
-    pub(crate) const fn child_job_submissions(&self) -> &ChildJobSubmissions {
-        &self.child_job_submissions
-    }
-}
-
-/// Shared collection of child job submissions.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct ChildJobSubmissions {
-    submissions: Arc<Mutex<Vec<CompressedJobSubmission>>>,
-}
-
-impl ChildJobSubmissions {
-    /// Takes the collected child submissions.
+    /// Pairs task metadata with a new child job submission sender and receiver.
     ///
     /// # Returns
     ///
-    /// The collected child submissions in submission order.
-    pub(crate) fn take(&self) -> Vec<CompressedJobSubmission> {
-        let mut submissions = self
-            .submissions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        std::mem::take(&mut *submissions)
+    /// * The task context.
+    /// * The receiver for the context's child job submissions.
+    pub(crate) fn from_raw(raw: TaskContextRaw) -> (Self, ChildJobSubmissionReceiver) {
+        let submissions = Arc::new(Mutex::new(Some(Vec::new())));
+        let context = Self {
+            raw,
+            child_job_submission_sender: ChildJobSubmissionSender {
+                submissions: Arc::clone(&submissions),
+            },
+        };
+        (context, ChildJobSubmissionReceiver { submissions })
+    }
+}
+
+/// Receives the child job submissions for one task context and its clones.
+///
+/// Dropping the receiver discards any uncollected submissions and closes the sender.
+#[derive(Debug)]
+pub struct ChildJobSubmissionReceiver {
+    submissions: Arc<Mutex<Option<Vec<CompressedJobSubmission>>>>,
+}
+
+impl ChildJobSubmissionReceiver {
+    /// Closes the sender and takes the collected submissions.
+    ///
+    /// # Returns
+    ///
+    /// The child job submissions in submission order.
+    #[must_use]
+    pub fn take(self) -> Vec<CompressedJobSubmission> {
+        self.close().unwrap_or_default()
     }
 
-    /// Appends a child job submission.
+    /// Closes the sender and removes any pending submissions under the same lock.
+    ///
+    /// # Returns
+    ///
+    /// The collected submissions, or `None` if already closed.
+    fn close(&self) -> Option<Vec<CompressedJobSubmission>> {
+        self.submissions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+    }
+}
+
+impl Drop for ChildJobSubmissionReceiver {
+    fn drop(&mut self) {
+        drop(self.close());
+    }
+}
+
+/// Sends child job submissions to the paired receiver.
+#[derive(Debug, Clone)]
+struct ChildJobSubmissionSender {
+    submissions: Arc<Mutex<Option<Vec<CompressedJobSubmission>>>>,
+}
+
+impl ChildJobSubmissionSender {
+    /// Compresses and appends a child job submission.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`TdlError::InvalidTaskContext`] if the receiver has closed.
+    /// * [`TdlError::SerializationError`] if the graph or inputs cannot be serialized.
     ///
     /// # Panics
     ///
     /// Panics if the submission lock is poisoned.
-    fn append(&self, submission: CompressedJobSubmission) {
+    fn create(
+        &self,
+        task_graph: &TaskGraph,
+        task_graph_input: &TaskGraphInput,
+    ) -> Result<(), TdlError> {
+        let submission = CompressedJobSubmission {
+            compressed_serialized_task_graph: task_graph
+                .to_zstd_compressed_json()
+                .map_err(|e| TdlError::SerializationError(e.to_string()))?,
+            compressed_serialized_job_inputs: task_graph_input
+                .to_zstd_compressed_bytes()
+                .map_err(|e| TdlError::SerializationError(e.to_string()))?,
+        };
         self.submissions
             .lock()
             .expect("child submission lock must not be poisoned")
+            .as_mut()
+            .ok_or_else(|| {
+                TdlError::InvalidTaskContext("child job submissions are closed".to_owned())
+            })?
             .push(submission);
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use spider_core::task::TaskContextRaw;
     use spider_core::task::TaskGraph;
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
@@ -213,6 +203,7 @@ mod tests {
     use spider_core::types::io::TaskGraphInputBuilder;
     use spider_core::types::io::TaskOutput;
 
+    use super::ChildJobSubmissionReceiver;
     use super::TaskContext;
     use crate::error::TdlError;
 
@@ -234,20 +225,22 @@ mod tests {
 
     /// # Returns
     ///
-    /// A context with valid metadata for the given task kind.
+    /// * A context with valid metadata for the given task kind.
+    /// * The receiver for its child job submissions.
     ///
     /// # Panics
     ///
     /// Panics if the task context cannot be constructed.
-    fn create_context(task_id: TaskId) -> TaskContext {
-        TaskContext::new(
+    fn create_context(task_id: TaskId) -> (TaskContext, ChildJobSubmissionReceiver) {
+        let raw = TaskContextRaw::new(
             JobId::random(),
             task_id,
             13,
             ResourceGroupId::random(),
             (task_id == TaskId::Commit).then(|| serialize_outputs(&[])),
         )
-        .expect("task context metadata must be valid")
+        .expect("task context metadata must be valid");
+        TaskContext::from_raw(raw)
     }
 
     /// # Returns
@@ -283,7 +276,7 @@ mod tests {
     fn child_jobs_preserve_storage_encoding_and_order() -> anyhow::Result<()> {
         use spider_core::types::io::TaskGraphInput;
 
-        let ctx = create_context(TaskId::Index(0));
+        let (ctx, receiver) = create_context(TaskId::Index(0));
         let graph = create_child_graph();
         let mut expected_inputs = Vec::new();
         for value in [11i32, 22] {
@@ -293,7 +286,7 @@ mod tests {
             ctx.create_child_job_submission(&graph, &input)?;
             expected_inputs.push(input);
         }
-        let children = ctx.child_job_submissions().take();
+        let children = receiver.take();
         assert_eq!(children.len(), expected_inputs.len());
         for (child, expected_input) in children.iter().zip(expected_inputs) {
             assert_eq!(
@@ -312,7 +305,7 @@ mod tests {
 
     #[test]
     fn cloned_contexts_share_child_submissions() -> anyhow::Result<()> {
-        let ctx = create_context(TaskId::Index(0));
+        let (ctx, receiver) = create_context(TaskId::Index(0));
         let cloned = ctx.clone();
         let graph = create_child_graph();
         let mut builder = TaskGraphInputBuilder::new();
@@ -320,8 +313,31 @@ mod tests {
         let input = builder.build();
         ctx.create_child_job_submission(&graph, &input)?;
         cloned.create_child_job_submission(&graph, &input)?;
-        assert_eq!(cloned.child_job_submissions().take().len(), 2);
-        assert_eq!(ctx.child_job_submissions().take(), Vec::new());
+        assert_eq!(receiver.take().len(), 2);
+        assert_eq!(
+            cloned.create_child_job_submission(&graph, &input),
+            Err(TdlError::InvalidTaskContext(
+                "child job submissions are closed".to_owned()
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn dropping_receiver_rejects_child_job_submissions() -> anyhow::Result<()> {
+        let (ctx, receiver) = create_context(TaskId::Index(0));
+        let graph = create_child_graph();
+        let mut builder = TaskGraphInputBuilder::new();
+        builder.append_task_input(&11i32)?;
+        let input = builder.build();
+        ctx.create_child_job_submission(&graph, &input)?;
+        drop(receiver);
+        assert_eq!(
+            ctx.create_child_job_submission(&graph, &input),
+            Err(TdlError::InvalidTaskContext(
+                "child job submissions are closed".to_owned()
+            ))
+        );
         Ok(())
     }
 
@@ -332,110 +348,80 @@ mod tests {
         builder.append_task_input(&11i32)?;
         let input = builder.build();
         for task_id in [TaskId::Commit, TaskId::Cleanup] {
-            let ctx = create_context(task_id);
+            let (ctx, receiver) = create_context(task_id);
             assert_eq!(
                 ctx.create_child_job_submission(&graph, &input),
                 Err(TdlError::InvalidTaskContext(
                     "termination tasks cannot submit child jobs".to_owned()
                 ))
             );
-            assert_eq!(ctx.child_job_submissions().take(), Vec::new());
+            assert_eq!(receiver.take(), Vec::new());
         }
         Ok(())
     }
 
     #[test]
-    fn round_trip_msgpack() -> anyhow::Result<()> {
-        let ctx = TaskContext::new(
-            JobId::random(),
-            TaskId::Index(0),
-            13,
-            ResourceGroupId::random(),
-            None,
-        )?;
-        let encoded = rmp_serde::to_vec(&ctx)?;
-        let decoded: TaskContext = rmp_serde::from_slice(&encoded)?;
-        assert_eq!(decoded.job_id(), ctx.job_id());
-        assert_eq!(decoded.task_id(), ctx.task_id());
-        assert_eq!(decoded.task_instance_id(), ctx.task_instance_id());
-        assert_eq!(decoded.resource_group_id(), ctx.resource_group_id());
+    fn raw_context_preserves_msgpack_layout() -> anyhow::Result<()> {
+        let job_id = JobId::random();
+        let task_id = TaskId::Index(0);
+        let task_instance_id = 13;
+        let resource_group_id = ResourceGroupId::random();
+        let raw = TaskContextRaw::new(job_id, task_id, task_instance_id, resource_group_id, None)?;
+        let expected = rmp_serde::to_vec(&(
+            job_id,
+            task_id,
+            task_instance_id,
+            resource_group_id,
+            Option::<Vec<u8>>::None,
+        ))?;
+        assert_eq!(rmp_serde::to_vec(&raw)?, expected);
+        let (ctx, _receiver) = TaskContext::from_raw(rmp_serde::from_slice(&expected)?);
+        assert_eq!(ctx.job_id(), job_id);
+        assert_eq!(ctx.task_id(), task_id);
+        assert_eq!(ctx.task_instance_id(), task_instance_id);
+        assert_eq!(ctx.resource_group_id(), resource_group_id);
         Ok(())
     }
 
     #[test]
     fn get_task_graph_outputs_returns_commit_outputs() -> anyhow::Result<()> {
         let outputs: Vec<TaskOutput> = vec![vec![1, 2, 3], vec![4, 5, 6]];
-        let ctx = TaskContext::new(
+        let raw = TaskContextRaw::new(
             JobId::random(),
             TaskId::Commit,
             1,
             ResourceGroupId::random(),
             Some(serialize_outputs(&outputs)),
         )?;
+        let (ctx, _receiver) = TaskContext::from_raw(raw);
         assert_eq!(ctx.get_task_graph_outputs()?, Some(outputs));
         Ok(())
     }
 
     #[test]
     fn get_task_graph_outputs_returns_empty_commit_outputs() -> anyhow::Result<()> {
-        let ctx = TaskContext::new(
-            JobId::random(),
-            TaskId::Commit,
-            1,
-            ResourceGroupId::random(),
-            Some(serialize_outputs(&[])),
-        )?;
+        let (ctx, _receiver) = create_context(TaskId::Commit);
         assert_eq!(ctx.get_task_graph_outputs()?, Some(Vec::new()));
         Ok(())
     }
 
     #[test]
     fn get_task_graph_outputs_returns_none_for_non_commit_task() -> anyhow::Result<()> {
-        let ctx = TaskContext::new(
-            JobId::random(),
-            TaskId::Index(0),
-            1,
-            ResourceGroupId::random(),
-            None,
-        )?;
+        let (ctx, _receiver) = create_context(TaskId::Index(0));
         assert!(ctx.get_task_graph_outputs()?.is_none());
         Ok(())
     }
 
     #[test]
-    fn new_rejects_outputs_for_non_commit_task() {
-        let outputs: Vec<TaskOutput> = vec![vec![1, 2, 3], vec![4, 5, 6]];
-        let result = TaskContext::new(
-            JobId::random(),
-            TaskId::Index(0),
-            1,
-            ResourceGroupId::random(),
-            Some(serialize_outputs(&outputs)),
-        );
-        assert!(matches!(result, Err(TdlError::InvalidTaskContext(_))));
-    }
-
-    #[test]
-    fn new_rejects_missing_outputs_for_commit_task() {
-        let result = TaskContext::new(
-            JobId::random(),
-            TaskId::Commit,
-            1,
-            ResourceGroupId::random(),
-            None,
-        );
-        assert!(matches!(result, Err(TdlError::InvalidTaskContext(_))));
-    }
-
-    #[test]
     fn get_task_graph_outputs_rejects_invalid_bytes() -> anyhow::Result<()> {
-        let ctx = TaskContext::new(
+        let raw = TaskContextRaw::new(
             JobId::random(),
             TaskId::Commit,
             1,
             ResourceGroupId::random(),
             Some(vec![0xff, 0x00, 0x13, 0x37]),
         )?;
+        let (ctx, _receiver) = TaskContext::from_raw(raw);
         assert!(matches!(
             ctx.get_task_graph_outputs(),
             Err(TdlError::DeserializationError(_))
@@ -446,16 +432,16 @@ mod tests {
     #[test]
     fn get_task_graph_outputs_survives_msgpack_round_trip() -> anyhow::Result<()> {
         let outputs: Vec<TaskOutput> = vec![vec![1, 2, 3], vec![4, 5, 6]];
-        let ctx = TaskContext::new(
+        let raw = TaskContextRaw::new(
             JobId::random(),
             TaskId::Commit,
             1,
             ResourceGroupId::random(),
             Some(serialize_outputs(&outputs)),
         )?;
-        let encoded = rmp_serde::to_vec(&ctx)?;
-        let decoded: TaskContext = rmp_serde::from_slice(&encoded)?;
-        assert_eq!(decoded.get_task_graph_outputs()?, Some(outputs));
+        let encoded = rmp_serde::to_vec(&raw)?;
+        let (ctx, _receiver) = TaskContext::from_raw(rmp_serde::from_slice(&encoded)?);
+        assert_eq!(ctx.get_task_graph_outputs()?, Some(outputs));
         Ok(())
     }
 }

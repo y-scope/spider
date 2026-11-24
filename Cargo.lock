@@ -2011,7 +2011,6 @@ dependencies = [
  "spider-core",
  "spider-proto-rust",
  "spider-task-executor",
- "spider-tdl",
  "spider-utils",
  "thiserror",
  "tokio",

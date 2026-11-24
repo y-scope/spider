@@ -2,6 +2,7 @@
 
 use huntsman_complex_types::Complex;
 use huntsman_complex_types::ComplexVec;
+use spider_core::task::TaskContextRaw;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -11,7 +12,6 @@ use spider_core::types::io::TaskOutputsSerializer;
 use spider_task_executor::ExecutorError;
 use spider_task_executor::TdlPackageManager;
 use spider_tdl::ExecutionSuccessOutcome;
-use spider_tdl::TaskContext;
 use spider_tdl::TdlError;
 use spider_tdl::Version;
 
@@ -33,15 +33,15 @@ fn lib_path() -> std::path::PathBuf {
 ///
 /// An encoded task context for testing.
 fn encode_ctx() -> Vec<u8> {
-    let ctx = TaskContext::new(
+    let ctx = TaskContextRaw::new(
         JobId::random(),
         TaskId::Index(0),
         1,
         ResourceGroupId::random(),
         None,
     )
-    .expect("failed to build `TaskContext`");
-    rmp_serde::to_vec(&ctx).expect("failed to serialize `TaskContext`")
+    .expect("failed to build `TaskContextRaw`");
+    rmp_serde::to_vec(&ctx).expect("failed to serialize `TaskContextRaw`")
 }
 
 /// # Returns

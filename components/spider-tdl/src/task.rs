@@ -7,6 +7,7 @@
 use std::marker::PhantomData;
 
 use spider_core::job::submission::CompressedJobSubmission;
+use spider_core::task::TaskContextRaw;
 use spider_core::types::io::TaskInputsSerializer;
 use spider_core::types::io::TaskOutputsSerializer;
 use spider_utils::wire::WireError;
@@ -167,7 +168,7 @@ pub trait TaskHandler: Send + Sync {
     ///
     /// # Parameters
     ///
-    /// * `raw_ctx` - Msgpack-encoded [`TaskContext`].
+    /// * `raw_ctx` - Msgpack-encoded task metadata.
     /// * `raw_args` - Wire-format-encoded task inputs.
     ///
     /// # Returns
@@ -188,8 +189,8 @@ pub trait TaskHandler: Send + Sync {
 
 /// Bridges a concrete [`Task`] implementation to the type-erased [`TaskHandler`] interface.
 ///
-/// Handles deserialization of [`TaskContext`] (from msgpack) and task parameters (from wire
-/// format), delegates to [`Task::execute`], and serializes the result back into bytes.
+/// Decodes task metadata and parameters, delegates to [`Task::execute`], and serializes the
+/// result.
 ///
 /// # Type Parameters
 ///
@@ -214,18 +215,19 @@ impl<TaskType: Task> TaskHandlerImpl<TaskType> {
 
 impl<TaskType: Task + Send + Sync> TaskHandler for TaskHandlerImpl<TaskType> {
     fn execute_raw(&self, raw_ctx: &[u8], raw_args: &[u8]) -> ExecutionResult {
-        let ctx: TaskContext = rmp_serde::from_slice(raw_ctx).map_err(|e| {
+        let raw: TaskContextRaw = rmp_serde::from_slice(raw_ctx).map_err(|e| {
             serialize_error(&TdlError::DeserializationError(format!(
-                "failed to deserialize `TaskContext`: {e}"
+                "failed to deserialize task metadata: {e}"
             )))
         })?;
         let params: TaskType::Params = TaskInputsSerializer::deserialize(raw_args)
             .map_err(|e| serialize_error(&TdlError::DeserializationError(e.to_string())))?;
-        let child_job_submissions = ctx.child_job_submissions().clone();
-        let result = TaskType::execute(ctx, params)
-            .and_then(|result_tuple| TaskType::serialize_return(&result_tuple));
-        let children = child_job_submissions.take();
-        let outputs = result.map_err(|e| serialize_error(&e))?;
+        let (ctx, child_job_submission_receiver) = TaskContext::from_raw(raw);
+        let result = TaskType::execute(ctx, params);
+        let children = child_job_submission_receiver.take();
+        let outputs = result
+            .and_then(|result_tuple| TaskType::serialize_return(&result_tuple))
+            .map_err(|e| serialize_error(&e))?;
         let outcome = ExecutionSuccessOutcome { outputs, children };
         outcome
             .into_wire()
@@ -261,9 +263,11 @@ mod tests {
 
     use serde::Deserialize;
     use serde::Serialize;
+    use spider_core::task::TaskGraph;
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
     use spider_core::types::id::TaskId;
+    use spider_core::types::io::TaskGraphInputBuilder;
     use spider_core::types::io::TaskInput;
     use spider_core::types::io::TaskInputsSerializer;
     use spider_core::types::io::TaskOutputsSerializer;
@@ -365,9 +369,6 @@ mod tests {
         const NAME: &'static str = "test::submit_child";
 
         fn execute(ctx: TaskContext, params: Self::Params) -> Result<Self::Return, TdlError> {
-            use spider_core::task::TaskGraph;
-            use spider_core::types::io::TaskGraphInputBuilder;
-
             ctx.create_child_job_submission(
                 &TaskGraph::default(),
                 &TaskGraphInputBuilder::new().build(),
@@ -382,6 +383,12 @@ mod tests {
         }
 
         fn serialize_return(result: &Self::Return) -> Result<Vec<u8>, TdlError> {
+            RETAINED_CONTEXT.with(|retained| {
+                let retained = retained.borrow();
+                assert_child_submissions_closed(
+                    retained.as_ref().expect("task must retain its context"),
+                );
+            });
             match result.0 {
                 SubmitMode::Succeed | SubmitMode::FailExecution => {
                     TaskOutputsSerializer::from_tuple(result)
@@ -394,16 +401,26 @@ mod tests {
         }
     }
 
+    fn assert_child_submissions_closed(ctx: &TaskContext) {
+        assert!(matches!(
+            ctx.create_child_job_submission(
+                &TaskGraph::default(),
+                &TaskGraphInputBuilder::new().build(),
+            ),
+            Err(TdlError::InvalidTaskContext(_))
+        ));
+    }
+
     fn make_encoded_ctx() -> Vec<u8> {
-        let ctx = TaskContext::new(
+        let ctx = TaskContextRaw::new(
             JobId::random(),
             TaskId::Index(0),
             1,
             ResourceGroupId::random(),
             None,
         )
-        .expect("failed to build `TaskContext`");
-        rmp_serde::to_vec(&ctx).expect("failed to serialize `TaskContext`")
+        .expect("failed to build task metadata");
+        rmp_serde::to_vec(&ctx).expect("failed to serialize task metadata")
     }
 
     /// Asserts the given result contains a deserialization error
@@ -543,7 +560,7 @@ mod tests {
     }
 
     #[test]
-    fn handler_drains_children_on_success_failure_and_serialization_error() -> anyhow::Result<()> {
+    fn handler_closes_submissions_on_success_and_failure() -> anyhow::Result<()> {
         let handler = TaskHandlerImpl::<SubmitChild>::new();
         let raw_ctx = make_encoded_ctx();
         for mode in [
@@ -583,7 +600,7 @@ mod tests {
             let retained = RETAINED_CONTEXT
                 .with(|ctx| ctx.borrow_mut().take())
                 .expect("task must retain its context");
-            assert_eq!(retained.child_job_submissions().take(), Vec::new());
+            assert_child_submissions_closed(&retained);
         }
         Ok(())
     }
