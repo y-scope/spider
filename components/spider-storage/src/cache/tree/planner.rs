@@ -74,7 +74,7 @@ impl Plan {
         self.payload_size += event_plan.payload_size();
         self.outcomes.push(RoundOutcome::Planned {
             outcome: event_plan.outcome,
-            registers_children: event_plan.registration.is_some(),
+            has_child_registration: event_plan.registration.is_some(),
         });
         self.updates.extend(event_plan.updates);
         self.publications.extend(event_plan.publications);
@@ -89,11 +89,11 @@ impl Plan {
 /// The outcome of an event in a round.
 #[derive(Debug)]
 pub enum RoundOutcome {
-    /// The round plans and answers the event with the carried outcome. If `registers_children`, the
-    /// round also registers the children that the event carries.
+    /// The round plans and answers the event with the carried outcome. If `has_child_registration`,
+    /// the round also registers the children that the event carries.
     Planned {
         outcome: TreeEventOutcome,
-        registers_children: bool,
+        has_child_registration: bool,
     },
 
     /// The round defers the event to a later round.
@@ -105,11 +105,12 @@ impl RoundOutcome {
     ///
     /// Whether the round registers the children that the event carries.
     #[must_use]
-    pub const fn registers_children(&self) -> bool {
+    pub const fn has_child_registration(&self) -> bool {
         match self {
             Self::Planned {
-                registers_children, ..
-            } => *registers_children,
+                has_child_registration,
+                ..
+            } => *has_child_registration,
             Self::Deferred => false,
         }
     }
@@ -809,15 +810,15 @@ mod tests {
                 plan.outcomes.as_slice(),
                 [
                     RoundOutcome::Planned {
-                        registers_children: false,
+                        has_child_registration: false,
                         ..
                     },
                     RoundOutcome::Planned {
-                        registers_children: true,
+                        has_child_registration: true,
                         ..
                     },
                     RoundOutcome::Planned {
-                        registers_children: true,
+                        has_child_registration: true,
                         ..
                     },
                 ]

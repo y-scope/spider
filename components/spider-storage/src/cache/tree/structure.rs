@@ -575,7 +575,7 @@ mod tests {
                 plan.outcomes.as_slice(),
                 [RoundOutcome::Planned {
                     outcome: TreeEventOutcome::Applied(JobState::BlockingOnChildren),
-                    registers_children: true,
+                    has_child_registration: true,
                 }]
             ),
             "a registration gave {:?}",
@@ -610,7 +610,7 @@ mod tests {
                 plan.outcomes.as_slice(),
                 [RoundOutcome::Planned {
                     outcome: TreeEventOutcome::Applied(JobState::Failed),
-                    registers_children: false,
+                    has_child_registration: false,
                 }]
             ),
             "a child set over the job limits gave {:?}",
@@ -652,15 +652,15 @@ mod tests {
                 [
                     RoundOutcome::Planned {
                         outcome: TreeEventOutcome::Stale(StaleStateError::JobNoLongerRunning),
-                        registers_children: false,
+                        has_child_registration: false,
                     },
                     RoundOutcome::Planned {
                         outcome: TreeEventOutcome::Stale(StaleStateError::JobNoLongerRunning),
-                        registers_children: false,
+                        has_child_registration: false,
                     },
                     RoundOutcome::Planned {
                         outcome: TreeEventOutcome::Untracked,
-                        registers_children: false,
+                        has_child_registration: false,
                     },
                 ]
             ),
@@ -699,24 +699,24 @@ mod tests {
                 [
                     RoundOutcome::Planned {
                         outcome: TreeEventOutcome::Applied(JobState::CleanupReady),
-                        registers_children: false,
+                        has_child_registration: false,
                     },
                     RoundOutcome::Planned {
                         outcome: TreeEventOutcome::Applied(JobState::Failed),
-                        registers_children: false,
+                        has_child_registration: false,
                     },
                     RoundOutcome::Planned {
                         outcome: TreeEventOutcome::Applied(JobState::BlockingOnChildren),
-                        registers_children: true,
+                        has_child_registration: true,
                     },
                     RoundOutcome::Deferred,
                     RoundOutcome::Planned {
                         outcome: TreeEventOutcome::Applied(JobState::BlockingOnChildren),
-                        registers_children: true,
+                        has_child_registration: true,
                     },
                     RoundOutcome::Planned {
                         outcome: TreeEventOutcome::Applied(JobState::Succeeded),
-                        registers_children: false,
+                        has_child_registration: false,
                     },
                 ]
             ),
@@ -752,17 +752,17 @@ mod tests {
                 [
                     RoundOutcome::Planned {
                         outcome: TreeEventOutcome::Applied(JobState::Failed),
-                        registers_children: false,
+                        has_child_registration: false,
                     },
                     RoundOutcome::Planned {
                         outcome: TreeEventOutcome::Stale(StaleStateError::JobAlreadyTerminated(
                             JobState::Failed
                         )),
-                        registers_children: false,
+                        has_child_registration: false,
                     },
                     RoundOutcome::Planned {
                         outcome: TreeEventOutcome::Applied(JobState::BlockingOnChildren),
-                        registers_children: true,
+                        has_child_registration: true,
                     },
                 ]
             ),
@@ -1106,7 +1106,7 @@ mod tests {
                 plan.outcomes.as_slice(),
                 [RoundOutcome::Planned {
                     outcome: TreeEventOutcome::Applied(JobState::Succeeded),
-                    registers_children: false,
+                    has_child_registration: false,
                 }]
             ),
             "the success of an only grandchild gave {:?}",
