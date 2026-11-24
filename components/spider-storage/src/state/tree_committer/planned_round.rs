@@ -83,16 +83,29 @@ impl<'in_flight_lifetime> PlannedRound<'in_flight_lifetime> {
     ///
     /// The ID of each registering event's job and the children that the event carries, in the order
     /// of the round's events.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a registering event is not a [`TreeEventKind::RegularTasksDone`], which
+    /// [`Self::new`] rules out.
     pub(super) fn registered_child_sets(&self) -> impl Iterator<Item = (JobId, &[PreparedChild])> {
-        self.registered_children()
-            .map(|(job_id, children)| (job_id, children.as_slice()))
+        self.registering_events().map(|event| match &event.kind {
+            TreeEventKind::RegularTasksDone { children, .. } => (event.job_id, children.as_slice()),
+            TreeEventKind::Start { .. }
+            | TreeEventKind::CommitDone
+            | TreeEventKind::CleanupDone
+            | TreeEventKind::TerminalFailure { .. }
+            | TreeEventKind::CancelRoot => unreachable!(
+                "a registering event should be a `RegularTasksDone`, as `PlannedRound::new` checks"
+            ),
+        })
     }
 
     /// # Returns
     ///
     /// The number of children that the round's registering events carry.
     pub(super) fn num_registered_children(&self) -> usize {
-        self.registered_children()
+        self.registered_child_sets()
             .map(|(_, children)| children.len())
             .sum()
     }
@@ -199,28 +212,6 @@ impl<'in_flight_lifetime> PlannedRound<'in_flight_lifetime> {
             .zip(&self.outcomes)
             .filter(|(_, outcome)| outcome.has_child_registration())
             .map(|(pending, _)| &mut pending.event)
-    }
-
-    /// # Returns
-    ///
-    /// The ID of each registering event's job and the children that the event carries, in the order
-    /// of [`Self::registering_events`].
-    ///
-    /// # Panics
-    ///
-    /// Panics if a registering event is not a [`TreeEventKind::RegularTasksDone`], which
-    /// [`Self::new`] rules out.
-    fn registered_children(&self) -> impl Iterator<Item = (JobId, &Vec<PreparedChild>)> {
-        self.registering_events().map(|event| match &event.kind {
-            TreeEventKind::RegularTasksDone { children, .. } => (event.job_id, children),
-            TreeEventKind::Start { .. }
-            | TreeEventKind::CommitDone
-            | TreeEventKind::CleanupDone
-            | TreeEventKind::TerminalFailure { .. }
-            | TreeEventKind::CancelRoot => unreachable!(
-                "a registering event should be a `RegularTasksDone`, as `PlannedRound::new` checks"
-            ),
-        })
     }
 
     /// # Returns
