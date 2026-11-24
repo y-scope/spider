@@ -73,17 +73,18 @@ impl ExecutionSuccessOutcome {
                 "child submission is missing its inputs payload",
             )));
         }
+        let children = children
+            .iter()
+            .map(|[graph, inputs]| CompressedJobSubmission {
+                compressed_serialized_task_graph: graph.to_vec(),
+                compressed_serialized_job_inputs: inputs.to_vec(),
+            })
+            .collect();
+        bytes.truncate(outputs_len);
         let outcome = Self {
-            outputs: bytes[..outputs_len].to_vec(),
-            children: children
-                .iter()
-                .map(|[graph, inputs]| CompressedJobSubmission {
-                    compressed_serialized_task_graph: graph.to_vec(),
-                    compressed_serialized_job_inputs: inputs.to_vec(),
-                })
-                .collect(),
+            outputs: bytes,
+            children,
         };
-        drop(bytes);
         Ok(outcome)
     }
 
