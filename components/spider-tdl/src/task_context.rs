@@ -55,10 +55,8 @@ impl TaskContext {
     ///
     /// Returns an error if:
     ///
-    /// * [`TdlError::InvalidTaskContext`] if this is a commit or cleanup task, or the receiver has
-    ///   closed.
-    /// * [`TdlError::SerializationError`] if [`TaskGraph::to_zstd_compressed_json`] or
-    ///   [`TaskGraphInput::to_zstd_compressed_bytes`] fails.
+    /// * [`TdlError::InvalidTaskContext`] if this is a commit or cleanup task.
+    /// * Forwards [`ChildJobSubmissionSender::send`]'s return values on failure.
     ///
     /// # Panics
     ///
