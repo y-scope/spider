@@ -234,7 +234,7 @@ mod task_decl {
     /// Returns an error if:
     ///
     /// * [`TdlError::ExecutionError`] if building the child graph or inputs fails.
-    /// * Forwards [`TaskContext::create_child_job`]'s return values on failure.
+    /// * Forwards [`TaskContext::create_child_job_submission`]'s return values on failure.
     fn submit_child(ctx: &TaskContext, index: u64) -> Result<(), TdlError> {
         use spider_core::task::DataTypeDescriptor;
         use spider_core::task::TaskDescriptor;
@@ -261,7 +261,7 @@ mod task_decl {
         inputs
             .append_task_input(&index)
             .map_err(|error| TdlError::ExecutionError(error.to_string()))?;
-        ctx.create_child_job(&graph, &inputs.build())
+        ctx.create_child_job_submission(&graph, &inputs.build())
     }
 }
 

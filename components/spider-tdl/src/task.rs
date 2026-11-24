@@ -368,7 +368,10 @@ mod tests {
             use spider_core::task::TaskGraph;
             use spider_core::types::io::TaskGraphInputBuilder;
 
-            ctx.create_child_job(&TaskGraph::default(), &TaskGraphInputBuilder::new().build())?;
+            ctx.create_child_job_submission(
+                &TaskGraph::default(),
+                &TaskGraphInputBuilder::new().build(),
+            )?;
             RETAINED_CONTEXT.with(|retained| *retained.borrow_mut() = Some(ctx));
             match params.mode {
                 SubmitMode::Succeed | SubmitMode::FailSerialization => Ok((params.mode,)),

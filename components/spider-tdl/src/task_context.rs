@@ -106,7 +106,7 @@ impl TaskContext {
         self.resource_group_id
     }
 
-    /// Collects a child job for submission when this task succeeds.
+    /// Creates a child job submission to be processed if this task succeeds.
     ///
     /// Call this method before the task returns.
     ///
@@ -121,7 +121,7 @@ impl TaskContext {
     /// # Panics
     ///
     /// Panics if another panic poisoned the child submission state.
-    pub fn create_child_job(
+    pub fn create_child_job_submission(
         &self,
         task_graph: &TaskGraph,
         task_graph_input: &TaskGraphInput,
@@ -282,7 +282,7 @@ mod tests {
             let mut builder = TaskGraphInputBuilder::new();
             builder.append_task_input(&value)?;
             let input = builder.build();
-            ctx.create_child_job(&graph, &input)?;
+            ctx.create_child_job_submission(&graph, &input)?;
             expected_inputs.push(input);
         }
         let children = ctx.child_jobs().take();
@@ -310,8 +310,8 @@ mod tests {
         let mut builder = TaskGraphInputBuilder::new();
         builder.append_task_input(&11i32)?;
         let input = builder.build();
-        ctx.create_child_job(&graph, &input)?;
-        cloned.create_child_job(&graph, &input)?;
+        ctx.create_child_job_submission(&graph, &input)?;
+        cloned.create_child_job_submission(&graph, &input)?;
         assert_eq!(cloned.child_jobs().take().len(), 2);
         assert_eq!(ctx.child_jobs().take(), Vec::new());
         Ok(())
@@ -326,7 +326,7 @@ mod tests {
         for task_id in [TaskId::Commit, TaskId::Cleanup] {
             let ctx = create_context(task_id);
             assert_eq!(
-                ctx.create_child_job(&graph, &input),
+                ctx.create_child_job_submission(&graph, &input),
                 Err(TdlError::InvalidTaskContext(
                     "termination tasks cannot submit child jobs".to_owned()
                 ))
