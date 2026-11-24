@@ -45,8 +45,8 @@ use crate::test_hooks::TestHooks;
 ///
 /// All mutable state but the job's child reservation, including the task graph, connectors, and
 /// inbound-queue sender, is held inside the underlying [`JobExecutionState`] and protected by
-/// [`JobExecutionStateHandle`]'s read-write lock.
-/// Its job-level transitions are events of the job's tree, which the tree's committer applies.
+/// [`JobExecutionStateHandle`]'s read-write lock. Its job-level transitions are events of the job's
+/// tree, which the tree's committer applies.
 ///
 /// # Type Parameters
 ///
@@ -294,6 +294,14 @@ impl<
 
     /// # Returns
     ///
+    /// Whether the job is a root, i.e., has no parent.
+    #[must_use]
+    pub fn is_root(&self) -> bool {
+        self.inner.parent_id.is_none()
+    }
+
+    /// # Returns
+    ///
     /// The job's depth in its tree, 0 for a root.
     #[must_use]
     pub fn depth(&self) -> u32 {
@@ -336,39 +344,6 @@ impl<
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         *reserved_children_usage = *reserved_children_usage - children_usage;
-    }
-
-    /// # Returns
-    ///
-    /// The job as a node of its tree, without an active child: its state, its parent and whether it
-    /// has a commit task and a cleanup task.
-    pub(crate) async fn tree_node(&self) -> TreeNode {
-        let job = self.inner.job_execution_state.read().await;
-        let node = TreeNode {
-            state: job.state,
-            parent: self.inner.parent_id,
-            has_commit: job.task_graph.has_commit_task(),
-            has_cleanup: job.task_graph.has_cleanup_task(),
-            active_children: 0,
-        };
-        drop(job);
-        node
-    }
-
-    /// # Returns
-    ///
-    /// The indices of the job's ready tasks on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
-    pub(crate) async fn get_ready_task_indices(&self) -> Result<Vec<TaskIndex>, CacheError> {
-        let job = self.inner.job_execution_state.read_running().await?;
-        let ready_task_indices = job.task_graph.get_all_ready_task_indices().await;
-        drop(job);
-        Ok(ready_task_indices)
     }
 
     /// Gets the outputs of the job from the in-memory task graph.
@@ -494,8 +469,8 @@ impl<
         }
     }
 
-    /// Marks the task instance as succeeded and stores the children that its report prepared in
-    /// the task.
+    /// Marks the task instance as succeeded and stores the children that its report prepared in the
+    /// task.
     ///
     /// If all tasks have succeeded, submits the job's outputs and the children that its tasks
     /// prepared to the job's tree and waits until the committer has stored them and moved the job
@@ -552,6 +527,7 @@ impl<
             .await?;
         // NOTE: `fetch_sub` returns the previous value, so the new count is the returned value
         // minus 1.
+        //
         // `AcqRel` orders every sibling's output and prepared-children writes before the last
         // reporter reads them below.
         let num_incomplete_tasks = job.num_incomplete_tasks.fetch_sub(1, Ordering::AcqRel) - 1;
@@ -792,6 +768,39 @@ impl<
             .await
     }
 
+    /// # Returns
+    ///
+    /// The job as a node of its tree, without an active child: its state, its parent and whether it
+    /// has a commit task and a cleanup task.
+    pub(crate) async fn tree_node(&self) -> TreeNode {
+        let job = self.inner.job_execution_state.read().await;
+        let node = TreeNode {
+            state: job.state,
+            parent: self.inner.parent_id,
+            has_commit: job.task_graph.has_commit_task(),
+            has_cleanup: job.task_graph.has_cleanup_task(),
+            num_active_children: 0,
+        };
+        drop(job);
+        node
+    }
+
+    /// # Returns
+    ///
+    /// The indices of the job's ready tasks on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
+    pub(crate) async fn get_ready_task_indices(&self) -> Result<Vec<TaskIndex>, CacheError> {
+        let job = self.inner.job_execution_state.read_running().await?;
+        let ready_task_indices = job.task_graph.get_all_ready_task_indices().await;
+        drop(job);
+        Ok(ready_task_indices)
+    }
+
     /// Applies a transition that the tree's committer has written to the database to the cached
     /// job.
     ///
@@ -871,8 +880,8 @@ impl<
         if let Some(partial_mutation_guard) = partial_mutation_guard {
             partial_mutation_guard.disarm();
         }
-        // The submitted event belongs to the committer, so a pause that the service's shutdown
-        // ends lets the wait for its reply go on, as it would without the hook.
+        // The submitted event belongs to the committer, so a pause that the service's shutdown ends
+        // lets the wait for its reply go on, as it would without the hook.
         let _ = jcb
             .hooks
             .hit(HookPoint::JobEventAfterSubmit, || jcb.hook_context(None))
@@ -947,8 +956,8 @@ impl<
             .await?;
         partial_mutation_guard.disarm();
 
-        // The lock is intentionally held until just before return so all TCB accesses
-        // observe a consistent state within the lock's scope.
+        // The lock is intentionally held until just before return so all TCB accesses observe a
+        // consistent state within the lock's scope.
         drop(job);
         Ok(execution_context)
     }
@@ -1155,8 +1164,12 @@ impl<
 ///
 /// # Type Parameters
 ///
-/// The type parameters are forwarded directly to [`JobExecutionState`] in the same declaration
-/// order. Single-character names are used to:
+/// * `R` - The type of the inbound queue sender, forwarded to [`JobExecutionState`]'s
+///   `InboundQueueSenderType`.
+/// * `T` - The type of the task instance pool connector, forwarded to [`JobExecutionState`]'s
+///   `TaskInstancePoolConnectorType`.
+///
+/// Single-character names are used to:
 ///
 /// * Reduce verbosity while preserving consistency with the underlying type.
 /// * Avoid formatting issues, as `rustfmt` does not handle line wrapping well when using more
@@ -1286,9 +1299,9 @@ impl<R: InboundQueueSender, T: TaskInstancePoolConnector> JobExecutionStateHandl
 
 /// Represents the execution state of a job.
 ///
-/// This struct holds all mutable job state, including the task graph, connectors, and
-/// inbound-queue sender,
-/// so that concurrent access is synchronized through [`JobExecutionStateHandle`]'s read-write lock.
+/// This struct holds all mutable job state, including the task graph, connectors, and inbound-queue
+/// sender, so that concurrent access is synchronized through [`JobExecutionStateHandle`]'s
+/// read-write lock.
 ///
 /// # Type Parameters
 ///

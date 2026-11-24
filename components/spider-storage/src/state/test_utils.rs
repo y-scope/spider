@@ -132,6 +132,10 @@ pub struct MockDbConnector {
     /// place of one per insertion.
     pub injected_child_id_counts: Arc<Mutex<VecDeque<usize>>>,
 
+    /// The errors that the next reads of a job's state and parent return, in order, before they
+    /// read anything.
+    pub injected_state_and_parent_errors: Arc<Mutex<VecDeque<DbError>>>,
+
     pub resource_groups: Arc<DashMap<ResourceGroupId, ExternalResourceGroupCredentials>>,
     pub resource_group_ids: Arc<DashMap<String, ResourceGroupId>>,
     pub next_resource_group_id: Arc<AtomicUsize>,
@@ -147,29 +151,6 @@ impl MockDbConnector {
     /// A job ID larger than every job ID allocated before.
     fn allocate_job_id(&self) -> JobId {
         JobId::from(self.next_job_id.fetch_add(1, Ordering::Relaxed))
-    }
-}
-
-impl Default for MockDbConnector {
-    fn default() -> Self {
-        Self {
-            states: Arc::new(DashMap::new()),
-            errors: Arc::new(DashMap::new()),
-            outputs: Arc::new(DashMap::new()),
-            parents: Arc::new(DashMap::new()),
-            roots: Arc::new(DashMap::new()),
-            child_owner_ids: Arc::new(DashMap::new()),
-            next_job_id: Arc::new(AtomicU64::new(MOCK_FIRST_JOB_ID)),
-            injected_transition_errors: Arc::new(Mutex::new(VecDeque::new())),
-            injected_child_id_counts: Arc::new(Mutex::new(VecDeque::new())),
-            resource_groups: Arc::new(DashMap::new()),
-            resource_group_ids: Arc::new(DashMap::new()),
-            next_resource_group_id: Arc::new(AtomicUsize::new(1)),
-            execution_managers: Arc::new(DashMap::new()),
-            next_execution_manager_id: Arc::new(AtomicUsize::new(1)),
-            next_scheduler_id: Arc::new(AtomicUsize::new(1)),
-            session_id: 0,
-        }
     }
 }
 
@@ -190,6 +171,22 @@ impl ExternalJobOrchestration for MockDbConnector {
             .get(&job_id)
             .map(|v| *v)
             .ok_or(DbError::JobNotFound(job_id))
+    }
+
+    async fn get_state_and_parent(
+        &self,
+        job_id: JobId,
+    ) -> Result<(JobState, Option<JobId>), DbError> {
+        let injected_error = self
+            .injected_state_and_parent_errors
+            .lock()
+            .expect("the injected state and parent errors' mutex should not be poisoned")
+            .pop_front();
+        if let Some(error) = injected_error {
+            return Err(error);
+        }
+        let state = self.get_state(job_id).await?;
+        Ok((state, self.parents.get(&job_id).map(|parent_id| *parent_id)))
     }
 
     async fn get_outputs(&self, job_id: JobId) -> Result<Vec<TaskOutput>, DbError> {
@@ -465,6 +462,30 @@ impl SessionManagement for MockDbConnector {
 
 impl DbStorage for MockDbConnector {}
 
+impl Default for MockDbConnector {
+    fn default() -> Self {
+        Self {
+            states: Arc::new(DashMap::new()),
+            errors: Arc::new(DashMap::new()),
+            outputs: Arc::new(DashMap::new()),
+            parents: Arc::new(DashMap::new()),
+            roots: Arc::new(DashMap::new()),
+            child_owner_ids: Arc::new(DashMap::new()),
+            next_job_id: Arc::new(AtomicU64::new(MOCK_FIRST_JOB_ID)),
+            injected_transition_errors: Arc::new(Mutex::new(VecDeque::new())),
+            injected_child_id_counts: Arc::new(Mutex::new(VecDeque::new())),
+            injected_state_and_parent_errors: Arc::new(Mutex::new(VecDeque::new())),
+            resource_groups: Arc::new(DashMap::new()),
+            resource_group_ids: Arc::new(DashMap::new()),
+            next_resource_group_id: Arc::new(AtomicUsize::new(1)),
+            execution_managers: Arc::new(DashMap::new()),
+            next_execution_manager_id: Arc::new(AtomicUsize::new(1)),
+            next_scheduler_id: Arc::new(AtomicUsize::new(1)),
+            session_id: 0,
+        }
+    }
+}
+
 /// A mock task instance pool connector for testing.
 #[derive(Clone, Default)]
 pub struct MockTaskInstancePoolConnector;
@@ -536,8 +557,8 @@ pub fn create_test_task_graph_input() -> TaskGraphInput {
 
 /// # Returns
 ///
-/// A task graph input of `num_inputs` positional inputs, each the msgpack serialization of a
-/// 4-byte zero array.
+/// A task graph input of `num_inputs` positional inputs, each the msgpack serialization of a 4-byte
+/// zero array.
 ///
 /// # Panics
 ///
@@ -639,7 +660,7 @@ pub async fn create_test_incompressible_prepared_child(input_size: u64) -> Prepa
 
 /// # Returns
 ///
-/// The prepared children of [`create_test_prepared_child`] for the input bytes `0` to
+/// The prepared children of [`create_test_prepared_child`] for the input bytes from `0` to
 /// `num_children - 1`, in order.
 pub async fn create_test_prepared_children(num_children: u8) -> Vec<PreparedChild> {
     let mut children = Vec::with_capacity(usize::from(num_children));

@@ -9,6 +9,9 @@ use crate::cache::tree::TreeEventKind;
 
 pub(super) const ROOT_ID: JobId = JobId::from(1);
 
+/// The only output of a job whose regular tasks are done in [`registration`].
+pub(super) const REGISTRATION_OUTPUT: &[u8] = &[1];
+
 pub(super) const fn root_event(kind: TreeEventKind) -> TreeEvent {
     TreeEvent {
         job_id: ROOT_ID,
@@ -34,7 +37,7 @@ pub(super) fn failure(lane: Lane, message: &str) -> TreeEventKind {
 /// The regular tasks of a job being done with one output and `children`.
 pub(super) fn registration(children: Vec<PreparedChild>) -> TreeEventKind {
     TreeEventKind::RegularTasksDone {
-        outputs: vec![vec![1]],
+        outputs: vec![REGISTRATION_OUTPUT.to_vec()],
         children,
     }
 }

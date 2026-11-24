@@ -61,8 +61,8 @@ pub struct DatabaseConfig {
     /// * Database username: `SPIDER_STORAGE_DB_USERNAME`
     /// * Database password: `SPIDER_STORAGE_DB_PASSWORD`
     ///
-    /// These can be overridden by explicitly supplying the `credentials` field in the
-    /// configuration file.
+    /// These can be overridden by explicitly setting the `credentials` field in the configuration
+    /// file.
     #[serde(skip_serializing)]
     pub credentials: DatabaseCredentials,
 
@@ -112,19 +112,6 @@ impl DatabaseCredentials {
     }
 }
 
-/// An error returned while reading database credentials from the environment.
-#[derive(Debug, Error)]
-pub enum CredentialsError {
-    #[error("required environment variable `{0}` is not set")]
-    MissingEnvVar(&'static str),
-}
-
-#[derive(Deserialize)]
-struct RawCredentials {
-    username: String,
-    password: String,
-}
-
 impl TryFrom<Option<RawCredentials>> for DatabaseCredentials {
     type Error = CredentialsError;
 
@@ -137,6 +124,19 @@ impl TryFrom<Option<RawCredentials>> for DatabaseCredentials {
             None => Self::from_env(),
         }
     }
+}
+
+/// An error returned while reading database credentials from the environment.
+#[derive(Debug, Error)]
+pub enum CredentialsError {
+    #[error("required environment variable `{0}` is not set")]
+    MissingEnvVar(&'static str),
+}
+
+#[derive(Deserialize)]
+struct RawCredentials {
+    username: String,
+    password: String,
 }
 
 #[cfg(test)]

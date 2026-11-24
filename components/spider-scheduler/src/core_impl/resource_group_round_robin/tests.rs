@@ -228,7 +228,6 @@ impl CoreFixture {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`Self::seed_job`]'s return values on failure.
     /// * Forwards [`u64::try_from`]'s return values on failure.
     fn seed_backlogged_groups(&mut self, num_groups: usize) -> anyhow::Result<()> {
         for idx in 0..num_groups {
@@ -1093,9 +1092,9 @@ async fn the_scheduling_loop_stops_when_it_is_cancelled() -> anyhow::Result<()> 
 #[tokio::test]
 async fn one_tick_leaves_every_backlogged_group_at_the_dynamic_threshold() -> anyhow::Result<()> {
     /// How far a group's occupancy may sit from the equilibrium share before the rotation is
-    /// considered broken. The staircase these tests exist to catch misses by an order of
-    /// magnitude: batch filling five groups against `B = 256` yields `64, 64, 64, 64, 0` with
-    /// no free space at all.
+    /// considered broken. The staircase these tests exist to catch misses by an order of magnitude:
+    /// batch filling five groups against `B = 256` yields `64, 64, 64, 64, 0` with no free space at
+    /// all.
     const SHARE_TOLERANCE: usize = 6;
 
     let expected_share = ADMISSION_DISPATCH_QUEUE_CAPACITY / (NUM_BACKLOGGED_GROUPS + 1);

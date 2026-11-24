@@ -48,6 +48,9 @@ pub enum HookAction {
     /// Blocks until released, or until the runtime's shutdown is requested.
     Pause,
 
+    /// Lets the hit go on: the hook only counts it.
+    Observe,
+
     /// Fails the hit with an injected fault.
     Crash,
 
@@ -178,6 +181,7 @@ impl TestHooks {
                         () = shutdown_handle.cancelled() => return Err(InjectedFault::Stopping),
                     }
                 }
+                HookAction::Observe => {}
                 HookAction::Crash => return Err(InjectedFault::Crash(point)),
                 HookAction::Panic => panic!("injected panic at {point:?}"),
             }

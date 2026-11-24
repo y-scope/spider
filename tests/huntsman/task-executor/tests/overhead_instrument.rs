@@ -3,9 +3,9 @@
 //!
 //! Drives the `sleep_and_echo` task — which sleeps for a known constant
 //! [`INSTRUMENT_SLEEP_US`](integration_test_tasks::INSTRUMENT_SLEEP_US) and then echoes its
-//! `Vec<String>` payload — against a *long-lived* executor subprocess (the FFI library is
-//! cached after the first call, so subsequent dispatches measure steady-state overhead, not
-//! one-time dlopen cost). With the work portion held constant we can split the cost into:
+//! `Vec<String>` payload — against a *long-lived* executor subprocess (the FFI library is cached
+//! after the first call, so subsequent dispatches measure steady-state overhead, not one-time
+//! dlopen cost). With the work portion held constant we can split the cost into:
 //!
 //! * `e2e`: parent's wall-clock around `send(Execute)` → `recv(Response::Result)`.
 //! * `executor`: the in-executor FFI duration, taken straight from
@@ -131,7 +131,7 @@ async fn instrument_overhead() {
             outcome,
             elapsed_us,
         } = response;
-        let ExecutorOutcome::Success { outputs } = outcome else {
+        let ExecutorOutcome::Success { outputs, .. } = outcome else {
             panic!("sleep_and_echo task unexpectedly failed in overhead loop");
         };
         let got: Vec<String> = decode_single_output(&outputs);
@@ -215,7 +215,7 @@ fn path_like_payload(len: usize) -> Vec<String> {
 fn expect_echo(response: &Response, expected: &[String]) {
     let Response::Result { outcome, .. } = response;
     let outputs = match outcome {
-        ExecutorOutcome::Success { outputs } => outputs,
+        ExecutorOutcome::Success { outputs, .. } => outputs,
         ExecutorOutcome::Failure { error } => {
             let err: spider_task_executor::ExecutorError =
                 rmp_serde::from_slice(error).expect("decode ExecutorError payload");

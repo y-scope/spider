@@ -5,9 +5,17 @@ use tokio::sync::RwLockReadGuard;
 use tokio::sync::RwLockWriteGuard;
 
 /// Reader-writer lock for shared data in the cache.
+///
+/// # Type Parameters
+///
+/// * `Type` - The type of the shared data.
 pub type SharedRw<Type> = Arc<RwLock<Type>>;
 
 /// A reader for shared data in the cache.
+///
+/// # Type Parameters
+///
+/// * `Type` - The type of the shared data.
 #[derive(Clone)]
 pub struct Reader<Type: Send + Sync> {
     inner: Arc<RwLock<Type>>,
@@ -29,6 +37,10 @@ impl<Type: Send + Sync> Reader<Type> {
 }
 
 /// A writer for shared data in the cache.
+///
+/// # Type Parameters
+///
+/// * `Type` - The type of the shared data.
 #[derive(Clone)]
 pub struct Writer<Type: Send + Sync> {
     inner: Arc<RwLock<Type>>,

@@ -1,6 +1,7 @@
 //! A round of a tree's committer: its events planned, written, applied, answered and published.
 
 use std::cell::Cell;
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -85,12 +86,22 @@ impl<
         }
     }
 
-    /// Runs one round for the events of `in_flight`, in their order, and answers each event that
-    /// the round plans. `in_flight`, which [`super::CommitterContextGuard`] owns, keeps the events
-    /// to put back at the front of the pending queue, in their order: the events that the round
-    /// defers or, if the database rejects the outputs of a job or a child that the round registers
-    /// (see [`fail_job_with_oversized_payload`]), every event of the round, with that job's event
-    /// turned into the job's failure.
+    /// Runs one round over the events in `in_flight`:
+    ///
+    /// 1. Plans the events in their order.
+    /// 2. Writes the planned state changes and the registered child jobs to the database, in one
+    ///    transaction.
+    /// 3. Updates the numbers of active children in the tree's structure, then applies the state
+    ///    changes to the cache, deepest job first and root last.
+    /// 4. Answers each planned event and publishes the ready work.
+    ///
+    /// On return, `in_flight` holds the events that the committer puts back at the front of the
+    /// pending queue, in their order:
+    ///
+    /// * Normally, the events that the round deferred.
+    /// * If the database rejected a job's outputs or a registered child job as too large, every
+    ///   event of the round, with that job's event replaced by the job's failure (see
+    ///   [`fail_job_with_oversized_payload`]). Nothing was written.
     ///
     /// # Errors
     ///
@@ -101,6 +112,7 @@ impl<
     /// * Forwards [`TreeStructure::plan_events`]'s return values on failure.
     /// * Forwards [`Self::child_insertions`]'s return values on failure.
     /// * Forwards [`fail_job_with_oversized_payload`]'s return values on failure.
+    /// * Forwards [`TreeStructure::apply_num_active_children`]'s return values on failure.
     /// * Forwards [`Self::apply_to_cache`]'s return values on failure.
     /// * Forwards [`Self::insert_registered_children_into_tree`]'s return values on failure.
     /// * Forwards [`Self::publish`]'s return values on failure.
@@ -111,6 +123,7 @@ impl<
         let Plan {
             updates,
             mut publications,
+            num_active_children,
             outcomes,
             ..
         } = self
@@ -125,7 +138,11 @@ impl<
         }
 
         if !updates.is_empty() {
-            let transitions: Vec<Transition> = updates.iter().map(Transition::from).collect();
+            let mut transitions: Vec<Transition> = updates.iter().map(Transition::from).collect();
+            // The cache applies the round's changes one job at a time, so a reader can see some
+            // jobs changed and others not yet. Applying each job after its descendants means a
+            // reader that sees a job's new state also sees the new states of the jobs below it.
+            transitions.sort_by_key(|transition| Reverse(self.jcb(transition.job_id).depth()));
             let child_ids = match self
                 .env
                 .db
@@ -142,13 +159,19 @@ impl<
             };
             self.hit_hook(HookPoint::CommitterRoundAfterDbWrite, &transitions)
                 .await;
+            for (job_id, new_num_active_children) in num_active_children {
+                self.structure
+                    .apply_num_active_children(job_id, new_num_active_children)?;
+            }
             for transition in transitions {
                 self.apply_to_cache(transition).await?;
             }
-            let publications_of_registered_child_jobs = self
-                .insert_registered_children_into_tree(in_flight, &outcomes, &child_ids)
-                .await?;
-            publications.extend(publications_of_registered_child_jobs);
+            if outcomes.iter().any(RoundOutcome::registers_children) {
+                let publications_of_registered_child_jobs = self
+                    .insert_registered_children_into_tree(in_flight, &outcomes, &child_ids)
+                    .await?;
+                publications.extend(publications_of_registered_child_jobs);
+            }
         }
 
         // The planned events are answered in place, so every event not answered yet stays in
@@ -409,9 +432,8 @@ impl<
         Ok(())
     }
 
-    /// Checks that the tree's structure keeps the tree invariants, and that the committer holds
-    /// the control blocks of exactly the structure's jobs, each in the job's state in the
-    /// structure.
+    /// Checks that the tree's structure keeps the tree invariants, and that the committer holds the
+    /// control blocks of exactly the structure's jobs, each in the job's state in the structure.
     ///
     /// # Panics
     ///

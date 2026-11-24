@@ -45,6 +45,9 @@ spec:
               mountPath: "/etc/spider/storage.yaml"
               subPath: "storage.yaml"
               readOnly: true
+          {{- if .Values.resources.storage }}
+          resources: {{- toYaml .Values.resources.storage | nindent 12 }}
+          {{- end }}
           readinessProbe:
             {{- include "spider.readinessProbeTimings" . | nindent 12 }}
             tcpSocket:

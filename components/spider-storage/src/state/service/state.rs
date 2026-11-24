@@ -35,6 +35,7 @@ use crate::cache::task::PreparedChild;
 use crate::cache::tree::ChildJobUsage;
 use crate::cache::tree::EventReceivers;
 use crate::cache::tree::TreeControlBlock;
+use crate::db::DbError;
 use crate::db::DbStorage;
 use crate::inbound_queue::CleanupTaskMarker;
 use crate::inbound_queue::CommitTaskMarker;
@@ -87,8 +88,8 @@ pub struct ServiceStateParams<
 
 /// Per-request service state providing access to the storage layer.
 ///
-/// Internally wraps a single [`Arc`] around [`ServiceStateInner`] so that cloning is cheap (one
-/// Arc clone instead of cloning each field).
+/// Internally wraps a single [`Arc`] around [`ServiceStateInner`] so that cloning is cheap (one Arc
+/// clone instead of cloning each field).
 ///
 /// # Type Parameters
 ///
@@ -171,41 +172,6 @@ impl<
         self.inner.session_id
     }
 
-    /// # Returns
-    ///
-    /// The tracker of the service's spawned handler bodies.
-    #[must_use]
-    pub(crate) fn task_tracker(&self) -> &TaskTracker {
-        &self.inner.task_tracker
-    }
-
-    /// Inserts `root`, the root job of a new one-job tree, into the cache, and spawns into the
-    /// service's task tracker the tree's committer, which receives the tree's events from
-    /// `receivers`.
-    ///
-    /// The caller must run in a task of the service's task tracker, or before the service serves
-    /// requests, so that [`crate::state::Runtime::stop`] cannot miss the committer.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`JobCache::insert`]'s return values on failure.
-    pub(crate) async fn insert_tree(
-        &self,
-        root: SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
-        receivers: EventReceivers,
-    ) -> Result<(), StorageServerError> {
-        self.inner.job_cache.insert(root.clone()).await?;
-        spawn_committer(
-            &self.inner.task_tracker,
-            Arc::clone(&self.inner.committer_env),
-            root,
-            receivers,
-        );
-        Ok(())
-    }
-
     /// Registers a job in the database, inserts its control block into the cache and spawns its
     /// tree's committer.
     ///
@@ -285,23 +251,27 @@ impl<
         .await
     }
 
-    /// Starts a job for execution.
+    /// Starts a root job for execution.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError::JobNotFound`] if the job is not in a terminal state, but it is not in the
-    ///   cache.
+    /// * [`InternalError::JobNotFound`] if the job is a root that is not in a terminal state, but
+    ///   it is not in the cache.
     /// * [`StaleStateError::JobAlreadyTerminated`] if the job is not in the cache and is in a
     ///   terminal state in the database.
+    /// * [`StorageServerError::BadRequest`] if the job is a child job (cache path).
     /// * Forwards [`SharedJobControlBlock::start`]'s return values on failure.
-    /// * Forwards [`ExternalJobOrchestration::get_state`]'s return values on failure.
+    /// * Forwards [`Self::uncached_root_state`]'s return values on failure (DB fallback).
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn start_job(&self, job_id: JobId) -> Result<(), StorageServerError> {
         let this = self.clone();
         self.spawn_body(async move {
             if let Some(jcb) = this.inner.job_cache.get(job_id).await {
+                if !jcb.is_root() {
+                    return Err(not_a_root_job(job_id));
+                }
                 jcb.start().await?;
                 tracing::info!(
                     job_id = ? job_id,
@@ -309,7 +279,7 @@ impl<
                 );
                 return Ok(());
             }
-            let state = this.inner.db.get_state(job_id).await?;
+            let state = this.uncached_root_state(job_id).await?;
             if !state.is_terminal() {
                 return Err(StorageServerError::Cache(CacheError::Internal(
                     InternalError::JobNotFound(job_id),
@@ -322,7 +292,7 @@ impl<
         .await
     }
 
-    /// Cancels a job.
+    /// Cancels a root job.
     ///
     /// # Returns
     ///
@@ -332,16 +302,22 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError::JobNotFound`] if the job is not in a terminal state, but it is not in the
-    ///   cache.
-    /// * [`StorageServerError::JobNotFound`] if the job is not in the cache and not in a terminal
-    ///   state in the database.
+    /// * [`InternalError::JobNotFound`] if the job is a root that is not in a terminal state, but
+    ///   it is not in the cache.
+    /// * [`StorageServerError::JobNotFound`] if the job is not in the cache and not in the
+    ///   database.
+    /// * [`StorageServerError::BadRequest`] if the job is a child job (cache path).
     /// * Forwards [`SharedJobControlBlock::cancel`]'s return values on failure.
+    /// * Forwards [`Self::uncached_root_state`]'s return values on failure, except
+    ///   [`DbError::JobNotFound`] (DB fallback).
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
         let this = self.clone();
         self.spawn_body(async move {
             if let Some(jcb) = this.inner.job_cache.get(job_id).await {
+                if !jcb.is_root() {
+                    return Err(not_a_root_job(job_id));
+                }
                 let state = jcb.cancel().await?;
                 tracing::info!(
                     job_id = ? job_id,
@@ -349,18 +325,20 @@ impl<
                 );
                 return Ok(state);
             }
-            match this.inner.db.get_state(job_id).await {
-                Ok(state) => {
-                    if !state.is_terminal() {
-                        // If the job is not terminated, it should always exist in the cache.
-                        return Err(StorageServerError::Cache(CacheError::Internal(
-                            InternalError::JobNotFound(job_id),
-                        )));
-                    }
-                    Ok(state)
+            let state = match this.uncached_root_state(job_id).await {
+                Ok(state) => state,
+                Err(StorageServerError::Db(DbError::JobNotFound(_))) => {
+                    return Err(StorageServerError::JobNotFound(job_id));
                 }
-                _ => Err(StorageServerError::JobNotFound(job_id)),
+                Err(error) => return Err(error),
+            };
+            if !state.is_terminal() {
+                // If the job is not terminated, it should always exist in the cache.
+                return Err(StorageServerError::Cache(CacheError::Internal(
+                    InternalError::JobNotFound(job_id),
+                )));
             }
+            Ok(state)
         })
         .await
     }
@@ -383,7 +361,7 @@ impl<
         Ok(self.inner.db.get_state(job_id).await?)
     }
 
-    /// Gets the outputs of a job.
+    /// Gets the outputs of a root job.
     ///
     /// # Returns
     ///
@@ -393,7 +371,9 @@ impl<
     ///
     /// Returns an error if:
     ///
+    /// * [`StorageServerError::BadRequest`] if the job is a child job (cache path).
     /// * Forwards [`SharedJobControlBlock::get_outputs`]'s return values on failure (cache path).
+    /// * Forwards [`Self::uncached_root_state`]'s return values on failure (DB fallback).
     /// * Forwards [`ExternalJobOrchestration::get_outputs`]'s return values on failure (DB
     ///   fallback).
     pub async fn get_job_outputs(
@@ -401,8 +381,12 @@ impl<
         job_id: JobId,
     ) -> Result<Vec<TaskOutput>, StorageServerError> {
         if let Some(jcb) = self.inner.job_cache.get(job_id).await {
+            if !jcb.is_root() {
+                return Err(not_a_root_job(job_id));
+            }
             return Ok(jcb.get_outputs().await?);
         }
+        self.uncached_root_state(job_id).await?;
         Ok(self.inner.db.get_outputs(job_id).await?)
     }
 
@@ -442,8 +426,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`Self::validate_session`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn create_task_instance(
@@ -490,8 +474,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`Self::validate_session`]'s return values on failure.
     /// * Forwards [`spider_core::types::io::TaskOutputsSerializer::deserialize`]'s return values on
     ///   failure.
     /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
@@ -573,8 +557,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`Self::validate_session`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values on
     ///   failure.
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
@@ -616,8 +600,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`Self::validate_session`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values on
     ///   failure.
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
@@ -659,8 +643,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`Self::validate_session`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
     /// * Forwards [`Self::spawn_body`]'s return values on failure.
     pub async fn fail_task_instance(
@@ -810,8 +794,7 @@ impl<
     ///
     /// # Returns
     ///
-    /// Up to `max_tasks` cleanup-ready task entries received within the `wait` duration on
-    /// success.
+    /// Up to `max_tasks` cleanup-ready task entries received within the `wait` duration on success.
     ///
     /// # Errors
     ///
@@ -965,12 +948,132 @@ impl<
             .map_err(StorageServerError::from)
     }
 
+    /// # Returns
+    ///
+    /// The tracker of the service's spawned handler bodies.
+    #[must_use]
+    pub(crate) fn task_tracker(&self) -> &TaskTracker {
+        &self.inner.task_tracker
+    }
+
+    /// Inserts `root`, the root job of a new one-job tree, into the cache, and spawns into the
+    /// service's task tracker the tree's committer, which receives the tree's events from
+    /// `receivers`.
+    ///
+    /// The caller must run in a task of the service's task tracker, or before the service serves
+    /// requests, so that [`crate::state::Runtime::stop`] cannot miss the committer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobCache::insert`]'s return values on failure.
+    pub(crate) async fn insert_tree(
+        &self,
+        root: SharedJobControlBlock<InboundQueueSenderType, TaskInstancePoolConnectorType>,
+        receivers: EventReceivers,
+    ) -> Result<(), StorageServerError> {
+        self.inner.job_cache.insert(root.clone()).await?;
+        spawn_committer(
+            &self.inner.task_tracker,
+            Arc::clone(&self.inner.committer_env),
+            root,
+            receivers,
+        );
+        Ok(())
+    }
+
+    /// Runs a handler body as a task in the service's task tracker, so that dropping the caller's
+    /// future does not cut the body short, and waits for its result, raced against the service's
+    /// shutdown.
+    ///
+    /// If the caller stops waiting for the result, a panic of the body still shuts the service down
+    /// fatally, and so does a fatal error (see [`StorageServerError::is_fatal`]) unless the service
+    /// is already shutting down gracefully.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `ReturnType` - The type of the value that the body returns on success.
+    ///
+    /// # Returns
+    ///
+    /// The body's result on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageServerError::Stopping`] if:
+    ///   * The service is already shutting down when called, in which case the body is not run.
+    ///   * The service is shutting down before the body finishes.
+    ///   * The body fails while the service is shutting down without a fatal error.
+    /// * [`InternalError::HandlerBodyFailed`] if the body panicked.
+    /// * Forwards `body`'s return values on failure.
+    pub(super) async fn spawn_body<ReturnType: Send + 'static>(
+        &self,
+        body: impl Future<Output = Result<ReturnType, StorageServerError>> + Send + 'static,
+    ) -> Result<ReturnType, StorageServerError> {
+        let shutdown_handle = &self.inner.shutdown_handle;
+        // Keeps the tracker non-empty between the shutdown check and the spawn, so that
+        // `Runtime::stop`'s `wait()` cannot return in that gap and miss the body.
+        let task_tracker_token = self.inner.task_tracker.token();
+        if shutdown_handle.is_cancelled() {
+            return Err(Self::stopping_error());
+        }
+        let join_handle = self.inner.task_tracker.spawn(body);
+        drop(task_tracker_token);
+        let mut handler_body_join_guard = HandlerBodyJoinGuard {
+            join_handle: Some(join_handle),
+            task_tracker: self.inner.task_tracker.clone(),
+            shutdown_handle: shutdown_handle.clone(),
+        };
+        tokio::select! {
+            biased;
+            result = &mut handler_body_join_guard => match result {
+                Ok(Err(e)) if shutdown_handle.is_cancelled() && !shutdown_handle.is_fatal() => {
+                    tracing::warn!(
+                        error = % e,
+                        "Handler body failed while the service is shutting down."
+                    );
+                    Err(Self::stopping_error())
+                }
+                Ok(result) => result,
+                Err(e) => Err(
+                    CacheError::Internal(InternalError::HandlerBodyFailed(e.to_string())).into()
+                ),
+            },
+            () = shutdown_handle.cancelled() => Err(Self::stopping_error()),
+        }
+    }
+
+    /// Reads a job that is not in the cache from the database, and rejects it if it is not a root.
+    ///
+    /// # Returns
+    ///
+    /// The job's state on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageServerError::BadRequest`] if the job is a child job.
+    /// * Forwards [`ExternalJobOrchestration::get_state_and_parent`]'s return values on failure.
+    async fn uncached_root_state(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
+        let (state, parent_id) = self.inner.db.get_state_and_parent(job_id).await?;
+        if parent_id.is_some() {
+            return Err(not_a_root_job(job_id));
+        }
+        Ok(state)
+    }
+
     /// Validates that the given `session_id` matches the session ID captured at service creation
     /// time.
     ///
     /// # Errors
     ///
-    /// Returns [`StorageServerError::StaleSession`] if the session IDs don't match.
+    /// Returns an error if:
+    ///
+    /// * [`StorageServerError::StaleSession`] if the session IDs don't match.
     fn validate_session(&self, session_id: SessionId) -> Result<(), StorageServerError> {
         if session_id != self.inner.session_id {
             return Err(StorageServerError::StaleSession(self.inner.session_id));
@@ -1111,69 +1214,6 @@ impl<
         Ok(state)
     }
 
-    /// Runs a handler body as a task in the service's task tracker, so that dropping the caller's
-    /// future does not cut the body short, and waits for its result, raced against the service's
-    /// shutdown.
-    ///
-    /// If the caller stops waiting for the result, a panic of the body still shuts the service down
-    /// fatally, and so does a fatal error (see [`StorageServerError::is_fatal`]) unless the service
-    /// is already shutting down gracefully.
-    ///
-    /// # Type Parameters
-    ///
-    /// * `ReturnType` - The type of the value that the body returns on success.
-    ///
-    /// # Returns
-    ///
-    /// The body's result on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`StorageServerError::Stopping`] if:
-    ///   * The service is already shutting down when called, in which case the body is not run.
-    ///   * The service is shutting down before the body finishes.
-    ///   * The body fails while the service is shutting down without a fatal error.
-    /// * [`InternalError::HandlerBodyFailed`] if the body panicked.
-    /// * Forwards `body`'s return values on failure.
-    pub(super) async fn spawn_body<ReturnType: Send + 'static>(
-        &self,
-        body: impl Future<Output = Result<ReturnType, StorageServerError>> + Send + 'static,
-    ) -> Result<ReturnType, StorageServerError> {
-        let shutdown_handle = &self.inner.shutdown_handle;
-        // Keeps the tracker non-empty between the shutdown check and the spawn, so that
-        // `Runtime::stop`'s `wait()` cannot return in that gap and miss the body.
-        let task_tracker_token = self.inner.task_tracker.token();
-        if shutdown_handle.is_cancelled() {
-            return Err(Self::stopping_error());
-        }
-        let join_handle = self.inner.task_tracker.spawn(body);
-        drop(task_tracker_token);
-        let mut handler_body_join_guard = HandlerBodyJoinGuard {
-            join_handle: Some(join_handle),
-            task_tracker: self.inner.task_tracker.clone(),
-            shutdown_handle: shutdown_handle.clone(),
-        };
-        tokio::select! {
-            biased;
-            result = &mut handler_body_join_guard => match result {
-                Ok(Err(e)) if shutdown_handle.is_cancelled() && !shutdown_handle.is_fatal() => {
-                    tracing::warn!(
-                        error = % e,
-                        "Handler body failed while the service is shutting down."
-                    );
-                    Err(Self::stopping_error())
-                }
-                Ok(result) => result,
-                Err(e) => Err(
-                    CacheError::Internal(InternalError::HandlerBodyFailed(e.to_string())).into()
-                ),
-            },
-            () = shutdown_handle.cancelled() => Err(Self::stopping_error()),
-        }
-    }
-
     /// # Returns
     ///
     /// The error of a handler that the service's shutdown stopped.
@@ -1271,4 +1311,12 @@ impl<ReturnType: Send + 'static> Drop for HandlerBodyJoinGuard<ReturnType> {
             }
         });
     }
+}
+
+/// # Returns
+///
+/// The [`StorageServerError::BadRequest`] that rejects `job_id`, a child job, from an RPC that
+/// accepts only root jobs.
+fn not_a_root_job(job_id: JobId) -> StorageServerError {
+    StorageServerError::BadRequest(format!("job {job_id} is not a root job"))
 }

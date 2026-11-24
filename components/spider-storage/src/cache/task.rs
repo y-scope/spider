@@ -67,50 +67,6 @@ impl TaskGraph {
         Self::from_parts(submitted_task_graph, task_graph_input).await
     }
 
-    /// Recovers a task graph from the commit-ready state.
-    ///
-    /// # Returns
-    ///
-    /// The task graph with task outputs, the commit task, and the cleanup task (if any) recovered,
-    /// while the underlying task graph is initialized to empty.
-    pub(super) fn recover_from_commit_ready(
-        commit_task_descriptor: &TerminationTaskDescriptor,
-        cleanup_task_descriptor: Option<&TerminationTaskDescriptor>,
-        outputs: Vec<TaskOutput>,
-    ) -> Self {
-        let outputs = outputs
-            .into_iter()
-            .map(|output_payload| Reader::new(SharedRw::new(RwLock::new(Some(output_payload)))))
-            .collect();
-        Self {
-            tasks: vec![],
-            outputs,
-            commit_task: Some(SharedTerminationTaskControlBlock::create(
-                commit_task_descriptor,
-            )),
-            cleanup_task: cleanup_task_descriptor.map(SharedTerminationTaskControlBlock::create),
-        }
-    }
-
-    /// Recovers a task graph from the cleanup-ready state.
-    ///
-    /// # Returns
-    ///
-    /// The task graph with the cleanup task recovered, while the underlying task graph and the
-    /// outputs are initialized to empty.
-    pub(super) fn recover_from_cleanup_ready(
-        cleanup_task_descriptor: &TerminationTaskDescriptor,
-    ) -> Self {
-        Self {
-            tasks: vec![],
-            outputs: vec![],
-            commit_task: None,
-            cleanup_task: Some(SharedTerminationTaskControlBlock::create(
-                cleanup_task_descriptor,
-            )),
-        }
-    }
-
     /// Finalizes the task graph, indicating the job state has transitioned from
     /// [`JobState::Running`] to the next state.
     ///
@@ -225,6 +181,50 @@ impl TaskGraph {
     #[must_use]
     pub const fn has_cleanup_task(&self) -> bool {
         self.cleanup_task.is_some()
+    }
+
+    /// Recovers a task graph from the commit-ready state.
+    ///
+    /// # Returns
+    ///
+    /// The task graph with task outputs, the commit task, and the cleanup task (if any) recovered,
+    /// while the underlying task graph is initialized to empty.
+    pub(super) fn recover_from_commit_ready(
+        commit_task_descriptor: &TerminationTaskDescriptor,
+        cleanup_task_descriptor: Option<&TerminationTaskDescriptor>,
+        outputs: Vec<TaskOutput>,
+    ) -> Self {
+        let outputs = outputs
+            .into_iter()
+            .map(|output_payload| Reader::new(SharedRw::new(RwLock::new(Some(output_payload)))))
+            .collect();
+        Self {
+            tasks: vec![],
+            outputs,
+            commit_task: Some(SharedTerminationTaskControlBlock::create(
+                commit_task_descriptor,
+            )),
+            cleanup_task: cleanup_task_descriptor.map(SharedTerminationTaskControlBlock::create),
+        }
+    }
+
+    /// Recovers a task graph from the cleanup-ready state.
+    ///
+    /// # Returns
+    ///
+    /// The task graph with the cleanup task recovered, while the underlying task graph and the
+    /// outputs are initialized to empty.
+    pub(super) fn recover_from_cleanup_ready(
+        cleanup_task_descriptor: &TerminationTaskDescriptor,
+    ) -> Self {
+        Self {
+            tasks: vec![],
+            outputs: vec![],
+            commit_task: None,
+            cleanup_task: Some(SharedTerminationTaskControlBlock::create(
+                cleanup_task_descriptor,
+            )),
+        }
     }
 
     /// Creates a new task graph from a submitted task graph and its job inputs, which must be
@@ -431,6 +431,10 @@ impl SharedTaskControlBlock {
     /// succeeded. `hooks` fire at [`HookPoint::TaskSuccessBeforeSuccessorLock`] with the context
     /// that `context` builds, after the outputs are written.
     ///
+    /// # Type Parameters
+    ///
+    /// * `'guard` - The lifetime of the guard that `new_partial_mutation_guard` creates.
+    ///
     /// # Returns
     ///
     /// A tuple on success, containing:
@@ -497,8 +501,7 @@ impl SharedTaskControlBlock {
                 }
 
                 // In practice, this update is guarded by a read lock on the task graph, which
-                // guarantees that the child tasks shouldn't be terminated, as the parent is
-                // not.
+                // guarantees that the child tasks shouldn't be terminated, as the parent is not.
                 if child_tcb.base.state.is_terminal() {
                     return Err(InternalError::TaskGraphCorrupted(
                         "child task is already in a terminal state when processing parent \
@@ -938,8 +941,8 @@ struct TaskControlBlockBase {
 impl TaskControlBlockBase {
     /// Registers a new task instance to the control block.
     ///
-    /// On success, the task instance ID will be added to the instance pool, and the task will
-    /// be in [`TaskState::Running`] state on return.
+    /// On success, the task instance ID will be added to the instance pool, and the task will be in
+    /// [`TaskState::Running`] state on return.
     ///
     /// # Errors
     ///
@@ -1192,6 +1195,15 @@ mod tests {
     use crate::state::test_utils::create_test_child_submission;
     use crate::state::test_utils::create_test_prepared_child;
 
+    /// Precomputed expected values for the diamond task graph XOR transformations.
+    struct DiamondExpectedValues {
+        graph_inputs: [Vec<u8>; 2],
+        a_outputs: [Vec<u8>; 2],
+        b_output: Vec<u8>,
+        c_output: Vec<u8>,
+        d_output: Vec<u8>,
+    }
+
     /// Marks the task instance `id` of `tcb` as succeeded with `task_outputs`, with no hook armed.
     ///
     /// # Returns
@@ -1259,10 +1271,10 @@ mod tests {
     ///
     /// # Type Parameters
     ///
-    /// * [`RegisterFuncType`] - An async function type that takes a `TaskInstanceId` and returns
+    /// * `RegisterFuncType` - An async function type that takes a `TaskInstanceId` and returns
     ///   future that resolves to the registration result type.
-    /// * [`FutureType`] - The future type returned by the registration function.
-    /// * [`ReturnType`] - The type of the registration result returned by the future.
+    /// * `FutureType` - The future type returned by the registration function.
+    /// * `ReturnType` - The type of the registration result returned by the future.
     ///
     /// # Returns
     ///
@@ -1299,15 +1311,6 @@ mod tests {
     fn xor_bytes(a: &[u8], b: &[u8]) -> Vec<u8> {
         assert_eq!(a.len(), b.len(), "xor_bytes requires equal-length slices");
         a.iter().zip(b.iter()).map(|(x, y)| x ^ y).collect()
-    }
-
-    /// Precomputed expected values for the diamond task graph XOR transformations.
-    struct DiamondExpectedValues {
-        graph_inputs: [Vec<u8>; 2],
-        a_outputs: [Vec<u8>; 2],
-        b_output: Vec<u8>,
-        c_output: Vec<u8>,
-        d_output: Vec<u8>,
     }
 
     /// Computes all expected intermediate and final values for the diamond task graph.
@@ -1692,8 +1695,8 @@ mod tests {
     ///
     /// `register_task_instance` and `fail_task_instance` share the same call signature across both
     /// types, so they are called directly inside the macro body. The differing return types of
-    /// `register_task_instance` are handled by [`spawn_concurrent_registrations`]'s generic
-    /// closure parameter.
+    /// `register_task_instance` are handled by [`spawn_concurrent_registrations`]'s generic closure
+    /// parameter.
     ///
     /// # Generated tests
     ///
@@ -1901,8 +1904,8 @@ mod tests {
                      {result:?}"
                 );
 
-                // Attempting to succeed the surviving instance should also be rejected
-                // because the task is already in a terminal Failed state.
+                // Attempting to succeed the surviving instance should also be rejected because the
+                // task is already in a terminal Failed state.
                 let result = {
                     let ($s_tcb, $s_id) = (&tcb, id_b);
                     $succeed

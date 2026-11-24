@@ -120,10 +120,6 @@ mod tests {
     use crate::core_impl::inbound_queue_reader::test_harness::collect_when_ready;
     use crate::core_impl::inbound_queue_reader::test_harness::make_entry;
 
-    /// The reader under test, which formats every lane's entries with
-    /// [`RgInboundPollResultFormatter`].
-    type TestReader = RgInboundQueueReader<MockStorageClient>;
-
     /// The resource group most entries in this module belong to.
     const RG_ID: ResourceGroupId = ResourceGroupId::from(4);
 
@@ -138,6 +134,10 @@ mod tests {
 
     /// The third job a test polls entries for.
     const JOB_C: JobId = JobId::from(12);
+
+    /// The reader under test, which formats every lane's entries with
+    /// [`RgInboundPollResultFormatter`].
+    type TestReader = RgInboundQueueReader<MockStorageClient>;
 
     /// # Returns
     ///

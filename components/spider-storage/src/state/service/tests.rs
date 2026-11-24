@@ -63,6 +63,7 @@ use crate::state::test_utils::MOCK_MAX_OUTPUTS_SIZE;
 use crate::state::test_utils::MockDbConnector;
 use crate::state::test_utils::MockInboundQueueSender;
 use crate::state::test_utils::MockTaskInstancePoolConnector;
+use crate::state::test_utils::create_test_child_submission;
 use crate::state::test_utils::create_test_jcb;
 use crate::state::test_utils::create_test_task_graph;
 use crate::state::test_utils::create_test_task_graph_input;
@@ -299,6 +300,23 @@ async fn cancel_job_returns_job_not_found_if_not_exist() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn cancel_job_forwards_a_db_error_other_than_an_unknown_job() -> anyhow::Result<()> {
+    let db = MockDbConnector::default();
+    db.injected_state_and_parent_errors
+        .lock()
+        .expect("the injected state and parent errors' mutex should not be poisoned")
+        .push_back(DbError::CorruptedDbState("corrupted".to_owned()));
+
+    let service = create_test_service_with_db(db);
+    let result = service.cancel_job(JobId::random()).await;
+    let Err(StorageServerError::Db(DbError::CorruptedDbState(message))) = &result else {
+        panic!("cancel_job of a job whose read fails gave {result:?}");
+    };
+    assert_eq!(message, "corrupted");
+    Ok(())
+}
+
+#[tokio::test]
 async fn cancel_job_returns_terminal_state_from_db_when_not_in_cache() -> anyhow::Result<()> {
     let db = MockDbConnector::default();
     let job_id = JobId::random();
@@ -507,6 +525,7 @@ async fn get_job_outputs_returns_outputs_from_db() -> anyhow::Result<()> {
     let db = MockDbConnector::default();
     let job_id = JobId::random();
     let outputs: Vec<TaskOutput> = vec![vec![1, 2, 3]];
+    db.states.insert(job_id, JobState::Succeeded);
     db.outputs.insert(job_id, outputs.clone());
 
     let service = create_test_service_with_db(db);
@@ -615,6 +634,119 @@ async fn get_job_error_returns_error_for_unknown_job() -> anyhow::Result<()> {
         "get_job_error should fail for unknown job"
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn job_rpcs_reject_an_uncached_child_except_for_its_state_and_error() -> anyhow::Result<()> {
+    for state in [JobState::Running, JobState::Succeeded, JobState::Failed] {
+        let db = MockDbConnector::default();
+        let job_id = JobId::random();
+        db.states.insert(job_id, state);
+        db.parents.insert(job_id, JobId::random());
+        db.errors.insert(job_id, "child error".to_owned());
+        db.outputs.insert(job_id, Vec::new());
+
+        let service = create_test_service_with_db(db.clone());
+        assert_root_only_job_rpcs_reject_as_a_bad_request(
+            &service,
+            job_id,
+            &format!("an uncached {state} child"),
+        )
+        .await;
+        assert_eq!(db.states.get(&job_id).map(|stored| *stored), Some(state));
+        assert_eq!(service.get_job_state(job_id).await?, state);
+        assert_eq!(service.get_job_error(job_id).await?, "child error");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn job_rpcs_reject_a_cached_child_except_for_its_state_and_error() -> anyhow::Result<()> {
+    let db = MockDbConnector::default();
+    let service = create_test_service_with_db(db.clone());
+    let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
+        create_test_job_submission();
+    let root_id = service
+        .register_job(
+            ResourceGroupId::random(),
+            compressed_serialized_task_graph,
+            compressed_serialized_task_graph_input,
+        )
+        .await?;
+    service.start_job(root_id).await?;
+    let context = service
+        .create_task_instance(
+            TEST_SESSION_ID,
+            root_id,
+            TaskId::Index(0),
+            ExecutionManagerId::random(),
+        )
+        .await?;
+    let state = service
+        .succeed_task_instance(
+            TEST_SESSION_ID,
+            root_id,
+            context.task_instance_id,
+            0,
+            create_test_serialized_outputs(),
+            vec![create_test_child_submission(1)],
+        )
+        .await?;
+    assert_eq!(state, JobState::BlockingOnChildren);
+    let child_ids: Vec<JobId> = db.parents.iter().map(|entry| *entry.key()).collect();
+    let [child_id] = child_ids.as_slice() else {
+        panic!("the report should register one child, got {child_ids:?}");
+    };
+    assert!(
+        service.inner.job_cache.get(*child_id).await.is_some(),
+        "the registered child should be cached"
+    );
+    db.errors.insert(*child_id, "child error".to_owned());
+
+    assert_root_only_job_rpcs_reject_as_a_bad_request(
+        &service,
+        *child_id,
+        "a cached running child",
+    )
+    .await;
+    assert_eq!(service.get_job_state(*child_id).await?, JobState::Running);
+    assert_eq!(service.get_job_error(*child_id).await?, "child error");
+    assert_eq!(
+        service.get_job_state(root_id).await?,
+        JobState::BlockingOnChildren
+    );
+    Ok(())
+}
+
+/// Asserts that each of `StartJob`, `CancelJob` and `GetJobOutputs` rejects `job_id`, a child job,
+/// as a bad request that names the job.
+///
+/// # Panics
+///
+/// Panics if an RPC does not answer that [`StorageServerError::BadRequest`].
+async fn assert_root_only_job_rpcs_reject_as_a_bad_request(
+    service: &TestServiceState,
+    job_id: JobId,
+    description: &str,
+) {
+    let expected_message = format!("job {job_id} is not a root job");
+    let results = [
+        ("StartJob", service.start_job(job_id).await),
+        ("CancelJob", service.cancel_job(job_id).await.map(|_| ())),
+        (
+            "GetJobOutputs",
+            service.get_job_outputs(job_id).await.map(|_| ()),
+        ),
+    ];
+    for (rpc, result) in results {
+        assert!(
+            matches!(
+                &result,
+                Err(StorageServerError::BadRequest(message)) if *message == expected_message
+            ),
+            "{rpc} of {description} gave {result:?}"
+        );
+    }
 }
 
 #[tokio::test]

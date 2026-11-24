@@ -16,12 +16,6 @@ pub struct TaskAssignmentIdIssuer {
     id: Arc<AtomicU64>,
 }
 
-impl Default for TaskAssignmentIdIssuer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TaskAssignmentIdIssuer {
     #[must_use]
     pub fn new() -> Self {
@@ -33,6 +27,12 @@ impl TaskAssignmentIdIssuer {
     #[must_use]
     pub fn next(&self) -> TaskAssignmentId {
         TaskAssignmentId::from(self.id.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+}
+
+impl Default for TaskAssignmentIdIssuer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

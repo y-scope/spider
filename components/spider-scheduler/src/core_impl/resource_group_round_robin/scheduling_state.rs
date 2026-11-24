@@ -231,8 +231,8 @@ impl RgSchedulingState {
         self.finalize_queue.pop_front()
     }
 
-    /// Takes the next regular task to dispatch out of the job that buffers it, rotating the arm
-    /// and refilling the active job list from the pending job queue as jobs run dry.
+    /// Takes the next regular task to dispatch out of the job that buffers it, rotating the arm and
+    /// refilling the active job list from the pending job queue as jobs run dry.
     ///
     /// # Returns
     ///

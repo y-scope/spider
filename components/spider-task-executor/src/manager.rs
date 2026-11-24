@@ -31,12 +31,12 @@ pub struct TdlPackage {
     /// The TDL version used to generate the package.
     version: Version,
 
-    /// Cached fn pointer for `__spider_tdl_package_execute`, resolved once at load time. Valid
-    /// for the lifetime of `library` (i.e., for the lifetime of `Self`).
+    /// Cached fn pointer for `__spider_tdl_package_execute`, resolved once at load time. Valid for
+    /// the lifetime of `library` (i.e., for the lifetime of `Self`).
     execute: ExecuteFn,
 
     /// Holds the dylib mapped in memory. Never read directly after construction, but its `Drop`
-    /// impl unmaps the library, which would invalidate `execute`. `library` must outlive
+    /// impl unmaps the library, which would invalidate `execute`. `library` has to outlive
     /// `execute`; field-declaration order ensures `execute` is dropped first.
     _library: Library,
 }
@@ -117,8 +117,8 @@ impl TdlPackage {
 
         // SAFETY: see the SAFETY comment on the version lookup above. We deref the borrowed
         // `Symbol<ExecuteFn>` to copy out the underlying fn pointer (`ExecuteFn` is `Copy`); the
-        // pointer remains valid for as long as `library` stays loaded, which is the entire
-        // lifetime of `Self`.
+        // pointer remains valid for as long as `library` stays loaded, which is the entire lifetime
+        // of `Self`.
         let execute = unsafe {
             let symbol: Symbol<ExecuteFn> = library.get(SYM_EXECUTE)?;
             *symbol
@@ -150,9 +150,9 @@ impl TdlPackage {
 
     /// Dispatches a task by name and returns the wire-format-encoded output buffer.
     ///
-    /// `raw_ctx` is a msgpack-encoded
-    /// [`TaskContext`](spider_tdl::TaskContext); `raw_inputs` is a wire-format-encoded
-    /// [`TaskInputsSerializer`](spider_core::types::io::TaskInputsSerializer) buffer.
+    /// `raw_ctx` is a msgpack-encoded [`TaskContext`](spider_tdl::TaskContext); `raw_inputs` is a
+    /// wire-format-encoded [`TaskInputsSerializer`](spider_core::types::io::TaskInputsSerializer)
+    /// buffer.
     ///
     /// # Returns
     ///
@@ -246,6 +246,18 @@ impl TdlPackageManager {
     }
 }
 
+/// FFI symbol name (NUL-terminated) for the package's compile-time `spider-tdl` version.
+const SYM_GET_VERSION: &[u8] = b"__spider_tdl_package_get_version\0";
+
+/// FFI symbol name (NUL-terminated) for the package's declared name.
+const SYM_GET_NAME: &[u8] = b"__spider_tdl_package_get_name\0";
+
+/// FFI symbol name (NUL-terminated) for the package's optional init function.
+const SYM_INIT: &[u8] = b"__spider_tdl_package_init\0";
+
+/// FFI symbol name (NUL-terminated) for the per-task dispatcher.
+const SYM_EXECUTE: &[u8] = b"__spider_tdl_package_execute\0";
+
 /// FFI signature of `__spider_tdl_package_get_version`.
 type GetVersionFn = unsafe extern "C" fn() -> Version;
 
@@ -258,18 +270,6 @@ type InitFn = unsafe extern "C" fn() -> TaskExecutionResult;
 /// FFI signature of `__spider_tdl_package_execute`.
 type ExecuteFn =
     unsafe extern "C" fn(CCharArray<'_>, CByteArray<'_>, CByteArray<'_>) -> TaskExecutionResult;
-
-/// FFI symbol name (NUL-terminated) for the package's compile-time `spider-tdl` version.
-const SYM_GET_VERSION: &[u8] = b"__spider_tdl_package_get_version\0";
-
-/// FFI symbol name (NUL-terminated) for the package's declared name.
-const SYM_GET_NAME: &[u8] = b"__spider_tdl_package_get_name\0";
-
-/// FFI symbol name (NUL-terminated) for the package's optional init function.
-const SYM_INIT: &[u8] = b"__spider_tdl_package_init\0";
-
-/// FFI symbol name (NUL-terminated) for the per-task dispatcher.
-const SYM_EXECUTE: &[u8] = b"__spider_tdl_package_execute\0";
 
 #[cfg(test)]
 mod tests {

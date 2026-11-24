@@ -411,6 +411,7 @@ async fn restart_after_starting_job(
 /// Returns an error if:
 ///
 /// * Forwards [`restart_after_starting_job`]'s return values on failure.
+/// * Forwards [`ServiceState::resend_ready_tasks`]'s return values on failure.
 /// * Forwards [`ServiceState::poll_ready_tasks`]'s return values on failure.
 /// * Forwards [`run_recovered_regular_task`]'s return values on failure.
 /// * Forwards [`serialized_single_output`]'s return values on failure.
@@ -497,6 +498,12 @@ async fn restart_after_cleanup_ready(
 
 /// Registers and starts a flat recovery-test job.
 ///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The type of `service`'s inbound queue sender.
+/// * `DbConnectorType` - The type of `service`'s DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of `service`'s task instance pool connector.
+///
 /// # Returns
 ///
 /// The registered job ID on success.
@@ -523,6 +530,12 @@ async fn register_and_start_job<
 
 /// Registers a flat recovery-test job without starting it.
 ///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The type of `service`'s inbound queue sender.
+/// * `DbConnectorType` - The type of `service`'s DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of `service`'s task instance pool connector.
+///
 /// # Returns
 ///
 /// The registered job ID on success.
@@ -532,7 +545,8 @@ async fn register_and_start_job<
 /// Returns an error if:
 ///
 /// * Forwards [`ServiceState::add_resource_group`]'s return values on failure.
-/// * Forwards [`spider_core::task::TaskGraph::to_json`]'s return values on failure.
+/// * Forwards [`compress_task_graph`]'s return values on failure.
+/// * Forwards [`compress_job_inputs`]'s return values on failure.
 /// * Forwards [`ServiceState::register_job`]'s return values on failure.
 async fn register_job<
     InboundQueueSenderType: spider_storage::inbound_queue::InboundQueueSender,
@@ -558,6 +572,12 @@ async fn register_job<
 }
 
 /// Registers an execution manager and creates an instance for a recovered regular task.
+///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The type of `service`'s inbound queue sender.
+/// * `DbConnectorType` - The type of `service`'s DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of `service`'s task instance pool connector.
 ///
 /// # Returns
 ///
@@ -594,6 +614,12 @@ async fn run_recovered_regular_task<
 }
 
 /// Runs the ready task for a single-task job to completion.
+///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The type of `service`'s inbound queue sender.
+/// * `DbConnectorType` - The type of `service`'s DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of `service`'s task instance pool connector.
 ///
 /// # Returns
 ///
@@ -642,6 +668,12 @@ async fn run_single_task_job_to_succeed<
 /// Asserts that registering a regular task instance on the given job is rejected because the job
 /// has already reached a terminal state and is therefore no longer running.
 ///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The type of `service`'s inbound queue sender.
+/// * `DbConnectorType` - The type of `service`'s DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of `service`'s task instance pool connector.
+///
 /// # Panics
 ///
 /// Panics if the registration succeeds or fails with an error other than
@@ -677,12 +709,18 @@ async fn assert_regular_task_registration_rejected<
 
 /// Asserts that the job is in [`JobState::Succeeded`] state and its outputs match the expected.
 ///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The type of `service`'s inbound queue sender.
+/// * `DbConnectorType` - The type of `service`'s DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of `service`'s task instance pool connector.
+///
 /// # Errors
 ///
 /// Returns an error if:
 ///
-/// * Forwards [`ServiceState::get_job_state`]'s return values.
-/// * Forwards [`ServiceState::get_job_outputs`]'s return values.
+/// * Forwards [`ServiceState::get_job_state`]'s return values on failure.
+/// * Forwards [`ServiceState::get_job_outputs`]'s return values on failure.
 async fn assert_job_outputs_on_success<
     InboundQueueSenderType: spider_storage::inbound_queue::InboundQueueSender,
     DbConnectorType: spider_storage::db::DbStorage,
@@ -700,6 +738,10 @@ async fn assert_job_outputs_on_success<
 }
 
 /// Collects the inbound-queue entries belonging to a job.
+///
+/// # Type Parameters
+///
+/// * `TaskKind` - The per-lane task specifier of `entries`.
 ///
 /// # Returns
 ///

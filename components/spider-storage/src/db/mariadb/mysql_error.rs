@@ -8,24 +8,6 @@ pub(super) const MYSQL_ER_FK_CONSTRAINT: u16 = 1452;
 /// `MySQL` error number for a `NULL` written to a `NOT NULL` column.
 pub(super) const MYSQL_ER_BAD_NULL_ERROR: u16 = 1048;
 
-/// `MySQL` error number for duplicate entry.
-const MYSQL_ER_DUP_ENTRY: u16 = 1062;
-
-/// `MySQL` error number for a lock wait timeout.
-const MYSQL_ER_LOCK_WAIT_TIMEOUT: u16 = 1205;
-
-/// `MySQL` error number for a missing privilege on an operation.
-const MYSQL_ER_SPECIFIC_ACCESS_DENIED: u16 = 1227;
-
-/// `MySQL` error number for a missing privilege on a table.
-const MYSQL_ER_TABLE_ACCESS_DENIED: u16 = 1142;
-
-/// `MySQL` error number for a packet larger than `max_allowed_packet`.
-const MYSQL_ER_NET_PACKET_TOO_LARGE: u16 = 1153;
-
-/// `MySQL` error number for a value too long for its column.
-const MYSQL_ER_DATA_TOO_LONG: u16 = 1406;
-
 /// # Returns
 ///
 /// Whether `error` is a duplicate-entry error reported by the database.
@@ -90,6 +72,24 @@ pub(super) fn has_mysql_error_number(error: &sqlx::Error, numbers: &[u16]) -> bo
         .try_downcast_ref::<MySqlDatabaseError>()
         .is_some_and(|mysql_error| numbers.contains(&mysql_error.number()))
 }
+
+/// `MySQL` error number for duplicate entry.
+const MYSQL_ER_DUP_ENTRY: u16 = 1062;
+
+/// `MySQL` error number for a lock wait timeout.
+const MYSQL_ER_LOCK_WAIT_TIMEOUT: u16 = 1205;
+
+/// `MySQL` error number for a missing privilege on an operation.
+const MYSQL_ER_SPECIFIC_ACCESS_DENIED: u16 = 1227;
+
+/// `MySQL` error number for a missing privilege on a table.
+const MYSQL_ER_TABLE_ACCESS_DENIED: u16 = 1142;
+
+/// `MySQL` error number for a packet larger than `max_allowed_packet`.
+const MYSQL_ER_NET_PACKET_TOO_LARGE: u16 = 1153;
+
+/// `MySQL` error number for a value too long for its column.
+const MYSQL_ER_DATA_TOO_LONG: u16 = 1406;
 
 #[cfg(test)]
 mod tests {

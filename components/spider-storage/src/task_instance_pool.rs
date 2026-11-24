@@ -215,6 +215,68 @@ impl TaskInstancePoolConnector for TaskInstancePoolHandle {
     }
 }
 
+/// Creates a task instance pool.
+///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The inbound queue sender implementation for re-enqueue operations.
+/// * `LivenessStoreType` - The execution manager liveness store implementation.
+///
+/// # Returns
+///
+/// A tuple on success, containing:
+///
+/// * A [`TaskInstancePoolHandle`] for registering task instances to the pool.
+/// * A [`JoinHandle`] for the task instance pool actor.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`TaskInstancePoolConfig::validate`]'s return values on failure.
+pub fn create_task_instance_pool<
+    InboundQueueSenderType: InboundQueueSender + 'static,
+    LivenessStoreType: ExecutionManagerLivenessManagement + 'static,
+>(
+    inbound_queue_sender: InboundQueueSenderType,
+    execution_manager_liveness_store: LivenessStoreType,
+    shutdown_handle: ShutdownHandle,
+    config: &TaskInstancePoolConfig,
+) -> Result<
+    (
+        TaskInstancePoolHandle,
+        JoinHandle<Result<(), InternalError>>,
+    ),
+    InternalError,
+> {
+    config.validate()?;
+
+    let next_task_instance_id = Arc::new(AtomicU64::new(1));
+    let (sender, receiver) = mpsc::channel(config.message_channel_capacity);
+
+    let pool = TaskInstancePool {
+        inbound_queue_sender,
+        execution_manager_liveness_store,
+        execution_manager_stale_after_sec: config.execution_manager_stale_cutoff_sec,
+        instances: Vec::new(),
+        execution_manager_pool: HashSet::new(),
+        receiver,
+    };
+    let gc_interval_sec = config.gc_interval_sec;
+    let pool_join_handle = tokio::spawn(async move {
+        pool.run(&shutdown_handle, gc_interval_sec).await.inspect_err(|e| {
+            tracing::error!(error = % e, "Task instance pool actor exited with error. Cancelling the service.");
+            shutdown_handle.shut_down_fatally();
+        })
+    });
+    let handle = TaskInstancePoolHandle {
+        next_task_instance_id,
+        sender,
+    };
+
+    Ok((handle, pool_join_handle))
+}
+
 /// A type-erased control block that holds either a regular or a termination TCB.
 #[derive(Clone)]
 enum Tcb {
@@ -479,68 +541,6 @@ impl<
             }
         }
     }
-}
-
-/// Creates a task instance pool.
-///
-/// # Type Parameters
-///
-/// * `InboundQueueSenderType` - The inbound queue sender implementation for re-enqueue operations.
-/// * `LivenessStoreType` - The execution manager liveness store implementation.
-///
-/// # Returns
-///
-/// A tuple on success, containing:
-///
-/// * A [`TaskInstancePoolHandle`] for registering task instances to the pool.
-/// * A [`JoinHandle`] for the task instance pool actor.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`TaskInstancePoolConfig::validate`]'s return values on failure.
-pub fn create_task_instance_pool<
-    InboundQueueSenderType: InboundQueueSender + 'static,
-    LivenessStoreType: ExecutionManagerLivenessManagement + 'static,
->(
-    inbound_queue_sender: InboundQueueSenderType,
-    execution_manager_liveness_store: LivenessStoreType,
-    shutdown_handle: ShutdownHandle,
-    config: &TaskInstancePoolConfig,
-) -> Result<
-    (
-        TaskInstancePoolHandle,
-        JoinHandle<Result<(), InternalError>>,
-    ),
-    InternalError,
-> {
-    config.validate()?;
-
-    let next_task_instance_id = Arc::new(AtomicU64::new(1));
-    let (sender, receiver) = mpsc::channel(config.message_channel_capacity);
-
-    let pool = TaskInstancePool {
-        inbound_queue_sender,
-        execution_manager_liveness_store,
-        execution_manager_stale_after_sec: config.execution_manager_stale_cutoff_sec,
-        instances: Vec::new(),
-        execution_manager_pool: HashSet::new(),
-        receiver,
-    };
-    let gc_interval_sec = config.gc_interval_sec;
-    let pool_join_handle = tokio::spawn(async move {
-        pool.run(&shutdown_handle, gc_interval_sec).await.inspect_err(|e| {
-            tracing::error!(error = % e, "Task instance pool actor exited with error. Cancelling the service.");
-            shutdown_handle.shut_down_fatally();
-        })
-    });
-    let handle = TaskInstancePoolHandle {
-        next_task_instance_id,
-        sender,
-    };
-
-    Ok((handle, pool_join_handle))
 }
 
 #[cfg(test)]
@@ -937,8 +937,8 @@ mod tests {
         // Give the pool coroutine time to process both messages.
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // The liveness store should have been called exactly once (for the first registration).
-        // The second registration should have hit the cached live-set fast path.
+        // The liveness store should have been called exactly once (for the first registration). The
+        // second registration should have hit the cached live-set fast path.
         assert_eq!(
             liveness_store.alive_call_count.load(Ordering::Relaxed),
             1,

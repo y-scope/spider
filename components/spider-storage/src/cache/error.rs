@@ -80,6 +80,16 @@ pub enum InternalError {
         num_events: usize,
     },
 
+    #[error("job {0:?} blocks on its children without an active child")]
+    BlockingJobWithoutActiveChild(JobId),
+
+    #[error("job {parent_id:?}, the parent of the active job {job_id:?}, is {state}")]
+    UnexpectedParentState {
+        job_id: JobId,
+        parent_id: JobId,
+        state: JobState,
+    },
+
     #[error("task index out of bound")]
     TaskIndexOutOfBound,
 
@@ -144,7 +154,7 @@ pub enum InternalError {
 /// updates), or by requests made too early (e.g., reading the outputs of a job that has not
 /// succeeded). They are expected during normal operation and should be propagated to the caller for
 /// notification.
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, PartialEq, Eq)]
 pub enum StaleStateError {
     #[error("the number of living task instances has reached the upper limit")]
     TaskInstanceLimitExceeded,

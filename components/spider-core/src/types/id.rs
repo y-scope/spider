@@ -13,9 +13,9 @@ use crate::task::TaskIndex;
 
 /// A generic identifier type that wraps a numeric ID and a type marker.
 ///
-/// # Type Parameters:
+/// # Type Parameters
 ///
-/// * [`TypeMarker`]: A marker type used to differentiate between different types of IDs.
+/// * `TypeMarker` - A marker type used to differentiate between different types of IDs.
 ///
 /// # Examples
 ///
@@ -30,12 +30,6 @@ use crate::task::TaskIndex;
 pub struct Id<TypeMarker: Debug + PartialEq + Eq> {
     raw: u64,
     _marker: PhantomData<TypeMarker>,
-}
-
-impl<TypeMarker: Debug + PartialEq + Eq> Default for Id<TypeMarker> {
-    fn default() -> Self {
-        Self::from(0)
-    }
 }
 
 impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
@@ -58,6 +52,12 @@ impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
     #[must_use]
     pub const fn get(&self) -> u64 {
         self.raw
+    }
+}
+
+impl<TypeMarker: Debug + PartialEq + Eq> Default for Id<TypeMarker> {
+    fn default() -> Self {
+        Self::from(0)
     }
 }
 
@@ -184,7 +184,7 @@ pub type TaskInstanceId = u64;
 ///
 /// # Type Parameters
 ///
-/// * [`TypeMarker`] - A marker type used to differentiate between different resource types.
+/// * `TypeMarker` - A marker type used to differentiate between different resource types.
 pub struct SignedId<TypeMarker>
 where
     TypeMarker: Debug + PartialEq + Eq, {

@@ -1,7 +1,7 @@
 //! `#[repr(C)]` types shared across the TDL package / task executor C-FFI boundary.
 //!
-//! Both sides of the boundary live in the same process and share the same Rust global allocator,
-//! so buffers allocated on one side can be reclaimed on the other via [`Box::into_raw`] /
+//! Both sides of the boundary live in the same process and share the same Rust global allocator, so
+//! buffers allocated on one side can be reclaimed on the other via [`Box::into_raw`] /
 //! [`Box::from_raw`].
 
 use std::ffi::c_char;
@@ -13,8 +13,8 @@ use std::str::Utf8Error;
 
 /// Borrowed, C-ABI-compatible view of a contiguous slice `&'borrow_lifetime [ElementType]`.
 ///
-/// [`CArray`] implements [`Deref<Target = [ElementType]>`][Deref] so that all slice methods
-/// are available directly, without requiring a conversion call.
+/// [`CArray`] implements [`Deref<Target = [ElementType]>`][Deref] so that all slice methods are
+/// available directly, without requiring a conversion call.
 ///
 /// # Type Parameters
 ///
@@ -25,26 +25,6 @@ pub struct CArray<'borrow_lifetime, ElementType> {
     pointer: *const ElementType,
     length: usize,
     _lifetime: PhantomData<&'borrow_lifetime [ElementType]>,
-}
-
-// Manual `Copy`/`Clone` impls avoid the auto-derived `ElementType: Copy` / `ElementType: Clone`
-// bounds: a borrowed pointer/length pair is always trivially copyable regardless of the element
-// type.
-impl<ElementType> Copy for CArray<'_, ElementType> {}
-
-impl<ElementType> Clone for CArray<'_, ElementType> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<ElementType> fmt::Debug for CArray<'_, ElementType> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CArray")
-            .field("pointer", &self.pointer)
-            .field("length", &self.length)
-            .finish()
-    }
 }
 
 impl<'borrow_lifetime, ElementType> CArray<'borrow_lifetime, ElementType> {
@@ -84,6 +64,26 @@ impl<'borrow_lifetime, ElementType> CArray<'borrow_lifetime, ElementType> {
     }
 }
 
+// Manual `Copy`/`Clone` impls avoid the auto-derived `ElementType: Copy` / `ElementType: Clone`
+// bounds: a borrowed pointer/length pair is always trivially copyable regardless of the element
+// type.
+impl<ElementType> Copy for CArray<'_, ElementType> {}
+
+impl<ElementType> Clone for CArray<'_, ElementType> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<ElementType> fmt::Debug for CArray<'_, ElementType> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CArray")
+            .field("pointer", &self.pointer)
+            .field("length", &self.length)
+            .finish()
+    }
+}
+
 impl<ElementType> Deref for CArray<'_, ElementType> {
     type Target = [ElementType];
 
@@ -93,6 +93,10 @@ impl<ElementType> Deref for CArray<'_, ElementType> {
 }
 
 /// Borrowed view of a UTF-8 string as a `char`-typed C array.
+///
+/// # Type Parameters
+///
+/// * `'borrow_lifetime` - The lifetime of the borrowed string.
 pub type CCharArray<'borrow_lifetime> = CArray<'borrow_lifetime, c_char>;
 
 impl<'borrow_lifetime> CCharArray<'borrow_lifetime> {
@@ -134,14 +138,18 @@ impl<'borrow_lifetime> CCharArray<'borrow_lifetime> {
 }
 
 /// Borrowed view of a raw byte buffer.
+///
+/// # Type Parameters
+///
+/// * `'borrow_lifetime` - The lifetime of the borrowed byte buffer.
 pub type CByteArray<'borrow_lifetime> = CArray<'borrow_lifetime, u8>;
 
 /// Owned, C-ABI-compatible result buffer returned from a TDL task execution.
 ///
 /// The buffer is allocated on the TDL-package side by leaking a `Box<[u8]>` via [`Box::into_raw`]
 /// and reclaimed on the executor side via [`Box::from_raw`]. This only works because both sides
-/// share the same global allocator, which is true when the package is loaded via `dlopen` into
-/// the executor process.
+/// share the same global allocator, which is true when the package is loaded via `dlopen` into the
+/// executor process.
 #[repr(C)]
 pub struct TaskExecutionResult {
     is_error: bool,
@@ -166,8 +174,8 @@ impl TaskExecutionResult {
     ///
     /// # Returns
     ///
-    /// `Ok(bytes)` on success, where `bytes` is the wire-format output payload produced by the
-    /// user task.
+    /// `Ok(bytes)` on success, where `bytes` is the wire-format output payload produced by the user
+    /// task.
     ///
     /// # Errors
     ///
@@ -180,6 +188,7 @@ impl TaskExecutionResult {
     /// The caller must guarantee that `self.pointer` / `self.length` originated from a prior call
     /// to [`Self::from_outputs`] or [`Self::from_error`] in a component that shares this process's
     /// global allocator.
+    // yscope-linter: allow-item(DOC002): the error is a msgpack-serialized `TdlError` buffer
     pub fn into_result(self) -> Result<Vec<u8>, Vec<u8>> {
         // Prevent the destructor from running after we reconstruct the `Box`.
         let this = ManuallyDrop::new(self);
