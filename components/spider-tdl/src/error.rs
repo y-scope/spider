@@ -1,7 +1,9 @@
-//! Error type returned from user-authored TDL tasks.
+//! Errors produced during TDL task execution.
 //!
 //! [`TdlError`] crosses the C-FFI boundary as a msgpack-encoded payload inside
 //! [`ExecutionResult::Error`], so it derives both [`serde::Serialize`] and [`serde::Deserialize`].
+
+use spider_utils::wire::WireError;
 
 /// All possible errors produced while executing a user-defined task inside the task executor. This
 /// type can be serialized across the C-FFI boundary as a msgpack-encoded payload through [`serde`].
@@ -30,6 +32,25 @@ pub enum TdlError {
          compressed bytes"
     )]
     ChildJobSubmissionLimitExceeded { count_limit: usize, size_limit: u64 },
+}
+
+/// Failure to decode a successful task result.
+#[derive(Debug, thiserror::Error)]
+#[error("{source}")]
+pub struct ExecutionSuccessDecodeError {
+    #[source]
+    source: WireError,
+}
+
+impl ExecutionSuccessDecodeError {
+    /// Wraps a wire decoding error.
+    ///
+    /// # Returns
+    ///
+    /// The wrapped error.
+    pub(crate) const fn new(source: WireError) -> Self {
+        Self { source }
+    }
 }
 
 #[cfg(test)]

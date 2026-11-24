@@ -13,6 +13,7 @@ use spider_core::types::io::TaskOutputsSerializer;
 use spider_utils::wire::WireError;
 use spider_utils::wire::WireFrameBuilder;
 
+use crate::error::ExecutionSuccessDecodeError;
 use crate::error::TdlError;
 use crate::task_context::TaskContext;
 
@@ -23,14 +24,6 @@ use crate::task_context::TaskContext;
 /// * [`ExecutionResult::Ok`] holds a wire-format [`ExecutionSuccessOutcome`].
 /// * [`ExecutionResult::Err`] holds a msgpack-encoded [`TdlError`].
 pub type ExecutionResult = std::result::Result<Vec<u8>, Vec<u8>>;
-
-/// Failure to decode a successful task result.
-#[derive(Debug, thiserror::Error)]
-#[error("{source}")]
-pub struct ExecutionSuccessDecodeError {
-    #[source]
-    source: WireError,
-}
 
 /// Wire-format task outputs and child job submissions in submission order.
 ///
@@ -56,7 +49,7 @@ impl ExecutionSuccessOutcome {
     /// * [`ExecutionSuccessDecodeError`] if either frame is malformed, a child payload is missing
     ///   its pair, or bytes follow the second frame.
     pub fn from_wire(mut bytes: Vec<u8>) -> Result<Self, ExecutionSuccessDecodeError> {
-        let to_decode_error = |source| ExecutionSuccessDecodeError { source };
+        let to_decode_error = ExecutionSuccessDecodeError::new;
         let (_, remaining) =
             WireFrameBuilder::unframe_payload_slices(&bytes).map_err(to_decode_error)?;
         let outputs_len = bytes.len() - remaining.len();
@@ -505,6 +498,8 @@ mod tests {
 
     #[test]
     fn success_outcome_rejects_malformed_child_frame() -> anyhow::Result<()> {
+        use std::error::Error;
+
         let outputs = TaskOutputsSerializer::new().release();
         let mut trailing_bytes = WireFrameBuilder::with_prefix(outputs.clone()).release();
         trailing_bytes.push(0);
@@ -521,7 +516,9 @@ mod tests {
         ] {
             let error = ExecutionSuccessOutcome::from_wire(bytes)
                 .expect_err("malformed child frame must fail");
-            let WireError::InvalidFormat(reason) = &error.source else {
+            let Some(WireError::InvalidFormat(reason)) =
+                error.source().and_then(|source| source.downcast_ref())
+            else {
                 panic!("expected invalid wire format, got {error:?}");
             };
             assert_eq!(*reason, diagnostic);
