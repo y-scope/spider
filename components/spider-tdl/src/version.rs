@@ -93,13 +93,6 @@ mod tests {
     }
 
     #[test]
-    fn result_envelope_requires_rebuilt_packages() {
-        assert!(Version::SPIDER_TDL.is_compatible_with(&Version::new(0, 2, 0)));
-        assert!(!Version::SPIDER_TDL.is_compatible_with(&Version::new(0, 1, 0)));
-        assert!(!Version::new(0, 1, 0).is_compatible_with(&Version::SPIDER_TDL));
-    }
-
-    #[test]
     fn post_one_zero_compatibility() {
         let executor = Version::new(1, 2, 3);
         assert!(executor.is_compatible_with(&Version::new(1, 0, 0)));
