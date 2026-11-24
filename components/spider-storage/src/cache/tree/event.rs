@@ -22,40 +22,6 @@ pub struct TreeEvent {
     pub kind: TreeEventKind,
 }
 
-impl TreeEvent {
-    /// # Returns
-    ///
-    /// The children that the event carries, or [`None`] if it is not a
-    /// [`TreeEventKind::RegularTasksDone`].
-    #[must_use]
-    pub(crate) fn children(&self) -> Option<&[PreparedChild]> {
-        match &self.kind {
-            TreeEventKind::RegularTasksDone { children, .. } => Some(children),
-            TreeEventKind::Start { .. }
-            | TreeEventKind::CommitDone
-            | TreeEventKind::CleanupDone
-            | TreeEventKind::TerminalFailure { .. }
-            | TreeEventKind::CancelRoot => None,
-        }
-    }
-
-    /// Takes the children out of the event, leaving it with none.
-    ///
-    /// # Returns
-    ///
-    /// The taken children, or [`None`] if the event is not a [`TreeEventKind::RegularTasksDone`].
-    pub(crate) fn take_children(&mut self) -> Option<Vec<PreparedChild>> {
-        match &mut self.kind {
-            TreeEventKind::RegularTasksDone { children, .. } => Some(std::mem::take(children)),
-            TreeEventKind::Start { .. }
-            | TreeEventKind::CommitDone
-            | TreeEventKind::CleanupDone
-            | TreeEventKind::TerminalFailure { .. }
-            | TreeEventKind::CancelRoot => None,
-        }
-    }
-}
-
 /// The kind of a job-level event.
 ///
 /// A variant may carry the inputs that planning the event needs, e.g., the outputs of a job whose

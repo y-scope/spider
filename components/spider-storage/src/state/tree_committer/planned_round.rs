@@ -8,13 +8,15 @@ use crate::cache::task::PreparedChild;
 use crate::cache::tree::Lane;
 use crate::cache::tree::Pending;
 use crate::cache::tree::RoundOutcome;
+use crate::cache::tree::TreeEvent;
 use crate::cache::tree::TreeEventKind;
 use crate::db::DbError;
 
 /// The events of a round bound to their outcomes in the round's plan, one outcome per event, in
 /// order.
 ///
-/// Every event whose outcome registers children is a [`TreeEventKind::RegularTasksDone`]:
+/// Every event whose outcome registers children is a [`TreeEventKind::RegularTasksDone`], so the
+/// walks over the children of the round's registering events never meet another kind:
 ///
 /// * [`Self::new`], the only constructor, checks it.
 /// * Taking an event's children out keeps the event's kind.
@@ -26,6 +28,7 @@ use crate::db::DbError;
 pub(super) struct PlannedRound<'in_flight_lifetime> {
     in_flight: &'in_flight_lifetime mut Vec<Pending>,
     outcomes: Vec<RoundOutcome>,
+    has_child_registration: bool,
 }
 
 impl<'in_flight_lifetime> PlannedRound<'in_flight_lifetime> {
@@ -53,24 +56,27 @@ impl<'in_flight_lifetime> PlannedRound<'in_flight_lifetime> {
                 num_events: in_flight.len(),
             });
         }
-        if let Some(pending) = registering(in_flight.iter(), &outcomes)
-            .find(|pending| !matches!(pending.event.kind, TreeEventKind::RegularTasksDone { .. }))
-        {
-            return Err(InternalError::RegistrationMismatch(pending.event.job_id));
-        }
-        Ok(Self {
+        let has_child_registration = outcomes.iter().any(RoundOutcome::has_child_registration);
+        let round = Self {
             in_flight,
             outcomes,
-        })
+            has_child_registration,
+        };
+        if let Some(job_id) = round
+            .registering_events()
+            .find(|event| !matches!(event.kind, TreeEventKind::RegularTasksDone { .. }))
+            .map(|event| event.job_id)
+        {
+            return Err(InternalError::RegistrationMismatch(job_id));
+        }
+        Ok(round)
     }
 
     /// # Returns
     ///
     /// Whether any event of the round registers children.
-    pub(super) fn has_child_registration(&self) -> bool {
-        self.outcomes
-            .iter()
-            .any(RoundOutcome::has_child_registration)
+    pub(super) const fn has_child_registration(&self) -> bool {
+        self.has_child_registration
     }
 
     /// # Returns
@@ -78,15 +84,15 @@ impl<'in_flight_lifetime> PlannedRound<'in_flight_lifetime> {
     /// The ID of each registering event's job and the children that the event carries, in the order
     /// of the round's events.
     pub(super) fn registered_child_sets(&self) -> impl Iterator<Item = (JobId, &[PreparedChild])> {
-        registering(self.in_flight.iter(), &self.outcomes)
-            .filter_map(|pending| Some((pending.event.job_id, pending.event.children()?)))
+        self.registered_children()
+            .map(|(job_id, children)| (job_id, children.as_slice()))
     }
 
     /// # Returns
     ///
     /// The number of children that the round's registering events carry.
     pub(super) fn num_registered_children(&self) -> usize {
-        self.registered_child_sets()
+        self.registered_children()
             .map(|(_, children)| children.len())
             .sum()
     }
@@ -100,8 +106,8 @@ impl<'in_flight_lifetime> PlannedRound<'in_flight_lifetime> {
     pub(super) fn take_registered_child_sets(
         &mut self,
     ) -> impl Iterator<Item = (JobId, Vec<PreparedChild>)> {
-        registering(self.in_flight.iter_mut(), &self.outcomes)
-            .filter_map(|pending| Some((pending.event.job_id, pending.event.take_children()?)))
+        self.registered_children_mut()
+            .map(|(job_id, children)| (job_id, std::mem::take(children)))
     }
 
     /// Turns an error of the round's write that one event of the round causes into a failure, on
@@ -118,8 +124,11 @@ impl<'in_flight_lifetime> PlannedRound<'in_flight_lifetime> {
     /// Returns an error if:
     ///
     /// * [`CacheError`] converted from `error` if it is none of the errors above.
-    pub(super) fn fail_job_with_oversized_payload(self, error: DbError) -> Result<(), CacheError> {
-        let Some(pending) = (match &error {
+    pub(super) fn fail_job_with_oversized_payload(
+        mut self,
+        error: DbError,
+    ) -> Result<(), CacheError> {
+        let Some(event) = (match &error {
             DbError::OutputsTooLarge { job_id, .. } => self
                 .in_flight
                 .iter_mut()
@@ -128,22 +137,21 @@ impl<'in_flight_lifetime> PlannedRound<'in_flight_lifetime> {
                     (matches!(outcome, RoundOutcome::Planned { .. })
                         && pending.event.job_id == *job_id
                         && matches!(pending.event.kind, TreeEventKind::RegularTasksDone { .. }))
-                    .then_some(pending)
+                    .then_some(&mut pending.event)
                 }),
-            DbError::ChildTooLarge { parent_id, .. } => {
-                registering(self.in_flight.iter_mut(), &self.outcomes)
-                    .find(|pending| pending.event.job_id == *parent_id)
-            }
+            DbError::ChildTooLarge { parent_id, .. } => self
+                .registering_events_mut()
+                .find(|event| event.job_id == *parent_id),
             _ => None,
         }) else {
             return Err(error.into());
         };
         tracing::warn!(
-            job_id = ? pending.event.job_id,
+            job_id = ? event.job_id,
             error = % error,
             "The database rejected the payload of a job's event. Failing the job."
         );
-        pending.event.kind = TreeEventKind::TerminalFailure {
+        event.kind = TreeEventKind::TerminalFailure {
             lane: Lane::Regular,
             message: error.to_string(),
         };
@@ -170,25 +178,76 @@ impl<'in_flight_lifetime> PlannedRound<'in_flight_lifetime> {
             }
         }
     }
-}
 
-/// # Type Parameters
-///
-/// * `PendingType` - The type of each event of the round, borrowed shared or mutably.
-/// * `PendingIteratorType` - The type of the iterator over the events of the round.
-///
-/// # Returns
-///
-/// The events of `pendings` whose outcomes in `outcomes`, one per event in order, register
-/// children, in order.
-fn registering<PendingType, PendingIteratorType: Iterator<Item = PendingType>>(
-    pendings: PendingIteratorType,
-    outcomes: &[RoundOutcome],
-) -> impl Iterator<Item = PendingType> {
-    pendings
-        .zip(outcomes)
-        .filter(|(_, outcome)| outcome.has_child_registration())
-        .map(|(pending, _)| pending)
+    /// # Returns
+    ///
+    /// The round's events whose outcomes register children, in order.
+    fn registering_events(&self) -> impl Iterator<Item = &TreeEvent> {
+        self.in_flight
+            .iter()
+            .zip(&self.outcomes)
+            .filter(|(_, outcome)| outcome.has_child_registration())
+            .map(|(pending, _)| &pending.event)
+    }
+
+    /// # Returns
+    ///
+    /// The round's events whose outcomes register children, mutably and in order.
+    fn registering_events_mut(&mut self) -> impl Iterator<Item = &mut TreeEvent> {
+        self.in_flight
+            .iter_mut()
+            .zip(&self.outcomes)
+            .filter(|(_, outcome)| outcome.has_child_registration())
+            .map(|(pending, _)| &mut pending.event)
+    }
+
+    /// # Returns
+    ///
+    /// The ID of each registering event's job and the children that the event carries, in the order
+    /// of [`Self::registering_events`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if a registering event is not a [`TreeEventKind::RegularTasksDone`], which
+    /// [`Self::new`] rules out.
+    fn registered_children(&self) -> impl Iterator<Item = (JobId, &Vec<PreparedChild>)> {
+        self.registering_events().map(|event| match &event.kind {
+            TreeEventKind::RegularTasksDone { children, .. } => (event.job_id, children),
+            TreeEventKind::Start { .. }
+            | TreeEventKind::CommitDone
+            | TreeEventKind::CleanupDone
+            | TreeEventKind::TerminalFailure { .. }
+            | TreeEventKind::CancelRoot => unreachable!(
+                "a registering event should be a `RegularTasksDone`, as `PlannedRound::new` checks"
+            ),
+        })
+    }
+
+    /// # Returns
+    ///
+    /// The ID of each registering event's job and the children that the event carries, mutably and
+    /// in the order of [`Self::registering_events_mut`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if a registering event is not a [`TreeEventKind::RegularTasksDone`], which
+    /// [`Self::new`] rules out.
+    fn registered_children_mut(
+        &mut self,
+    ) -> impl Iterator<Item = (JobId, &mut Vec<PreparedChild>)> {
+        self.registering_events_mut()
+            .map(|event| match &mut event.kind {
+                TreeEventKind::RegularTasksDone { children, .. } => (event.job_id, children),
+                TreeEventKind::Start { .. }
+                | TreeEventKind::CommitDone
+                | TreeEventKind::CleanupDone
+                | TreeEventKind::TerminalFailure { .. }
+                | TreeEventKind::CancelRoot => unreachable!(
+                    "a registering event should be a `RegularTasksDone`, as `PlannedRound::new` \
+                     checks"
+                ),
+            })
+    }
 }
 
 #[cfg(test)]
@@ -243,10 +302,10 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn answering_a_round_replies_to_its_planned_events_and_keeps_the_deferred_ones_in_order()
+    #[test]
+    fn answering_a_round_replies_to_its_planned_events_and_keeps_the_deferred_ones_in_order()
     -> anyhow::Result<()> {
-        let (reply_sender, reply_receiver) = oneshot::channel();
+        let (reply_sender, mut reply_receiver) = oneshot::channel();
         let mut in_flight = vec![
             pending(ROOT_ID.get() + 1, TreeEventKind::CommitDone),
             Pending {
@@ -271,7 +330,7 @@ mod tests {
             ],
         )?
         .answer();
-        let reply = reply_receiver.await?;
+        let reply = reply_receiver.try_recv()?;
         assert!(
             matches!(reply, Ok(TreeEventOutcome::Applied(JobState::Running))),
             "the planned event got {reply:?}"
@@ -325,7 +384,10 @@ mod tests {
                 .iter()
                 .map(|pending| (
                     pending.event.job_id.get(),
-                    pending.event.children().map(<[PreparedChild]>::len)
+                    match &pending.event.kind {
+                        TreeEventKind::RegularTasksDone { children, .. } => Some(children.len()),
+                        _ => None,
+                    }
                 ))
                 .collect::<Vec<_>>(),
             [
@@ -389,6 +451,49 @@ mod tests {
                     lane: Lane::Regular,
                     message,
                 } if *message == expected_message
+            ),
+            "the job's planned completion should become its failure"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rejected_outputs_do_not_fail_a_deferred_completion_of_their_job() -> anyhow::Result<()> {
+        let mut in_flight = vec![
+            pending(ROOT_ID.get(), regular_tasks_done()),
+            pending(ROOT_ID.get(), regular_tasks_done()),
+        ];
+        let outcomes = vec![
+            RoundOutcome::Deferred,
+            RoundOutcome::Planned {
+                outcome: TreeEventOutcome::Applied(JobState::Succeeded),
+                has_child_registration: false,
+            },
+        ];
+        let error = DbError::OutputsTooLarge {
+            job_id: ROOT_ID,
+            size: MOCK_MAX_OUTPUTS_SIZE + 1,
+            limit: MOCK_MAX_OUTPUTS_SIZE,
+        };
+
+        PlannedRound::new(&mut in_flight, outcomes)?.fail_job_with_oversized_payload(error)?;
+        let [deferred_completion, planned_completion] = in_flight.as_slice() else {
+            panic!("the round should keep its two events");
+        };
+        assert!(
+            matches!(
+                deferred_completion.event.kind,
+                TreeEventKind::RegularTasksDone { .. }
+            ),
+            "the job's deferred completion should be kept"
+        );
+        assert!(
+            matches!(
+                planned_completion.event.kind,
+                TreeEventKind::TerminalFailure {
+                    lane: Lane::Regular,
+                    ..
+                }
             ),
             "the job's planned completion should become its failure"
         );

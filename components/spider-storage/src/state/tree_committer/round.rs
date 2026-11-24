@@ -219,17 +219,18 @@ impl<
         round: &'round_lifetime PlannedRound<'_>,
     ) -> Vec<ChildJobInsertion<'round_lifetime>> {
         let root_id = self.structure.root_id();
-        let mut child_insertions = Vec::with_capacity(round.num_registered_children());
-        for (parent_id, children) in round.registered_child_sets() {
-            let resource_group_id = self.jcb(parent_id).owner_id();
-            child_insertions.extend(children.iter().map(|child| ChildJobInsertion {
-                parent_id,
-                root_id,
-                resource_group_id,
-                compressed_job_submission: child.submission(),
-            }));
-        }
-        child_insertions
+        round
+            .registered_child_sets()
+            .flat_map(|(parent_id, children)| {
+                let resource_group_id = self.jcb(parent_id).owner_id();
+                children.iter().map(move |child| ChildJobInsertion {
+                    parent_id,
+                    root_id,
+                    resource_group_id,
+                    compressed_job_submission: child.submission(),
+                })
+            })
+            .collect()
     }
 
     /// Inserts the children that the registering events of `round` carry, which the round has
