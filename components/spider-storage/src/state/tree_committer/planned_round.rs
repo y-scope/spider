@@ -289,6 +289,56 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn a_round_walks_the_child_sets_of_only_its_registering_events_in_order()
+    -> anyhow::Result<()> {
+        let (mut in_flight, outcomes) = round_with_registering_and_other_registrations().await;
+
+        let round = PlannedRound::new(&mut in_flight, outcomes)?;
+        assert_eq!(
+            round
+                .registered_child_sets()
+                .map(|(job_id, children)| (job_id.get(), children.len()))
+                .collect::<Vec<_>>(),
+            [(ROOT_ID.get() + 1, 2), (ROOT_ID.get() + 5, 3)]
+        );
+        assert_eq!(round.num_registered_children(), 5);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn taking_a_rounds_child_sets_empties_only_its_registering_events() -> anyhow::Result<()>
+    {
+        let (mut in_flight, outcomes) = round_with_registering_and_other_registrations().await;
+
+        let mut round = PlannedRound::new(&mut in_flight, outcomes)?;
+        assert_eq!(
+            round
+                .take_registered_child_sets()
+                .map(|(job_id, children)| (job_id.get(), children.len()))
+                .collect::<Vec<_>>(),
+            [(ROOT_ID.get() + 1, 2), (ROOT_ID.get() + 5, 3)]
+        );
+        drop(round);
+        assert_eq!(
+            in_flight
+                .iter()
+                .map(|pending| (
+                    pending.event.job_id.get(),
+                    pending.event.children().map(<[PreparedChild]>::len)
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (ROOT_ID.get() + 1, Some(0)),
+                (ROOT_ID.get() + 2, Some(1)),
+                (ROOT_ID.get(), None),
+                (ROOT_ID.get() + 4, Some(1)),
+                (ROOT_ID.get() + 5, Some(0)),
+            ]
+        );
+        Ok(())
+    }
+
     #[test]
     fn rejected_outputs_fail_only_the_planned_completion_of_their_job() -> anyhow::Result<()> {
         let mut in_flight = vec![
@@ -428,5 +478,58 @@ mod tests {
             "a stale event of the job should be kept"
         );
         Ok(())
+    }
+
+    /// # Returns
+    ///
+    /// A tuple containing:
+    ///
+    /// * The events of a round, in order:
+    ///   * A registration of two children, which the round registers.
+    ///   * A registration of one child, which the round defers.
+    ///   * A start.
+    ///   * A stale registration of one child.
+    ///   * A registration of three children, which the round registers.
+    /// * The round's outcomes, one per event in order.
+    async fn round_with_registering_and_other_registrations() -> (Vec<Pending>, Vec<RoundOutcome>) {
+        let in_flight = vec![
+            pending(
+                ROOT_ID.get() + 1,
+                registration(create_test_prepared_children(2).await),
+            ),
+            pending(
+                ROOT_ID.get() + 2,
+                registration(create_test_prepared_children(1).await),
+            ),
+            pending(ROOT_ID.get(), start()),
+            pending(
+                ROOT_ID.get() + 4,
+                registration(create_test_prepared_children(1).await),
+            ),
+            pending(
+                ROOT_ID.get() + 5,
+                registration(create_test_prepared_children(3).await),
+            ),
+        ];
+        let outcomes = vec![
+            RoundOutcome::Planned {
+                outcome: TreeEventOutcome::Applied(JobState::BlockingOnChildren),
+                has_child_registration: true,
+            },
+            RoundOutcome::Deferred,
+            RoundOutcome::Planned {
+                outcome: TreeEventOutcome::Applied(JobState::Running),
+                has_child_registration: false,
+            },
+            RoundOutcome::Planned {
+                outcome: TreeEventOutcome::Stale(StaleStateError::JobNoLongerRunning),
+                has_child_registration: false,
+            },
+            RoundOutcome::Planned {
+                outcome: TreeEventOutcome::Applied(JobState::BlockingOnChildren),
+                has_child_registration: true,
+            },
+        ];
+        (in_flight, outcomes)
     }
 }
