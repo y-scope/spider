@@ -19,7 +19,6 @@ use std::time::Instant;
 
 use anyhow::Result;
 use anyhow::anyhow;
-use bincode::Options;
 use bytes::Bytes;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
@@ -101,6 +100,8 @@ fn run_task(
 ///   response exceeding the frame limit.
 /// * Forwards [`rmp_serde::to_vec`]'s return values on failure.
 fn encode_response(outcome: ExecutorOutcome, elapsed_us: u64) -> Result<Vec<u8>> {
+    use bincode::Options;
+
     let limit = u64::try_from(MAX_FRAME_SIZE)?;
     let options = bincode::DefaultOptions::new()
         .with_fixint_encoding()
