@@ -85,7 +85,9 @@ impl TaskContext {
     ///
     /// # Errors
     ///
-    /// Returns [`TdlError::DeserializationError`] if the task-graph outputs cannot be deserialized.
+    /// Returns an error if:
+    ///
+    /// * [`TdlError::DeserializationError`] if the task-graph outputs cannot be deserialized.
     pub fn get_task_graph_outputs(&self) -> Result<Option<Vec<TaskOutput>>, TdlError> {
         match self.raw.serialized_task_graph_outputs() {
             Some(bytes) => {
