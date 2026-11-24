@@ -55,7 +55,7 @@ impl ExecutionSuccessOutcome {
     ///
     /// * [`ExecutionSuccessDecodeError`] if either frame is malformed, a child payload is missing
     ///   its pair, or bytes follow the second frame.
-    pub fn from_wire(bytes: Vec<u8>) -> Result<Self, ExecutionSuccessDecodeError> {
+    pub fn from_wire(mut bytes: Vec<u8>) -> Result<Self, ExecutionSuccessDecodeError> {
         let to_decode_error = |source| ExecutionSuccessDecodeError { source };
         let (_, remaining) =
             WireFrameBuilder::unframe_payload_slices(&bytes).map_err(to_decode_error)?;
