@@ -779,7 +779,7 @@ impl<
             parent: self.inner.parent_id,
             has_commit: job.task_graph.has_commit_task(),
             has_cleanup: job.task_graph.has_cleanup_task(),
-            active_children: 0,
+            num_active_children: 0,
         };
         drop(job);
         node
