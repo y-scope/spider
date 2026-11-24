@@ -151,9 +151,8 @@ impl TdlPackage {
 
     /// Dispatches a task by name and returns its outputs and child submissions.
     ///
-    /// `raw_ctx` is msgpack-encoded task metadata; `raw_inputs` is a
-    /// wire-format-encoded [`TaskInputsSerializer`](spider_core::types::io::TaskInputsSerializer)
-    /// buffer.
+    /// `raw_ctx` is msgpack-encoded task metadata. `raw_inputs` is a wire-format-encoded
+    /// [`TaskInputsSerializer`](spider_core::types::io::TaskInputsSerializer) buffer.
     ///
     /// # Returns
     ///
