@@ -4,6 +4,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use spider_core::job::submission::CompressedJobSubmission;
+use spider_core::job::submission::MAX_CHILDREN_PER_JOB;
+use spider_core::job::submission::MAX_TASK_CHILDREN_SIZE;
 use spider_core::task::TaskContextRaw;
 use spider_core::task::TaskGraph;
 use spider_core::types::id::JobId;
@@ -46,6 +48,9 @@ impl TaskContext {
 
     /// Creates a child job submission to be processed if this task succeeds.
     ///
+    /// If the task exceeds the child count or size limit, its submissions are discarded and the
+    /// limit failure is reported after execution.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
@@ -69,7 +74,7 @@ impl TaskContext {
             ));
         }
         self.child_job_submission_sender
-            .create(task_graph, task_graph_input)
+            .send(task_graph, task_graph_input)
     }
 
     /// Deserializes the job's task-graph outputs carried by this context.
@@ -99,7 +104,10 @@ impl TaskContext {
     /// * The task context.
     /// * The receiver for the context's child job submissions.
     pub(crate) fn from_raw(raw: TaskContextRaw) -> (Self, ChildJobSubmissionReceiver) {
-        let submissions = Arc::new(Mutex::new(Some(Vec::new())));
+        let submissions = Arc::new(Mutex::new(ChildJobSubmissions::Collecting {
+            children: Vec::new(),
+            compressed_size: 0,
+        }));
         let context = Self {
             raw,
             child_job_submission_sender: ChildJobSubmissionSender {
@@ -115,7 +123,7 @@ impl TaskContext {
 /// Dropping the receiver discards any uncollected submissions and closes the sender.
 #[derive(Debug)]
 pub struct ChildJobSubmissionReceiver {
-    submissions: Arc<Mutex<Option<Vec<CompressedJobSubmission>>>>,
+    submissions: Arc<Mutex<ChildJobSubmissions>>,
 }
 
 impl ChildJobSubmissionReceiver {
@@ -123,22 +131,36 @@ impl ChildJobSubmissionReceiver {
     ///
     /// # Returns
     ///
-    /// The child job submissions in submission order.
-    #[must_use]
-    pub fn take(self) -> Vec<CompressedJobSubmission> {
-        self.close().unwrap_or_default()
+    /// The child job submissions in submission order on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`TdlError::ChildJobSubmissionLimitExceeded`] if the task exceeded the child count or
+    ///   compressed size limit.
+    pub fn take(self) -> Result<Vec<CompressedJobSubmission>, TdlError> {
+        match self.close() {
+            ChildJobSubmissions::Collecting { children, .. } => Ok(children),
+            ChildJobSubmissions::LimitExceeded => Err(TdlError::ChildJobSubmissionLimitExceeded {
+                count_limit: MAX_CHILDREN_PER_JOB,
+                size_limit: MAX_TASK_CHILDREN_SIZE,
+            }),
+            ChildJobSubmissions::Closed => Ok(Vec::new()),
+        }
     }
 
     /// Closes the sender and removes any pending submissions under the same lock.
     ///
     /// # Returns
     ///
-    /// The collected submissions, or `None` if already closed.
-    fn close(&self) -> Option<Vec<CompressedJobSubmission>> {
-        self.submissions
+    /// The submission state before closing.
+    fn close(&self) -> ChildJobSubmissions {
+        let mut submissions = self
+            .submissions
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        std::mem::replace(&mut *submissions, ChildJobSubmissions::Closed)
     }
 }
 
@@ -148,10 +170,21 @@ impl Drop for ChildJobSubmissionReceiver {
     }
 }
 
+/// Submissions buffered for a task and the state of their collection.
+#[derive(Debug)]
+enum ChildJobSubmissions {
+    Collecting {
+        children: Vec<CompressedJobSubmission>,
+        compressed_size: u64,
+    },
+    LimitExceeded,
+    Closed,
+}
+
 /// Sends child job submissions to the paired receiver.
 #[derive(Debug, Clone)]
 struct ChildJobSubmissionSender {
-    submissions: Arc<Mutex<Option<Vec<CompressedJobSubmission>>>>,
+    submissions: Arc<Mutex<ChildJobSubmissions>>,
 }
 
 impl ChildJobSubmissionSender {
@@ -167,11 +200,32 @@ impl ChildJobSubmissionSender {
     /// # Panics
     ///
     /// Panics if the submission lock is poisoned.
-    fn create(
+    fn send(
         &self,
         task_graph: &TaskGraph,
         task_graph_input: &TaskGraphInput,
     ) -> Result<(), TdlError> {
+        let mut submissions = self
+            .submissions
+            .lock()
+            .expect("child submission lock must not be poisoned");
+        let (children, compressed_size) = match &mut *submissions {
+            ChildJobSubmissions::Collecting {
+                children,
+                compressed_size,
+            } => (children, compressed_size),
+            ChildJobSubmissions::LimitExceeded => return Ok(()),
+            ChildJobSubmissions::Closed => {
+                return Err(TdlError::InvalidTaskContext(
+                    "child job submissions are closed".to_owned(),
+                ));
+            }
+        };
+        if children.len() >= MAX_CHILDREN_PER_JOB {
+            *submissions = ChildJobSubmissions::LimitExceeded;
+            return Ok(());
+        }
+
         let submission = CompressedJobSubmission {
             compressed_serialized_task_graph: task_graph
                 .to_zstd_compressed_json()
@@ -180,20 +234,22 @@ impl ChildJobSubmissionSender {
                 .to_zstd_compressed_bytes()
                 .map_err(|e| TdlError::SerializationError(e.to_string()))?,
         };
-        self.submissions
-            .lock()
-            .expect("child submission lock must not be poisoned")
-            .as_mut()
-            .ok_or_else(|| {
-                TdlError::InvalidTaskContext("child job submissions are closed".to_owned())
-            })?
-            .push(submission);
+        let next_size = compressed_size.saturating_add(submission.size());
+        if next_size > MAX_TASK_CHILDREN_SIZE {
+            *submissions = ChildJobSubmissions::LimitExceeded;
+        } else {
+            *compressed_size = next_size;
+            children.push(submission);
+        }
+        drop(submissions);
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use spider_core::job::submission::MAX_CHILDREN_PER_JOB;
+    use spider_core::job::submission::MAX_TASK_CHILDREN_SIZE;
     use spider_core::task::TaskContextRaw;
     use spider_core::task::TaskGraph;
     use spider_core::types::id::JobId;
@@ -204,6 +260,7 @@ mod tests {
     use spider_core::types::io::TaskOutput;
 
     use super::ChildJobSubmissionReceiver;
+    use super::ChildJobSubmissions;
     use super::TaskContext;
     use crate::error::TdlError;
 
@@ -286,7 +343,7 @@ mod tests {
             ctx.create_child_job_submission(&graph, &input)?;
             expected_inputs.push(input);
         }
-        let children = receiver.take();
+        let children = receiver.take()?;
         assert_eq!(children.len(), expected_inputs.len());
         for (child, expected_input) in children.iter().zip(expected_inputs) {
             assert_eq!(
@@ -313,12 +370,51 @@ mod tests {
         let input = builder.build();
         ctx.create_child_job_submission(&graph, &input)?;
         cloned.create_child_job_submission(&graph, &input)?;
-        assert_eq!(receiver.take().len(), 2);
+        assert_eq!(receiver.take()?.len(), 2);
         assert_eq!(
             cloned.create_child_job_submission(&graph, &input),
             Err(TdlError::InvalidTaskContext(
                 "child job submissions are closed".to_owned()
             ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn child_submissions_over_byte_limit_are_discarded_after_execution() -> anyhow::Result<()> {
+        let (ctx, receiver) = create_context(TaskId::Index(0));
+        let graph = create_child_graph();
+        let input = TaskGraphInputBuilder::new().build();
+        let size = u64::try_from(
+            graph.to_zstd_compressed_json()?.len() + input.to_zstd_compressed_bytes()?.len(),
+        )?;
+        let mut submissions = receiver.submissions.lock().expect("lock poisoned");
+        let ChildJobSubmissions::Collecting {
+            compressed_size, ..
+        } = &mut *submissions
+        else {
+            panic!("expected a new collection");
+        };
+        *compressed_size = MAX_TASK_CHILDREN_SIZE - size;
+        drop(submissions);
+
+        ctx.create_child_job_submission(&graph, &input)?;
+        let submissions = receiver.submissions.lock().expect("lock poisoned");
+        assert!(matches!(*submissions, ChildJobSubmissions::Collecting {
+            ref children,
+            compressed_size: MAX_TASK_CHILDREN_SIZE,
+        } if children.len() == 1));
+        drop(submissions);
+
+        ctx.create_child_job_submission(&graph, &input)?;
+        ctx.create_child_job_submission(&graph, &input)?;
+
+        assert_eq!(
+            receiver.take(),
+            Err(TdlError::ChildJobSubmissionLimitExceeded {
+                count_limit: MAX_CHILDREN_PER_JOB,
+                size_limit: MAX_TASK_CHILDREN_SIZE,
+            })
         );
         Ok(())
     }
@@ -355,7 +451,7 @@ mod tests {
                     "termination tasks cannot submit child jobs".to_owned()
                 ))
             );
-            assert_eq!(receiver.take(), Vec::new());
+            assert_eq!(receiver.take()?, Vec::new());
         }
         Ok(())
     }

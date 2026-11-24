@@ -24,6 +24,12 @@ pub enum TdlError {
 
     #[error("{0}")]
     Custom(String),
+
+    #[error(
+        "child job submissions exceed the limit of {count_limit} children or {size_limit} \
+         compressed bytes"
+    )]
+    ChildJobSubmissionLimitExceeded { count_limit: usize, size_limit: u64 },
 }
 
 #[cfg(test)]
@@ -39,6 +45,10 @@ mod tests {
             TdlError::ExecutionError("execution_error".to_owned()),
             TdlError::InvalidTaskContext("invalid_task_context".to_owned()),
             TdlError::Custom("custom".to_owned()),
+            TdlError::ChildJobSubmissionLimitExceeded {
+                count_limit: 1024,
+                size_limit: 16 * 1024 * 1024,
+            },
         ];
         for error in errors_to_test {
             let encoded = rmp_serde::to_vec(&error)?;

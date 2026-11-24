@@ -258,6 +258,7 @@ impl<TaskType: Task + Send + Sync> TaskHandler for TaskHandlerImpl<TaskType> {
         let outputs = result
             .and_then(|result_tuple| TaskType::serialize_return(&result_tuple))
             .map_err(|e| serialize_error(&e))?;
+        let children = children.map_err(|e| serialize_error(&e))?;
         let outcome = ExecutionSuccessOutcome { outputs, children };
         outcome
             .into_wire()

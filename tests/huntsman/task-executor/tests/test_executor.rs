@@ -283,6 +283,52 @@ async fn oversized_response_returns_failure_and_executor_remains_available() -> 
 
 #[tokio::test]
 #[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn child_count_overflow_fails_and_executor_remains_available() -> anyhow::Result<()> {
+    use spider_core::job::submission::MAX_CHILDREN_PER_JOB;
+    use spider_core::job::submission::MAX_TASK_CHILDREN_SIZE;
+
+    let mut handle = ExecutorHandle::spawn();
+    let count_limit = u64::try_from(MAX_CHILDREN_PER_JOB)?;
+    handle
+        .send(&execute_request(
+            "create_children",
+            encode_single_input(&(count_limit + 1)),
+        ))
+        .await;
+    let Response::Result { outcome, .. } = handle.recv().await;
+    let ExecutorOutcome::Failure { error } = outcome else {
+        panic!("expected child submission limit failure, got {outcome:?}");
+    };
+    let error: ExecutorError = rmp_serde::from_slice(&error)?;
+    let ExecutorError::TaskError(error) = error else {
+        panic!("expected a task error, got {error:?}");
+    };
+    assert_eq!(
+        error,
+        TdlError::ChildJobSubmissionLimitExceeded {
+            count_limit: MAX_CHILDREN_PER_JOB,
+            size_limit: MAX_TASK_CHILDREN_SIZE,
+        }
+    );
+
+    handle
+        .send(&execute_request(
+            "create_children",
+            encode_single_input(&count_limit),
+        ))
+        .await;
+    let Response::Result { outcome, .. } = handle.recv().await;
+    let ExecutorOutcome::Success { outputs, children } = outcome else {
+        panic!("expected success at the child submission limit, got {outcome:?}");
+    };
+    assert_eq!(decode_single_output::<u64>(&outputs), count_limit);
+    assert_eq!(children.len(), MAX_CHILDREN_PER_JOB);
+    handle.shutdown_clean().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
 async fn child_submissions_preserve_storage_encoding_and_submission_order() -> anyhow::Result<()> {
     use spider_core::task::TaskGraph;
     use spider_core::types::io::TaskGraphInput;
