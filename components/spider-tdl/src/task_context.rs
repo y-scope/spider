@@ -124,6 +124,7 @@ impl TaskContext {
 ///
 /// Dropping the receiver discards any uncollected submissions and closes the sender.
 #[derive(Debug)]
+#[must_use = "dropping the receiver closes child job submissions"]
 pub struct ChildJobSubmissionReceiver {
     submissions: Arc<Mutex<ChildJobSubmissions>>,
 }
