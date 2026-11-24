@@ -20,6 +20,7 @@ use spider_task_executor::protocol::ExecutorOutcome;
 use spider_task_executor::protocol::MAX_FRAME_SIZE;
 use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
+use spider_tdl::ExecutionManagerMetadata;
 use spider_tdl::TaskContext;
 use spider_tdl::TdlError;
 use spider_utils::wire::WireError;
@@ -63,6 +64,7 @@ pub struct ExecuteRequest {
     pub job_id: JobId,
     pub task_id: TaskId,
     pub resource_group_id: ResourceGroupId,
+    pub execution_manager_metadata: ExecutionManagerMetadata,
     pub ctx: ExecutionContext,
 }
 
@@ -436,6 +438,7 @@ fn build_request(request: ExecuteRequest) -> Result<Request, InternalError> {
         job_id,
         task_id,
         resource_group_id,
+        execution_manager_metadata,
         ctx,
     } = request;
     let ExecutionContext {
@@ -460,6 +463,7 @@ fn build_request(request: ExecuteRequest) -> Result<Request, InternalError> {
         task_id,
         task_instance_id,
         resource_group_id,
+        execution_manager_metadata,
         serialized_task_graph_outputs,
     )?)?;
     Ok(Request::Execute {
@@ -528,6 +532,7 @@ async fn forward_executor_logs<ReaderType: AsyncRead + Unpin>(
 mod tests {
     use spider_core::task::TdlContext;
     use spider_core::task::TimeoutPolicy;
+    use spider_core::types::id::ExecutionManagerId;
     use spider_core::types::io::SerializedTaskOutputs;
     use spider_core::types::io::TaskOutput;
     use tokio_util::sync::CancellationToken;
@@ -688,6 +693,10 @@ mod tests {
             job_id: JobId::random(),
             task_id: TaskId::Commit,
             resource_group_id: ResourceGroupId::random(),
+            execution_manager_metadata: ExecutionManagerMetadata {
+                id: ExecutionManagerId::random(),
+                pinned_resource_group_id: None,
+            },
             ctx: make_execution_context(serialized),
         };
 
@@ -717,6 +726,10 @@ mod tests {
             job_id: JobId::random(),
             task_id: TaskId::Commit,
             resource_group_id: ResourceGroupId::random(),
+            execution_manager_metadata: ExecutionManagerMetadata {
+                id: ExecutionManagerId::random(),
+                pinned_resource_group_id: None,
+            },
             ctx: make_execution_context(serialized),
         };
 
@@ -744,6 +757,10 @@ mod tests {
             job_id: JobId::random(),
             task_id: TaskId::Index(0),
             resource_group_id: ResourceGroupId::random(),
+            execution_manager_metadata: ExecutionManagerMetadata {
+                id: ExecutionManagerId::random(),
+                pinned_resource_group_id: None,
+            },
             ctx: make_execution_context(vec![10, 20, 30]),
         };
 
