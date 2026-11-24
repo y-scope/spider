@@ -124,7 +124,7 @@ async fn malformed_success_reports_deserialization_failure() -> anyhow::Result<(
     };
     assert_eq!(
         message,
-        "deserialization error: invalid wire format: buffer too small for the payload count header"
+        "invalid wire format: buffer too small for the payload count header"
     );
     handle.shutdown_clean().await;
     Ok(())

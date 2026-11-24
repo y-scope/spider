@@ -24,6 +24,14 @@ use crate::task_context::TaskContext;
 /// * [`ExecutionResult::Err`] holds a msgpack-encoded [`TdlError`].
 pub type ExecutionResult = std::result::Result<Vec<u8>, Vec<u8>>;
 
+/// Failure to decode a successful task result.
+#[derive(Debug, thiserror::Error)]
+#[error("{source}")]
+pub struct ExecutionSuccessDecodeError {
+    #[source]
+    source: WireError,
+}
+
 /// Wire-format task outputs and child job submissions in submission order.
 ///
 /// The serialized form consists of two consecutive wire frames. The first contains the task
@@ -45,10 +53,10 @@ impl ExecutionSuccessOutcome {
     ///
     /// Returns an error if:
     ///
-    /// * [`TdlError::DeserializationError`] if either frame is malformed, a child payload is
-    ///   missing its pair, or bytes follow the second frame.
-    pub fn from_wire(bytes: Vec<u8>) -> Result<Self, TdlError> {
-        let to_decode_error = |error: WireError| TdlError::DeserializationError(error.to_string());
+    /// * [`ExecutionSuccessDecodeError`] if either frame is malformed, a child payload is missing
+    ///   its pair, or bytes follow the second frame.
+    pub fn from_wire(bytes: Vec<u8>) -> Result<Self, ExecutionSuccessDecodeError> {
+        let to_decode_error = |source| ExecutionSuccessDecodeError { source };
         let (_, remaining) =
             WireFrameBuilder::unframe_payload_slices(&bytes).map_err(to_decode_error)?;
         let outputs_len = bytes.len() - remaining.len();
@@ -502,22 +510,19 @@ mod tests {
         builder.append_payload(b"graph")?;
 
         for (bytes, diagnostic) in [
-            (
-                outputs,
-                "invalid wire format: buffer too small for the payload count header",
-            ),
-            (
-                trailing_bytes,
-                "invalid wire format: bytes after child submissions frame",
-            ),
+            (outputs, "buffer too small for the payload count header"),
+            (trailing_bytes, "bytes after child submissions frame"),
             (
                 builder.release(),
-                "invalid wire format: child submission is missing its inputs payload",
+                "child submission is missing its inputs payload",
             ),
         ] {
             let error = ExecutionSuccessOutcome::from_wire(bytes)
                 .expect_err("malformed child frame must fail");
-            assert_eq!(error, TdlError::DeserializationError(diagnostic.to_owned()));
+            let WireError::InvalidFormat(reason) = &error.source else {
+                panic!("expected invalid wire format, got {error:?}");
+            };
+            assert_eq!(*reason, diagnostic);
         }
         Ok(())
     }
