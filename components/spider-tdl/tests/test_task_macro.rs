@@ -146,8 +146,8 @@ fn decode_output_payloads(bytes: Vec<u8>) -> anyhow::Result<Vec<Vec<u8>>> {
     use spider_tdl::ExecutionSuccessOutcome;
 
     let outcome = ExecutionSuccessOutcome::from_wire(bytes)?;
-    assert_eq!(outcome.children, []);
-    Ok(TaskOutputsSerializer::deserialize(&outcome.outputs)?)
+    assert_eq!(outcome.children(), []);
+    Ok(TaskOutputsSerializer::deserialize(outcome.outputs())?)
 }
 
 #[test]

@@ -69,8 +69,8 @@ fn encode_complex_vec_pair(a: &ComplexVec, b: &ComplexVec) -> anyhow::Result<Vec
 ///
 /// Panics if the result contains child submissions.
 fn decode_complex(outcome: &ExecutionSuccessOutcome) -> anyhow::Result<Complex> {
-    assert_eq!(outcome.children, []);
-    let outputs = TaskOutputsSerializer::deserialize(&outcome.outputs)?;
+    assert_eq!(outcome.children(), []);
+    let outputs = TaskOutputsSerializer::deserialize(outcome.outputs())?;
     anyhow::ensure!(
         outputs.len() == 1,
         "expected exactly one output payload, got {}",
@@ -87,8 +87,8 @@ fn decode_complex(outcome: &ExecutionSuccessOutcome) -> anyhow::Result<Complex> 
 ///
 /// Panics if the result contains child submissions.
 fn decode_complex_vec(outcome: &ExecutionSuccessOutcome) -> anyhow::Result<ComplexVec> {
-    assert_eq!(outcome.children, []);
-    let outputs = TaskOutputsSerializer::deserialize(&outcome.outputs)?;
+    assert_eq!(outcome.children(), []);
+    let outputs = TaskOutputsSerializer::deserialize(outcome.outputs())?;
     anyhow::ensure!(
         outputs.len() == 1,
         "expected exactly one output payload, got {}",

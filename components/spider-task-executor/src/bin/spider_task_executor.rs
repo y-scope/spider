@@ -162,7 +162,8 @@ async fn main() -> Result<()> {
                     &raw_ctx,
                     &raw_inputs,
                 ) {
-                    Ok(ExecutionSuccessOutcome { outputs, children }) => {
+                    Ok(outcome) => {
+                        let (outputs, children) = outcome.into_parts();
                         ExecutorOutcome::Success { outputs, children }
                     }
                     Err(e) => ExecutorOutcome::Failure {

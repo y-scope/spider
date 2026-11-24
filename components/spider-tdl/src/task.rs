@@ -30,8 +30,8 @@ pub type ExecutionResult = std::result::Result<Vec<u8>, Vec<u8>>;
 /// outputs. The second contains a graph payload followed by an inputs payload for each child.
 #[derive(Debug)]
 pub struct ExecutionSuccessOutcome {
-    pub outputs: Vec<u8>,
-    pub children: Vec<CompressedJobSubmission>,
+    outputs: Vec<u8>,
+    children: Vec<CompressedJobSubmission>,
 }
 
 impl ExecutionSuccessOutcome {
@@ -77,6 +77,27 @@ impl ExecutionSuccessOutcome {
         };
         drop(bytes);
         Ok(outcome)
+    }
+
+    #[must_use]
+    pub fn outputs(&self) -> &[u8] {
+        &self.outputs
+    }
+
+    #[must_use]
+    pub fn children(&self) -> &[CompressedJobSubmission] {
+        &self.children
+    }
+
+    /// Consumes the outcome and returns its contents.
+    ///
+    /// # Returns
+    ///
+    /// * The wire-format task outputs.
+    /// * The child job submissions in submission order.
+    #[must_use]
+    pub fn into_parts(self) -> (Vec<u8>, Vec<CompressedJobSubmission>) {
+        (self.outputs, self.children)
     }
 
     /// Appends the child submissions frame to the outputs frame.
