@@ -21,6 +21,7 @@
 //! The committer exits once its tree is quiescent or the service shuts down. Any other exit, from
 //! an error or a panic, shuts the service down fatally.
 
+mod planned_round;
 mod round;
 #[cfg(test)]
 mod test_utils;

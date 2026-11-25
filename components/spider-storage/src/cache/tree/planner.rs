@@ -36,9 +36,6 @@ pub struct Plan {
     /// The outcome of each event of the round, in the round's order.
     pub outcomes: Vec<RoundOutcome>,
 
-    /// The child sets to register, one per registering event, in the round's order.
-    pub registrations: Vec<PlannedRegistration>,
-
     /// The number of bytes of job outputs and child payloads that the plan writes.
     payload_size: u64,
 }
@@ -75,19 +72,10 @@ impl Plan {
     /// of active children: the overlay keeps them until the round's planning finishes.
     fn merge(&mut self, event_plan: EventPlan) {
         self.payload_size += event_plan.payload_size();
-        if let Some(EventRegistration {
-            parent_id,
-            children,
-        }) = event_plan.registration
-        {
-            self.registrations.push(PlannedRegistration {
-                event_index: self.outcomes.len(),
-                parent_id,
-                children,
-            });
-        }
-        self.outcomes
-            .push(RoundOutcome::Planned(event_plan.outcome));
+        self.outcomes.push(RoundOutcome::Planned {
+            outcome: event_plan.outcome,
+            has_child_registration: event_plan.registration.is_some(),
+        });
         self.updates.extend(event_plan.updates);
         self.publications.extend(event_plan.publications);
     }
@@ -98,27 +86,34 @@ impl Plan {
     }
 }
 
-/// The registration of a child set that a round plans.
-#[derive(Debug, PartialEq, Eq)]
-pub struct PlannedRegistration {
-    /// The index, in the round, of the event that registers the children.
-    pub event_index: usize,
-
-    /// The job whose children the event registers.
-    pub parent_id: JobId,
-
-    /// The usage of the children that the event registers.
-    pub children: ChildJobUsage,
-}
-
 /// The outcome of an event in a round.
 #[derive(Debug)]
 pub enum RoundOutcome {
-    /// The round plans and answers the event with the carried outcome.
-    Planned(TreeEventOutcome),
+    /// The round plans and answers the event with the carried outcome. If `has_child_registration`,
+    /// the round also registers the children that the event carries.
+    Planned {
+        outcome: TreeEventOutcome,
+        has_child_registration: bool,
+    },
 
     /// The round defers the event to a later round.
     Deferred,
+}
+
+impl RoundOutcome {
+    /// # Returns
+    ///
+    /// Whether the round registers the children that the event carries.
+    #[must_use]
+    pub const fn has_child_registration(&self) -> bool {
+        match self {
+            Self::Planned {
+                has_child_registration,
+                ..
+            } => *has_child_registration,
+            Self::Deferred => false,
+        }
+    }
 }
 
 /// Ready work that a plan makes available once its updates are applied.
@@ -337,13 +332,6 @@ struct BlockingParent {
     node: TreeNode,
 }
 
-/// The children that the plan of one event registers.
-#[derive(Debug, Clone, Copy)]
-struct EventRegistration {
-    parent_id: JobId,
-    children: ChildJobUsage,
-}
-
 /// The plan of one event of a round.
 #[derive(Debug)]
 struct EventPlan {
@@ -351,7 +339,7 @@ struct EventPlan {
     publications: Vec<Publication>,
     num_active_children: HashMap<JobId, usize>,
     outcome: TreeEventOutcome,
-    registration: Option<EventRegistration>,
+    registration: Option<ChildJobUsage>,
 }
 
 impl EventPlan {
@@ -495,10 +483,7 @@ impl EventPlan {
     /// stores `outputs` and moves from [`JobState::Running`] to [`JobState::BlockingOnChildren`].
     fn register_children(job_id: JobId, outputs: Vec<TaskOutput>, children: ChildJobUsage) -> Self {
         Self {
-            registration: Some(EventRegistration {
-                parent_id: job_id,
-                children,
-            }),
+            registration: Some(children),
             ..Self::applying(JobStateUpdate {
                 outputs: Some(outputs),
                 ..JobStateUpdate::new(job_id, JobState::Running, JobState::BlockingOnChildren)
@@ -701,10 +686,7 @@ impl EventPlan {
             .flatten()
             .map(|output| output.len() as u64)
             .sum();
-        outputs_size
-            + self
-                .registration
-                .map_or(0, |registration| registration.children.size)
+        outputs_size + self.registration.map_or(0, |children| children.size)
     }
 }
 
@@ -725,7 +707,7 @@ mod tests {
 
     use crate::cache::tree::ChildJobUsage;
     use crate::cache::tree::Plan;
-    use crate::cache::tree::PlannedRegistration;
+    use crate::cache::tree::RoundOutcome;
     use crate::cache::tree::TreeNode;
     use crate::cache::tree::planner::Admission;
     use crate::cache::tree::planner::EventPlan;
@@ -823,20 +805,26 @@ mod tests {
         );
 
         plan.merge(registration(4, children));
-        assert_eq!(
-            plan.registrations,
-            [
-                PlannedRegistration {
-                    event_index: 1,
-                    parent_id: JobId::from(3),
-                    children,
-                },
-                PlannedRegistration {
-                    event_index: 2,
-                    parent_id: JobId::from(4),
-                    children,
-                },
-            ]
+        assert!(
+            matches!(
+                plan.outcomes.as_slice(),
+                [
+                    RoundOutcome::Planned {
+                        has_child_registration: false,
+                        ..
+                    },
+                    RoundOutcome::Planned {
+                        has_child_registration: true,
+                        ..
+                    },
+                    RoundOutcome::Planned {
+                        has_child_registration: true,
+                        ..
+                    },
+                ]
+            ),
+            "a round with two child sets gave {:?}",
+            plan.outcomes
         );
         assert_eq!(
             plan.admission(&registration(
