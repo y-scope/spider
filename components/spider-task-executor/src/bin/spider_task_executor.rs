@@ -28,6 +28,7 @@ use spider_task_executor::protocol::ExecutorOutcome;
 use spider_task_executor::protocol::MAX_FRAME_SIZE;
 use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
+use spider_tdl::ExecutionSuccessOutcome;
 use tokio::io::stdin;
 use tokio::io::stdout;
 use tokio_util::codec::FramedRead;
@@ -74,7 +75,7 @@ fn run_task(
     task_func: &str,
     raw_ctx: &[u8],
     raw_inputs: &[u8],
-) -> Result<Vec<u8>, ExecutorError> {
+) -> Result<ExecutionSuccessOutcome, ExecutorError> {
     let pkg = if let Some(pkg) = manager.get(package) {
         pkg
     } else {
@@ -82,6 +83,44 @@ fn run_task(
         manager.load(&path)?
     };
     pkg.execute_task(task_func, raw_ctx, raw_inputs)
+}
+
+/// Encodes the executor response, reporting a failure if the response exceeds the frame limit.
+///
+/// # Returns
+///
+/// The serialized response on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`u64::try_from`]'s return values on failure.
+/// * Forwards [`bincode::Options::serialize`]'s return values on failure, except for the original
+///   response exceeding the frame limit.
+/// * Forwards [`rmp_serde::to_vec`]'s return values on failure.
+fn encode_response(outcome: ExecutorOutcome, elapsed_us: u64) -> Result<Vec<u8>> {
+    use bincode::Options;
+
+    let limit = u64::try_from(MAX_FRAME_SIZE)?;
+    let options = bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .with_limit(limit);
+
+    match options.serialize(&Response::Result {
+        outcome,
+        elapsed_us,
+    }) {
+        Ok(bytes) => Ok(bytes),
+        Err(error) if matches!(*error, bincode::ErrorKind::SizeLimit) => {
+            let error = rmp_serde::to_vec(&ExecutorError::ResponseTooLarge { limit })?;
+            Ok(options.serialize(&Response::Result {
+                outcome: ExecutorOutcome::Failure { error },
+                elapsed_us,
+            })?)
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -124,10 +163,10 @@ async fn main() -> Result<()> {
                     &raw_ctx,
                     &raw_inputs,
                 ) {
-                    Ok(outputs) => ExecutorOutcome::Success {
-                        outputs,
-                        children: Vec::new(),
-                    },
+                    Ok(outcome) => {
+                        let (outputs, children) = outcome.into_parts();
+                        ExecutorOutcome::Success { outputs, children }
+                    }
                     Err(e) => ExecutorOutcome::Failure {
                         error: rmp_serde::to_vec(&e).inspect_err(
                             |e| tracing::error!(err = ? e, "Failed to serialize execution result."),
@@ -136,11 +175,7 @@ async fn main() -> Result<()> {
                 };
                 let elapsed_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
 
-                let resp = Response::Result {
-                    outcome,
-                    elapsed_us,
-                };
-                let bytes = bincode::serialize(&resp)
+                let bytes = encode_response(outcome, elapsed_us)
                     .inspect_err(|e| tracing::error!(err = ? e, "Failed to serialize response."))?;
                 responses
                     .send(Bytes::from(bytes))

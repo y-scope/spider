@@ -2,6 +2,7 @@
 
 use huntsman_complex_types::Complex;
 use huntsman_complex_types::ComplexVec;
+use spider_core::task::TaskContext;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -10,7 +11,7 @@ use spider_core::types::io::TaskInputsSerializer;
 use spider_core::types::io::TaskOutputsSerializer;
 use spider_task_executor::ExecutorError;
 use spider_task_executor::TdlPackageManager;
-use spider_tdl::TaskContext;
+use spider_tdl::ExecutionSuccessOutcome;
 use spider_tdl::TdlError;
 use spider_tdl::Version;
 
@@ -62,9 +63,14 @@ fn encode_complex_vec_pair(a: &ComplexVec, b: &ComplexVec) -> anyhow::Result<Vec
 
 /// # Returns
 ///
-/// A decoded complex number from the byte buffer.
-fn decode_complex(output_bytes: &[u8]) -> anyhow::Result<Complex> {
-    let outputs = TaskOutputsSerializer::deserialize(output_bytes)?;
+/// The decoded complex number on success.
+///
+/// # Panics
+///
+/// Panics if the result contains child submissions.
+fn decode_complex(outcome: &ExecutionSuccessOutcome) -> anyhow::Result<Complex> {
+    assert_eq!(outcome.children(), []);
+    let outputs = TaskOutputsSerializer::deserialize(outcome.outputs())?;
     anyhow::ensure!(
         outputs.len() == 1,
         "expected exactly one output payload, got {}",
@@ -75,9 +81,14 @@ fn decode_complex(output_bytes: &[u8]) -> anyhow::Result<Complex> {
 
 /// # Returns
 ///
-/// A decoded complex vector from the byte buffer.
-fn decode_complex_vec(output_bytes: &[u8]) -> anyhow::Result<ComplexVec> {
-    let outputs = TaskOutputsSerializer::deserialize(output_bytes)?;
+/// The decoded complex vector on success.
+///
+/// # Panics
+///
+/// Panics if the result contains child submissions.
+fn decode_complex_vec(outcome: &ExecutionSuccessOutcome) -> anyhow::Result<ComplexVec> {
+    assert_eq!(outcome.children(), []);
+    let outputs = TaskOutputsSerializer::deserialize(outcome.outputs())?;
     anyhow::ensure!(
         outputs.len() == 1,
         "expected exactly one output payload, got {}",
@@ -150,12 +161,12 @@ fn add_round_trip() -> anyhow::Result<()> {
             Complex { re: 0.5, im: -0.5 },
         ],
     };
-    let outputs = pkg.execute_task(
+    let outcome = pkg.execute_task(
         "complex::add",
         &encode_ctx(),
         &encode_complex_vec_pair(&a, &b)?,
     )?;
-    let result = decode_complex_vec(&outputs)?;
+    let result = decode_complex_vec(&outcome)?;
     assert_eq!(
         result,
         ComplexVec {
@@ -183,12 +194,12 @@ fn sub_round_trip() -> anyhow::Result<()> {
     let b = ComplexVec {
         items: vec![Complex { re: 1.0, im: 1.0 }, Complex { re: -1.0, im: -2.0 }],
     };
-    let outputs = pkg.execute_task(
+    let outcome = pkg.execute_task(
         "complex::sub",
         &encode_ctx(),
         &encode_complex_vec_pair(&a, &b)?,
     )?;
-    let result = decode_complex_vec(&outputs)?;
+    let result = decode_complex_vec(&outcome)?;
     assert_eq!(
         result,
         ComplexVec {
@@ -244,12 +255,12 @@ fn dot_product_round_trip() -> anyhow::Result<()> {
     let b = ComplexVec {
         items: vec![Complex { re: 3.0, im: 4.0 }, Complex { re: 7.0, im: 8.0 }],
     };
-    let outputs = pkg.execute_task(
+    let outcome = pkg.execute_task(
         "complex::dot_product",
         &encode_ctx(),
         &encode_complex_vec_pair(&a, &b)?,
     )?;
-    let result = decode_complex(&outputs)?;
+    let result = decode_complex(&outcome)?;
     assert_eq!(
         result,
         Complex {
@@ -283,12 +294,12 @@ fn cross_product_round_trip_real_basis() -> anyhow::Result<()> {
             Complex { re: 0.0, im: 0.0 },
         ],
     };
-    let outputs = pkg.execute_task(
+    let outcome = pkg.execute_task(
         "complex::cross_product",
         &encode_ctx(),
         &encode_complex_vec_pair(&a, &b)?,
     )?;
-    let result = decode_complex_vec(&outputs)?;
+    let result = decode_complex_vec(&outcome)?;
     assert_eq!(
         result,
         ComplexVec {
