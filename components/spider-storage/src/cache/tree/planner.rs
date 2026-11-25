@@ -589,7 +589,14 @@ impl EventPlan {
         root: &TreeNode,
         overlay: &Overlay<'_>,
     ) -> Result<Self, InternalError> {
-        let mut event_plan = Self::deactivate(root_id, root);
+        let mut event_plan = Self {
+            outcome: TreeEventOutcome::Applied(root.abort_target()),
+            updates: Vec::new(),
+            publications: Vec::new(),
+            num_active_children: HashMap::new(),
+            registration: None,
+        };
+        event_plan.deactivate(root_id, root);
         for job_id in overlay.structure.sorted_job_ids() {
             if job_id == root_id {
                 continue;
@@ -598,28 +605,22 @@ impl EventPlan {
                 .node(job_id)
                 .ok_or(InternalError::JobNotFound(job_id))?;
             if node.is_abortable() {
-                event_plan.extend(Self::deactivate(job_id, &node));
+                event_plan.deactivate(job_id, &node);
             }
         }
         Ok(event_plan)
     }
 
-    /// Factory function.
-    ///
-    /// # Returns
-    ///
-    /// The plan of deactivating `job_id`, whose node is `node`: the job moves from the node's state
-    /// to its abort target (see [`TreeNode::abort_target`]), with its cleanup task published if
-    /// that is [`JobState::CleanupReady`].
-    fn deactivate(job_id: JobId, node: &TreeNode) -> Self {
-        let from = node.state;
+    /// Adds to this plan the move of `job_id`, whose node is `node`, from the node's state to its
+    /// abort target (see [`TreeNode::abort_target`]), with its cleanup task published if that is
+    /// [`JobState::CleanupReady`].
+    fn deactivate(&mut self, job_id: JobId, node: &TreeNode) {
         let to = node.abort_target();
-        let publications = if to == JobState::CleanupReady {
-            vec![Publication::Cleanup(job_id)]
-        } else {
-            Vec::new()
-        };
-        Self::applying_and_publishing(JobStateUpdate::new(job_id, from, to), publications)
+        self.updates
+            .push(JobStateUpdate::new(job_id, node.state, to));
+        if to == JobState::CleanupReady {
+            self.publications.push(Publication::Cleanup(job_id));
+        }
     }
 
     /// Factory function.
@@ -735,15 +736,6 @@ impl EventPlan {
             succeeded_job_id = parent_id;
         }
         Ok(())
-    }
-
-    /// Adds the updates, the publications and the numbers of active children of `event_plan` to
-    /// this plan, which keeps its outcome and its registration.
-    fn extend(&mut self, event_plan: Self) {
-        self.updates.extend(event_plan.updates);
-        self.publications.extend(event_plan.publications);
-        self.num_active_children
-            .extend(event_plan.num_active_children);
     }
 
     /// # Returns
