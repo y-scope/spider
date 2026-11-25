@@ -148,17 +148,11 @@ impl TreeStructure {
     ///   terminal and a job is abortable (see [`TreeNode::is_abortable`]).
     #[cfg(any(test, debug_assertions))]
     pub fn check_invariants(&self) -> Result<(), Violation> {
-        let mut nodes: Vec<(JobId, &TreeNode)> = self
-            .nodes
-            .iter()
-            .map(|(job_id, node)| (*job_id, node))
-            .collect();
-        nodes.sort_unstable_by_key(|(job_id, _)| job_id.get());
         let is_root_inactive = self
             .nodes
             .get(&self.root_id)
             .is_none_or(|root| root.state == JobState::CleanupReady);
-        for (job_id, node) in nodes {
+        for (job_id, node) in self.nodes() {
             if node.state.is_terminal() {
                 return Err(Violation::TerminalJobInTree {
                     job_id,
@@ -215,12 +209,15 @@ impl TreeStructure {
 
     /// # Returns
     ///
-    /// The IDs of the tree's jobs, in ascending order.
-    #[must_use]
-    pub(crate) fn sorted_job_ids(&self) -> Vec<JobId> {
-        let mut job_ids: Vec<JobId> = self.nodes.keys().copied().collect();
-        job_ids.sort_unstable_by_key(JobId::get);
-        job_ids
+    /// An iterator over the tree's jobs and their nodes, in ascending ID order.
+    pub(crate) fn nodes(&self) -> impl Iterator<Item = (JobId, &TreeNode)> {
+        let mut nodes: Vec<(JobId, &TreeNode)> = self
+            .nodes
+            .iter()
+            .map(|(job_id, node)| (*job_id, node))
+            .collect();
+        nodes.sort_unstable_by_key(|(job_id, _)| job_id.get());
+        nodes.into_iter()
     }
 }
 
@@ -1525,7 +1522,10 @@ mod tests {
             );
         }
         assert_eq!(
-            structure.sorted_job_ids(),
+            structure
+                .nodes()
+                .map(|(job_id, _)| job_id)
+                .collect::<Vec<_>>(),
             [ROOT_ID, JobId::from(2), JobId::from(3)]
         );
         assert_eq!(

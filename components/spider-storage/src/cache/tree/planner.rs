@@ -310,7 +310,25 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     /// the round's earlier events plan for it, or [`None`] if the job is not in the tree.
     fn node(&self, job_id: JobId) -> Option<TreeNode> {
         let node = self.structure.node(job_id)?;
-        Some(TreeNode {
+        Some(self.planned(job_id, node))
+    }
+
+    /// # Returns
+    ///
+    /// An iterator over the tree's jobs and their nodes as the round's earlier events plan them, in
+    /// ascending ID order.
+    fn nodes(&self) -> impl Iterator<Item = (JobId, TreeNode)> + '_ {
+        self.structure
+            .nodes()
+            .map(|(job_id, node)| (job_id, self.planned(job_id, node)))
+    }
+
+    /// # Returns
+    ///
+    /// The structure's node `node` of the tree's job `job_id`, with the state and the number of
+    /// active children that the round's earlier events plan for it.
+    fn planned(&self, job_id: JobId, node: &TreeNode) -> TreeNode {
+        TreeNode {
             state: self
                 .planned_states
                 .get(&job_id)
@@ -322,7 +340,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
                 .copied()
                 .unwrap_or(node.num_active_children),
             ..*node
-        })
+        }
     }
 }
 
@@ -554,7 +572,6 @@ impl EventPlan {
     /// Returns an error if:
     ///
     /// * [`InternalError::NonRootCancelled`] if `root_id` is not the tree's root.
-    /// * Forwards [`Self::abort_from_root`]'s return values on failure.
     fn cancel_root(
         root_id: JobId,
         root: &TreeNode,
@@ -563,7 +580,7 @@ impl EventPlan {
         if root_id != overlay.structure.root_id() {
             return Err(InternalError::NonRootCancelled(root_id));
         }
-        Self::abort_from_root(root_id, root, overlay)
+        Ok(Self::abort_from_root(root_id, root, overlay))
     }
 
     /// Factory function.
@@ -571,24 +588,14 @@ impl EventPlan {
     /// # Returns
     ///
     /// The plan of aborting the tree from its root `root_id`, whose node is `root`, read against
-    /// `overlay`, on success:
+    /// `overlay`:
     ///
     /// * The root is deactivated (see [`Self::deactivate`]).
     /// * Every other abortable job of the tree (see [`TreeNode::is_abortable`]) is deactivated too,
     ///   in ascending ID order.
     ///
     /// A [`JobState::CommitReady`] job other than the root is left to finish its commit.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError::JobNotFound`] if a job of the tree's structure is not in the overlay.
-    fn abort_from_root(
-        root_id: JobId,
-        root: &TreeNode,
-        overlay: &Overlay<'_>,
-    ) -> Result<Self, InternalError> {
+    fn abort_from_root(root_id: JobId, root: &TreeNode, overlay: &Overlay<'_>) -> Self {
         let mut event_plan = Self {
             outcome: TreeEventOutcome::Applied(root.abort_target()),
             updates: Vec::new(),
@@ -597,18 +604,12 @@ impl EventPlan {
             registration: None,
         };
         event_plan.deactivate(root_id, root);
-        for job_id in overlay.structure.sorted_job_ids() {
-            if job_id == root_id {
-                continue;
-            }
-            let node = overlay
-                .node(job_id)
-                .ok_or(InternalError::JobNotFound(job_id))?;
-            if node.is_abortable() {
+        for (job_id, node) in overlay.nodes() {
+            if job_id != root_id && node.is_abortable() {
                 event_plan.deactivate(job_id, &node);
             }
         }
-        Ok(event_plan)
+        event_plan
     }
 
     /// Adds to this plan the move of `job_id`, whose node is `node`, from the node's state to its
