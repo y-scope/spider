@@ -11,7 +11,7 @@ on:
   push:
     paths: *monitored_paths
   schedule:
-    # Run daily at 04:15 UTC (the 15 is to avoid periods of high load)
+    # Run daily at 04:15 UTC
     - cron: "15 4 * * *"
   workflow_dispatch:
 
