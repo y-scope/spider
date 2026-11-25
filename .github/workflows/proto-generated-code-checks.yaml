@@ -4,8 +4,8 @@ on:
   pull_request:
   push:
   schedule:
-    # Run daily at 00:15 UTC (the 15 is to avoid periods of high load)
-    - cron: "15 0 * * *"
+    # Run daily at 04:15 UTC
+    - cron: "15 4 * * *"
   workflow_dispatch:
 
 concurrency:
