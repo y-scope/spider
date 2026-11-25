@@ -11,8 +11,8 @@ use crate::types::id::TaskInstanceId;
 
 /// Metadata for one task execution, including any serialized task-graph outputs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(try_from = "UncheckedTaskContextRaw")]
-pub struct TaskContextRaw {
+#[serde(try_from = "UncheckedTaskContext")]
+pub struct TaskContext {
     job_id: JobId,
     task_id: TaskId,
     task_instance_id: TaskInstanceId,
@@ -20,7 +20,7 @@ pub struct TaskContextRaw {
     serialized_task_graph_outputs: Option<Vec<u8>>,
 }
 
-impl TaskContextRaw {
+impl TaskContext {
     /// Creates task metadata with serialized task-graph outputs for commit tasks.
     ///
     /// # Returns
@@ -88,10 +88,10 @@ impl TaskContextRaw {
     }
 }
 
-impl TryFrom<UncheckedTaskContextRaw> for TaskContextRaw {
+impl TryFrom<UncheckedTaskContext> for TaskContext {
     type Error = Error;
 
-    fn try_from(unchecked: UncheckedTaskContextRaw) -> Result<Self, Self::Error> {
+    fn try_from(unchecked: UncheckedTaskContext) -> Result<Self, Self::Error> {
         Self::new(
             unchecked.job_id,
             unchecked.task_id,
@@ -102,9 +102,9 @@ impl TryFrom<UncheckedTaskContextRaw> for TaskContextRaw {
     }
 }
 
-/// The fields of a [`TaskContextRaw`] as decoded, before [`TaskContextRaw::new`] checks them.
+/// The fields of a [`TaskContext`] as decoded, before [`TaskContext::new`] checks them.
 #[derive(Deserialize)]
-struct UncheckedTaskContextRaw {
+struct UncheckedTaskContext {
     job_id: JobId,
     task_id: TaskId,
     task_instance_id: TaskInstanceId,
@@ -115,14 +115,14 @@ struct UncheckedTaskContextRaw {
 #[cfg(test)]
 mod tests {
     use crate::task::Error;
-    use crate::task::TaskContextRaw;
+    use crate::task::TaskContext;
     use crate::types::id::JobId;
     use crate::types::id::ResourceGroupId;
     use crate::types::id::TaskId;
 
     #[test]
     fn new_rejects_outputs_for_non_commit_task() {
-        let result = TaskContextRaw::new(
+        let result = TaskContext::new(
             JobId::random(),
             TaskId::Index(0),
             1,
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn new_rejects_missing_outputs_for_commit_task() {
-        let result = TaskContextRaw::new(
+        let result = TaskContext::new(
             JobId::random(),
             TaskId::Commit,
             1,

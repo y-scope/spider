@@ -6,7 +6,7 @@
 
 use serde::Deserialize;
 use serde::Serialize;
-use spider_core::task::TaskContextRaw;
+use spider_core::task::TaskContext as CoreTaskContext;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -79,7 +79,7 @@ fn translate(_ctx: TaskContext, p: Point, dx: int32, dy: int32) -> Result<(Point
 ///
 /// A mocked encoded task context for testing.
 fn make_encoded_ctx() -> Vec<u8> {
-    let ctx = TaskContextRaw::new(
+    let ctx = CoreTaskContext::new(
         JobId::random(),
         TaskId::Index(0),
         1,

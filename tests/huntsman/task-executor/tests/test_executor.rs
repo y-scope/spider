@@ -3,7 +3,7 @@
 //! Tests spawn fresh executor subprocesses via [`ExecutorHandle::spawn`], exchange framed bincode
 //! requests and responses over the binary's stdin/stdout, and assert on the results.
 
-use spider_core::task::TaskContextRaw;
+use spider_core::task::TaskContext;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -431,7 +431,7 @@ async fn termination_tasks_reject_child_creation() -> anyhow::Result<()> {
         } else {
             None
         };
-        let context = TaskContextRaw::new(
+        let context = TaskContext::new(
             JobId::random(),
             task_id,
             1,
@@ -468,7 +468,7 @@ async fn termination_task_outputs_survive_the_subprocess_protocol() -> anyhow::R
         } else {
             None
         };
-        let context = TaskContextRaw::new(
+        let context = TaskContext::new(
             JobId::random(),
             task_id,
             1,

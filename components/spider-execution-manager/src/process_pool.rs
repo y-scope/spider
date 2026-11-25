@@ -12,7 +12,7 @@ use bytes::Bytes;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use spider_core::job::submission::CompressedJobSubmission;
-use spider_core::task::TaskContextRaw;
+use spider_core::task::TaskContext;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -138,7 +138,7 @@ pub enum InternalError {
     #[error("failed to create an executor process: {0}")]
     ExecutorCreationFailure(#[from] std::io::Error),
 
-    /// Failed to msgpack-encode the [`TaskContextRaw`] when building the executor request.
+    /// Failed to msgpack-encode the [`TaskContext`] when building the executor request.
     #[error("failed to encode task context: {0}")]
     EncodeTaskContext(#[from] rmp_serde::encode::Error),
 
@@ -146,7 +146,7 @@ pub enum InternalError {
     #[error("failed to encode task inputs: {0}")]
     EncodeTaskInputs(#[from] WireError),
 
-    /// Failed to construct the [`TaskContextRaw`] when building the executor request.
+    /// Failed to construct the [`TaskContext`] when building the executor request.
     #[error("failed to build task context: {0}")]
     BuildTaskContext(#[from] spider_core::task::Error),
 }
@@ -420,15 +420,15 @@ impl ExecutorHandle {
 ///
 /// # Returns
 ///
-/// A populated [`Request::Execute`] with `raw_ctx` set to the msgpack-encoded [`TaskContextRaw`] on
-/// success. For a commit task the serialized payload is routed into the [`TaskContextRaw`]'s
+/// A populated [`Request::Execute`] with `raw_ctx` set to the msgpack-encoded [`TaskContext`] on
+/// success. For a commit task the serialized payload is routed into the [`TaskContext`]'s
 /// task-graph outputs and `raw_inputs` is left empty; for any other task it is set as `raw_inputs`.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
-/// * Forwards [`TaskContextRaw::new`]'s return values on failure.
+/// * Forwards [`TaskContext::new`]'s return values on failure.
 /// * Forwards [`rmp_serde::to_vec`]'s return values on failure.
 fn build_request(request: ExecuteRequest) -> Result<Request, InternalError> {
     let ExecuteRequest {
@@ -454,7 +454,7 @@ fn build_request(request: ExecuteRequest) -> Result<Request, InternalError> {
     } else {
         (serialized_task_io, None)
     };
-    let raw_ctx = rmp_serde::to_vec(&TaskContextRaw::new(
+    let raw_ctx = rmp_serde::to_vec(&TaskContext::new(
         job_id,
         task_id,
         task_instance_id,
@@ -703,7 +703,7 @@ mod tests {
             raw_inputs,
             spider_core::types::io::TaskInputsSerializer::new().release()
         );
-        let ctx: TaskContextRaw = rmp_serde::from_slice(&raw_ctx)?;
+        let ctx: TaskContext = rmp_serde::from_slice(&raw_ctx)?;
         let serialized_outputs = ctx
             .serialized_task_graph_outputs()
             .expect("commit task context must carry task-graph outputs");
@@ -738,7 +738,7 @@ mod tests {
             raw_inputs,
             spider_core::types::io::TaskInputsSerializer::new().release()
         );
-        let ctx: TaskContextRaw = rmp_serde::from_slice(&raw_ctx)?;
+        let ctx: TaskContext = rmp_serde::from_slice(&raw_ctx)?;
         let serialized_outputs = ctx
             .serialized_task_graph_outputs()
             .expect("commit task context must carry task-graph outputs");
@@ -768,7 +768,7 @@ mod tests {
         };
 
         assert_eq!(raw_inputs, vec![10, 20, 30]);
-        let ctx: TaskContextRaw = rmp_serde::from_slice(&raw_ctx)?;
+        let ctx: TaskContext = rmp_serde::from_slice(&raw_ctx)?;
         assert!(ctx.serialized_task_graph_outputs().is_none());
         Ok(())
     }

@@ -7,7 +7,7 @@
 use std::marker::PhantomData;
 
 use spider_core::job::submission::CompressedJobSubmission;
-use spider_core::task::TaskContextRaw;
+use spider_core::task::TaskContext as CoreTaskContext;
 use spider_core::types::io::TaskInputsSerializer;
 use spider_core::types::io::TaskOutputsSerializer;
 use spider_utils::wire::WireError;
@@ -237,7 +237,7 @@ impl<TaskType: Task> TaskHandlerImpl<TaskType> {
 
 impl<TaskType: Task + Send + Sync> TaskHandler for TaskHandlerImpl<TaskType> {
     fn execute_raw(&self, raw_ctx: &[u8], raw_args: &[u8]) -> ExecutionResult {
-        let raw: TaskContextRaw = rmp_serde::from_slice(raw_ctx).map_err(|e| {
+        let raw: CoreTaskContext = rmp_serde::from_slice(raw_ctx).map_err(|e| {
             serialize_error(&TdlError::DeserializationError(format!(
                 "failed to deserialize task metadata: {e}"
             )))
@@ -435,7 +435,7 @@ mod tests {
     }
 
     fn make_encoded_ctx() -> Vec<u8> {
-        let ctx = TaskContextRaw::new(
+        let ctx = CoreTaskContext::new(
             JobId::random(),
             TaskId::Index(0),
             1,

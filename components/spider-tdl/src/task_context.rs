@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use spider_core::job::submission::CompressedJobSubmission;
 use spider_core::job::submission::MAX_CHILDREN_PER_JOB;
 use spider_core::job::submission::MAX_TASK_CHILDREN_SIZE;
-use spider_core::task::TaskContextRaw;
+use spider_core::task::TaskContext as CoreTaskContext;
 use spider_core::task::TaskGraph;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -21,7 +21,7 @@ use crate::error::TdlError;
 /// Runtime context for a task execution. Clones share child job submissions.
 #[derive(Debug, Clone)]
 pub struct TaskContext {
-    raw: TaskContextRaw,
+    raw: CoreTaskContext,
     child_job_submission_sender: ChildJobSubmissionSender,
 }
 
@@ -103,7 +103,7 @@ impl TaskContext {
     ///
     /// * The task context.
     /// * The receiver for the context's child job submissions.
-    pub(crate) fn from_raw(raw: TaskContextRaw) -> (Self, ChildJobSubmissionReceiver) {
+    pub(crate) fn from_raw(raw: CoreTaskContext) -> (Self, ChildJobSubmissionReceiver) {
         let submissions = Arc::new(Mutex::new(ChildJobSubmissions::Collecting {
             children: Vec::new(),
             compressed_size: 0,
@@ -247,7 +247,7 @@ impl ChildJobSubmissionSender {
 mod tests {
     use spider_core::job::submission::MAX_CHILDREN_PER_JOB;
     use spider_core::job::submission::MAX_TASK_CHILDREN_SIZE;
-    use spider_core::task::TaskContextRaw;
+    use spider_core::task::TaskContext as CoreTaskContext;
     use spider_core::task::TaskGraph;
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
@@ -286,7 +286,7 @@ mod tests {
     ///
     /// Panics if the task context cannot be constructed.
     fn create_context(task_id: TaskId) -> (TaskContext, ChildJobSubmissionReceiver) {
-        let raw = TaskContextRaw::new(
+        let raw = CoreTaskContext::new(
             JobId::random(),
             task_id,
             13,
@@ -459,7 +459,7 @@ mod tests {
         let task_id = TaskId::Index(0);
         let task_instance_id = 13;
         let resource_group_id = ResourceGroupId::random();
-        let raw = TaskContextRaw::new(job_id, task_id, task_instance_id, resource_group_id, None)?;
+        let raw = CoreTaskContext::new(job_id, task_id, task_instance_id, resource_group_id, None)?;
         let expected = rmp_serde::to_vec(&(
             job_id,
             task_id,
@@ -479,7 +479,7 @@ mod tests {
     #[test]
     fn get_task_graph_outputs_returns_commit_outputs() -> anyhow::Result<()> {
         let outputs: Vec<TaskOutput> = vec![vec![1, 2, 3], vec![4, 5, 6]];
-        let raw = TaskContextRaw::new(
+        let raw = CoreTaskContext::new(
             JobId::random(),
             TaskId::Commit,
             1,
@@ -507,7 +507,7 @@ mod tests {
 
     #[test]
     fn get_task_graph_outputs_rejects_invalid_bytes() -> anyhow::Result<()> {
-        let raw = TaskContextRaw::new(
+        let raw = CoreTaskContext::new(
             JobId::random(),
             TaskId::Commit,
             1,
@@ -525,7 +525,7 @@ mod tests {
     #[test]
     fn get_task_graph_outputs_survives_msgpack_round_trip() -> anyhow::Result<()> {
         let outputs: Vec<TaskOutput> = vec![vec![1, 2, 3], vec![4, 5, 6]];
-        let raw = TaskContextRaw::new(
+        let raw = CoreTaskContext::new(
             JobId::random(),
             TaskId::Commit,
             1,

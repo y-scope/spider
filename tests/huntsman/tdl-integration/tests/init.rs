@@ -1,6 +1,6 @@
 //! End-to-end tests for the TDL package init hook against the `integration-test-tasks` cdylib.
 
-use spider_core::task::TaskContextRaw;
+use spider_core::task::TaskContext;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -25,15 +25,15 @@ fn package_path() -> std::path::PathBuf {
 ///
 /// An encoded task context for testing.
 fn encode_ctx() -> Vec<u8> {
-    let ctx = TaskContextRaw::new(
+    let ctx = TaskContext::new(
         JobId::random(),
         TaskId::Index(0),
         1,
         ResourceGroupId::random(),
         None,
     )
-    .expect("failed to build `TaskContextRaw`");
-    rmp_serde::to_vec(&ctx).expect("failed to serialize `TaskContextRaw`")
+    .expect("failed to build `TaskContext`");
+    rmp_serde::to_vec(&ctx).expect("failed to serialize `TaskContext`")
 }
 
 /// # Returns
