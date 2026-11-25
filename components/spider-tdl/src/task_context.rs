@@ -48,8 +48,8 @@ impl TaskContext {
 
     /// Creates a child job submission to be processed if this task succeeds.
     ///
-    /// If the task exceeds the child count or size limit, its submissions are discarded and the
-    /// limit failure is reported after execution.
+    /// A submission that would exceed the child count or size limit is rejected with an error and
+    /// leaves previously accepted submissions intact.
     ///
     /// # Errors
     ///
@@ -132,22 +132,12 @@ impl ChildJobSubmissionReceiver {
     ///
     /// # Returns
     ///
-    /// The child job submissions in submission order on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`TdlError::ChildJobSubmissionLimitExceeded`] if the task exceeded the child count or
-    ///   compressed size limit.
-    pub fn take(self) -> Result<Vec<CompressedJobSubmission>, TdlError> {
+    /// The child job submissions in submission order.
+    #[must_use]
+    pub fn take(self) -> Vec<CompressedJobSubmission> {
         match self.close() {
-            ChildJobSubmissions::Collecting { children, .. } => Ok(children),
-            ChildJobSubmissions::LimitExceeded => Err(TdlError::ChildJobSubmissionLimitExceeded {
-                count_limit: MAX_CHILDREN_PER_JOB,
-                size_limit: MAX_TASK_CHILDREN_SIZE,
-            }),
-            ChildJobSubmissions::Closed => Ok(Vec::new()),
+            ChildJobSubmissions::Collecting { children, .. } => children,
+            ChildJobSubmissions::Closed => Vec::new(),
         }
     }
 
@@ -178,7 +168,6 @@ enum ChildJobSubmissions {
         children: Vec<CompressedJobSubmission>,
         compressed_size: u64,
     },
-    LimitExceeded,
     Closed,
 }
 
@@ -340,7 +329,7 @@ mod tests {
             ctx.create_child_job_submission(&graph, &input)?;
             expected_inputs.push(input);
         }
-        let children = receiver.take()?;
+        let children = receiver.take();
         assert_eq!(children.len(), expected_inputs.len());
         for (child, expected_input) in children.iter().zip(expected_inputs) {
             assert_eq!(
@@ -367,7 +356,7 @@ mod tests {
         let input = builder.build();
         ctx.create_child_job_submission(&graph, &input)?;
         cloned.create_child_job_submission(&graph, &input)?;
-        assert_eq!(receiver.take()?.len(), 2);
+        assert_eq!(receiver.take().len(), 2);
         assert_eq!(
             cloned.create_child_job_submission(&graph, &input),
             Err(TdlError::InvalidTaskContext(
@@ -378,10 +367,13 @@ mod tests {
     }
 
     #[test]
-    fn child_submissions_over_byte_limit_are_discarded_after_execution() -> anyhow::Result<()> {
+    fn oversized_child_submissions_do_not_consume_byte_budget() -> anyhow::Result<()> {
         let (ctx, receiver) = create_context(TaskId::Index(0));
         let graph = create_child_graph();
         let input = TaskGraphInputBuilder::new().build();
+        let mut builder = TaskGraphInputBuilder::new();
+        builder.append_task_input(&11i32)?;
+        let larger_input = builder.build();
         let size = u64::try_from(
             graph.to_zstd_compressed_json()?.len() + input.to_zstd_compressed_bytes()?.len(),
         )?;
@@ -392,27 +384,21 @@ mod tests {
         else {
             panic!("expected a new collection");
         };
-        *compressed_size = MAX_TASK_CHILDREN_SIZE - size;
+        *compressed_size = MAX_TASK_CHILDREN_SIZE - 2 * size;
         drop(submissions);
 
         ctx.create_child_job_submission(&graph, &input)?;
-        let submissions = receiver.submissions.lock().expect("lock poisoned");
-        assert!(matches!(*submissions, ChildJobSubmissions::Collecting {
-            ref children,
-            compressed_size: MAX_TASK_CHILDREN_SIZE,
-        } if children.len() == 1));
-        drop(submissions);
-
-        ctx.create_child_job_submission(&graph, &input)?;
-        ctx.create_child_job_submission(&graph, &input)?;
-
+        let limit_error = Err(TdlError::ChildJobSubmissionLimitExceeded {
+            count_limit: MAX_CHILDREN_PER_JOB,
+            size_limit: MAX_TASK_CHILDREN_SIZE,
+        });
         assert_eq!(
-            receiver.take(),
-            Err(TdlError::ChildJobSubmissionLimitExceeded {
-                count_limit: MAX_CHILDREN_PER_JOB,
-                size_limit: MAX_TASK_CHILDREN_SIZE,
-            })
+            ctx.create_child_job_submission(&graph, &larger_input),
+            limit_error
         );
+        ctx.create_child_job_submission(&graph, &input)?;
+        assert_eq!(ctx.create_child_job_submission(&graph, &input), limit_error);
+        assert_eq!(receiver.take().len(), 2);
         Ok(())
     }
 
@@ -448,7 +434,7 @@ mod tests {
                     "termination tasks cannot submit child jobs".to_owned()
                 ))
             );
-            assert_eq!(receiver.take()?, Vec::new());
+            assert_eq!(receiver.take(), Vec::new());
         }
         Ok(())
     }
