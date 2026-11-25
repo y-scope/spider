@@ -67,27 +67,13 @@ jobs:
       || github.event_name == 'workflow_dispatch'
       || needs.filter-relevant-changes.outputs.huntsman_e2e_tests_required == 'true'
     timeout-minutes: 90
-    strategy:
-      matrix:
-        include:
-          - platform: "linux/amd64"
-            runner: &huntsman_runner_x64 >-
-              ${{
-                github.repository_owner == 'y-scope'
-                && fromJSON('["self-hosted","x64","ubuntu-noble","docker"]')
-                || 'ubuntu-24.04'
-              }}
-            tag_suffix: "amd64"
-          - platform: "linux/arm64"
-            runner: &huntsman_runner_arm64 >-
-              ${{
-                github.repository_owner == 'y-scope'
-                && fromJSON('["self-hosted","arm64","ubuntu-noble","docker"]')
-                || 'ubuntu-24.04-arm'
-              }}
-            tag_suffix: "arm64"
-    runs-on: "${{matrix.runner}}"
-    steps:
+    runs-on: >-
+      ${{
+        github.repository_owner == 'y-scope'
+        && fromJSON('["self-hosted","x64","ubuntu-noble","docker"]')
+        || 'ubuntu-24.04'
+      }}
+    steps: &huntsman_e2e_tests_steps
       - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
         with:
           submodules: "recursive"
@@ -104,3 +90,14 @@ jobs:
       - uses: "./tools/yscope-dev-utils/exports/github/actions/print-tool-versions"
 
       - run: "task test:huntsman-e2e-tests"
+
+  huntsman-e2e-tests-arm64:
+    if: "github.event_name == 'schedule'"
+    timeout-minutes: 90
+    runs-on: >-
+      ${{
+        github.repository_owner == 'y-scope'
+        && fromJSON('["self-hosted","arm64","ubuntu-noble","docker"]')
+        || 'ubuntu-24.04-arm'
+      }}
+    steps: *huntsman_e2e_tests_steps
