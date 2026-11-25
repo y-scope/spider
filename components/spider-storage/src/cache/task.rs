@@ -431,6 +431,10 @@ impl SharedTaskControlBlock {
     /// succeeded. `hooks` fire at [`HookPoint::TaskSuccessBeforeSuccessorLock`] with the context
     /// that `context` builds, after the outputs are written.
     ///
+    /// # Type Parameters
+    ///
+    /// * `'guard` - The lifetime of the guard that `new_partial_mutation_guard` creates.
+    ///
     /// # Returns
     ///
     /// A tuple on success, containing:
@@ -1267,10 +1271,10 @@ mod tests {
     ///
     /// # Type Parameters
     ///
-    /// * [`RegisterFuncType`] - An async function type that takes a `TaskInstanceId` and returns
+    /// * `RegisterFuncType` - An async function type that takes a `TaskInstanceId` and returns
     ///   future that resolves to the registration result type.
-    /// * [`FutureType`] - The future type returned by the registration function.
-    /// * [`ReturnType`] - The type of the registration result returned by the future.
+    /// * `FutureType` - The future type returned by the registration function.
+    /// * `ReturnType` - The type of the registration result returned by the future.
     ///
     /// # Returns
     ///

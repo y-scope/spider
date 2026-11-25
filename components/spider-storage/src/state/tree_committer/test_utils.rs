@@ -52,6 +52,11 @@ pub(super) const ROOT_ID: JobId = JobId::from(1);
 pub(super) const TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A one-job tree whose committer runs in its own task tracker.
+///
+/// # Type Parameters
+///
+/// * `InboundQueueSenderType` - The type of the inbound queue sender used by the tree's job control
+///   block and job cache.
 pub(super) struct TestTree<InboundQueueSenderType: InboundQueueSender + 'static> {
     pub(super) control_block: TreeControlBlock,
     pub(super) jcb: SharedJobControlBlock<InboundQueueSenderType, MockTaskInstancePoolConnector>,
@@ -227,6 +232,20 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
             .expect("the committer should exit within 5 seconds");
     }
 
+    /// Receives every job ID that the tree's committer has handed to the job cache's garbage
+    /// collector so far.
+    ///
+    /// # Returns
+    ///
+    /// The received job IDs, in the order they were handed over.
+    pub(super) fn receive_terminated_job_ids(&mut self) -> Vec<JobId> {
+        let mut terminated_job_ids = Vec::new();
+        while let Ok(job_id) = self.gc_receiver.try_recv() {
+            terminated_job_ids.push(job_id);
+        }
+        terminated_job_ids
+    }
+
     /// Arms a pause, for one hit, of the tree's committer at `point`.
     ///
     /// # Returns
@@ -280,8 +299,8 @@ impl<InboundQueueSenderType: InboundQueueSender + 'static> TestTree<InboundQueue
         child_ids
     }
 
-    /// Submits an event of each of `kinds` of the root, in order, while the tree's committer is
-    /// paused before it receives the queued events, so that one round receives them all.
+    /// Submits an event of each of `kinds` of the root, in order, so that one round receives them
+    /// all (see [`Self::submit_events_in_one_round`]).
     ///
     /// # Returns
     ///

@@ -93,6 +93,10 @@ impl<ElementType> Deref for CArray<'_, ElementType> {
 }
 
 /// Borrowed view of a UTF-8 string as a `char`-typed C array.
+///
+/// # Type Parameters
+///
+/// * `'borrow_lifetime` - The lifetime of the borrowed string.
 pub type CCharArray<'borrow_lifetime> = CArray<'borrow_lifetime, c_char>;
 
 impl<'borrow_lifetime> CCharArray<'borrow_lifetime> {
@@ -134,6 +138,10 @@ impl<'borrow_lifetime> CCharArray<'borrow_lifetime> {
 }
 
 /// Borrowed view of a raw byte buffer.
+///
+/// # Type Parameters
+///
+/// * `'borrow_lifetime` - The lifetime of the borrowed byte buffer.
 pub type CByteArray<'borrow_lifetime> = CArray<'borrow_lifetime, u8>;
 
 /// Owned, C-ABI-compatible result buffer returned from a TDL task execution.

@@ -779,7 +779,7 @@ impl<
             parent: self.inner.parent_id,
             has_commit: job.task_graph.has_commit_task(),
             has_cleanup: job.task_graph.has_cleanup_task(),
-            active_children: 0,
+            num_active_children: 0,
         };
         drop(job);
         node
@@ -1164,8 +1164,12 @@ impl<
 ///
 /// # Type Parameters
 ///
-/// The type parameters are forwarded directly to [`JobExecutionState`] in the same declaration
-/// order. Single-character names are used to:
+/// * `R` - The type of the inbound queue sender, forwarded to [`JobExecutionState`]'s
+///   `InboundQueueSenderType`.
+/// * `T` - The type of the task instance pool connector, forwarded to [`JobExecutionState`]'s
+///   `TaskInstancePoolConnectorType`.
+///
+/// Single-character names are used to:
 ///
 /// * Reduce verbosity while preserving consistency with the underlying type.
 /// * Avoid formatting issues, as `rustfmt` does not handle line wrapping well when using more

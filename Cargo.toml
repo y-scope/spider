@@ -98,3 +98,6 @@ tracing-subscriber = {
 }
 yaml_serde = "0.10.4"
 zstd = "0.13.3"
+
+[workspace.metadata.yscope-linter]
+width = 100

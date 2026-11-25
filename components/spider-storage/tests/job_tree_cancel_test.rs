@@ -4,22 +4,17 @@ use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 use spider_core::types::id::TaskId;
 use spider_core::types::io::TaskOutputsSerializer;
-use spider_storage::cache::error::CacheError;
 use spider_storage::cache::error::StaleStateError;
-use spider_storage::state::StorageServerError;
-use spider_storage::test_hooks::HookAction;
-use spider_storage::test_hooks::HookCount;
 use spider_storage::test_hooks::HookFilter;
 use spider_storage::test_hooks::HookPoint;
 use strum::EnumIter;
 use strum::IntoEnumIterator;
 
-use crate::runtime_infra::HOOK_TIMEOUT;
+use crate::runtime_infra::JobResult;
+use crate::runtime_infra::Race;
 use crate::runtime_infra::TestEnv;
+use crate::runtime_infra::assert_stale;
 use crate::task_graph_builder::build_flat_task_graph;
-
-/// The result of a job RPC.
-type JobResult = Result<JobState, StorageServerError>;
 
 /// How the commit of a `CommitReady` root interleaves with the root's cancel.
 #[derive(Debug, Clone, Copy, EnumIter)]
@@ -171,15 +166,11 @@ impl TestEnv {
     ///
     /// # Returns
     ///
-    /// A pair, containing:
+    /// A tuple containing:
     ///
     /// * The result of the commit's success or, for the races that say so, of the commit's failure
     ///   or of the commit's instance registration.
     /// * The result of the cancel.
-    ///
-    /// # Panics
-    ///
-    /// Panics if an RPC panics, or if a hook is not reached within [`HOOK_TIMEOUT`].
     async fn race_root_commit(
         &self,
         job_id: JobId,
@@ -224,22 +215,22 @@ impl TestEnv {
             }
             RootCommitRace::SameRoundCommitFirst => {
                 let commit = self.succeed_commit(job_id).await;
-                self.race_in_committer(job_id, HookPoint::CommitterBeforeReceive, commit, cancel)
+                self.race(HookPoint::CommitterBeforeReceive, job_id, commit, cancel)
                     .await
             }
             RootCommitRace::SameRoundCancelFirst => {
                 let commit = self.succeed_commit(job_id).await;
                 let (cancel, commit) = self
-                    .race_in_committer(job_id, HookPoint::CommitterBeforeReceive, cancel, commit)
+                    .race(HookPoint::CommitterBeforeReceive, job_id, cancel, commit)
                     .await;
                 (commit, cancel)
             }
             RootCommitRace::CancelInFlight => {
                 let commit = self.succeed_commit(job_id).await;
                 let (cancel, commit) = self
-                    .race_in_committer(
-                        job_id,
+                    .race(
                         HookPoint::CommitterRoundAfterDbWrite,
+                        job_id,
                         cancel,
                         commit,
                     )
@@ -248,9 +239,9 @@ impl TestEnv {
             }
             RootCommitRace::CommitInFlight => {
                 let commit = self.succeed_commit(job_id).await;
-                self.race_in_committer(
-                    job_id,
+                self.race(
                     HookPoint::CommitterRoundAfterDbWrite,
+                    job_id,
                     commit,
                     cancel,
                 )
@@ -285,53 +276,25 @@ impl TestEnv {
         }
     }
 
-    /// Runs `first` until the committer of the tree rooted at `job_id` pauses at `point`, then runs
-    /// `second` until it has submitted its event to the committer, then lets the committer go on.
+    /// Races `first` and `second`, two RPCs on the root `job_id`, at `point` (see [`Race::start`]).
     ///
     /// # Returns
     ///
-    /// The results of `first` and `second`.
+    /// A tuple containing:
     ///
-    /// # Panics
-    ///
-    /// Panics if either RPC panics, or if a hook is not reached within [`HOOK_TIMEOUT`].
-    async fn race_in_committer(
+    /// * The result of `first`.
+    /// * The result of `second`.
+    async fn race(
         &self,
-        job_id: JobId,
         point: HookPoint,
+        job_id: JobId,
         first: impl Future<Output = JobResult> + Send + 'static,
         second: impl Future<Output = JobResult> + Send + 'static,
     ) -> (JobResult, JobResult) {
-        let committer_pause = self.hooks.arm(
-            point,
-            HookFilter::job(job_id),
-            HookAction::Pause,
-            HookCount::Once,
-        );
-        let first = tokio::spawn(first);
-        committer_pause
-            .reached(1, HOOK_TIMEOUT)
+        Race::start(self, point, HookFilter::job(job_id), first, second, job_id)
             .await
-            .expect("the first RPC's event should reach the committer's hook");
-
-        let submit_pause = self.hooks.arm(
-            HookPoint::JobEventAfterSubmit,
-            HookFilter::job(job_id),
-            HookAction::Pause,
-            HookCount::Once,
-        );
-        let second = tokio::spawn(second);
-        submit_pause
-            .reached(1, HOOK_TIMEOUT)
+            .finish()
             .await
-            .expect("the second RPC should submit its event");
-        submit_pause.release();
-        committer_pause.release();
-
-        (
-            first.await.expect("the first RPC should not panic"),
-            second.await.expect("the second RPC should not panic"),
-        )
     }
 }
 
@@ -347,20 +310,4 @@ async fn a_cancel_deactivates_a_commit_ready_root() -> anyhow::Result<()> {
     }
     env.finish().await;
     Ok(())
-}
-
-/// Asserts that `result` is the stale state error `expected`.
-///
-/// # Panics
-///
-/// Panics if `result` is not the [`StaleStateError`] `expected`.
-fn assert_stale(result: &JobResult, expected: &StaleStateError, what: &str) {
-    assert!(
-        matches!(
-            result,
-            Err(StorageServerError::Cache(CacheError::StaleState(error)))
-                if format!("{error:?}") == format!("{expected:?}")
-        ),
-        "{what}: expected the stale error {expected:?}, got {result:?}"
-    );
 }
