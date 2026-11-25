@@ -195,8 +195,10 @@ impl ChildJobSubmissionSender {
     ///
     /// Returns an error if:
     ///
-    /// * [`TdlError::InvalidTaskContext`] if the receiver has closed.
     /// * [`TdlError::SerializationError`] if the graph or inputs cannot be serialized.
+    /// * [`TdlError::InvalidTaskContext`] if the receiver has closed.
+    /// * [`TdlError::ChildJobSubmissionLimitExceeded`] if the submission would exceed the child
+    ///   count or compressed size limit.
     ///
     /// # Panics
     ///
@@ -206,27 +208,6 @@ impl ChildJobSubmissionSender {
         task_graph: &TaskGraph,
         task_graph_input: &TaskGraphInput,
     ) -> Result<(), TdlError> {
-        let mut submissions = self
-            .submissions
-            .lock()
-            .expect("child submission lock must not be poisoned");
-        let (children, compressed_size) = match &mut *submissions {
-            ChildJobSubmissions::Collecting {
-                children,
-                compressed_size,
-            } => (children, compressed_size),
-            ChildJobSubmissions::LimitExceeded => return Ok(()),
-            ChildJobSubmissions::Closed => {
-                return Err(TdlError::InvalidTaskContext(
-                    "child job submissions are closed".to_owned(),
-                ));
-            }
-        };
-        if children.len() >= MAX_CHILDREN_PER_JOB {
-            *submissions = ChildJobSubmissions::LimitExceeded;
-            return Ok(());
-        }
-
         let submission = CompressedJobSubmission {
             compressed_serialized_task_graph: task_graph
                 .to_zstd_compressed_json()
@@ -235,13 +216,28 @@ impl ChildJobSubmissionSender {
                 .to_zstd_compressed_bytes()
                 .map_err(|e| TdlError::SerializationError(e.to_string()))?,
         };
+        let mut submissions = self
+            .submissions
+            .lock()
+            .expect("child submission lock must not be poisoned");
+        let ChildJobSubmissions::Collecting {
+            children,
+            compressed_size,
+        } = &mut *submissions
+        else {
+            return Err(TdlError::InvalidTaskContext(
+                "child job submissions are closed".to_owned(),
+            ));
+        };
         let next_size = compressed_size.saturating_add(submission.size());
-        if next_size > MAX_TASK_CHILDREN_SIZE {
-            *submissions = ChildJobSubmissions::LimitExceeded;
-        } else {
-            *compressed_size = next_size;
-            children.push(submission);
+        if children.len() >= MAX_CHILDREN_PER_JOB || next_size > MAX_TASK_CHILDREN_SIZE {
+            return Err(TdlError::ChildJobSubmissionLimitExceeded {
+                count_limit: MAX_CHILDREN_PER_JOB,
+                size_limit: MAX_TASK_CHILDREN_SIZE,
+            });
         }
+        *compressed_size = next_size;
+        children.push(submission);
         drop(submissions);
         Ok(())
     }

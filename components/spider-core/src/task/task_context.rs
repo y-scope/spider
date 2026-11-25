@@ -11,6 +11,7 @@ use crate::types::id::TaskInstanceId;
 
 /// Metadata for one task execution, including any serialized task-graph outputs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "UncheckedTaskContextRaw")]
 pub struct TaskContextRaw {
     job_id: JobId,
     task_id: TaskId,
@@ -85,6 +86,30 @@ impl TaskContextRaw {
     pub fn serialized_task_graph_outputs(&self) -> Option<&[u8]> {
         self.serialized_task_graph_outputs.as_deref()
     }
+}
+
+impl TryFrom<UncheckedTaskContextRaw> for TaskContextRaw {
+    type Error = Error;
+
+    fn try_from(unchecked: UncheckedTaskContextRaw) -> Result<Self, Self::Error> {
+        Self::new(
+            unchecked.job_id,
+            unchecked.task_id,
+            unchecked.task_instance_id,
+            unchecked.resource_group_id,
+            unchecked.serialized_task_graph_outputs,
+        )
+    }
+}
+
+/// The fields of a [`TaskContextRaw`] as decoded, before [`TaskContextRaw::new`] checks them.
+#[derive(Deserialize)]
+struct UncheckedTaskContextRaw {
+    job_id: JobId,
+    task_id: TaskId,
+    task_instance_id: TaskInstanceId,
+    resource_group_id: ResourceGroupId,
+    serialized_task_graph_outputs: Option<Vec<u8>>,
 }
 
 #[cfg(test)]
