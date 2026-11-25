@@ -6,9 +6,14 @@
 
 use std::marker::PhantomData;
 
+use spider_core::job::submission::CompressedJobSubmission;
+use spider_core::task::TaskContext as CoreTaskContext;
 use spider_core::types::io::TaskInputsSerializer;
 use spider_core::types::io::TaskOutputsSerializer;
+use spider_utils::wire::WireError;
+use spider_utils::wire::WireFrameBuilder;
 
+use crate::error::ExecutionSuccessDecodeError;
 use crate::error::TdlError;
 use crate::task_context::TaskContext;
 
@@ -16,9 +21,107 @@ use crate::task_context::TaskContext;
 ///
 /// Both variants carry a byte buffer:
 ///
-/// * [`ExecutionResult::Ok`] holds wire-format-encoded output payloads.
+/// * [`ExecutionResult::Ok`] holds a wire-format [`ExecutionSuccessOutcome`].
 /// * [`ExecutionResult::Err`] holds a msgpack-encoded [`TdlError`].
 pub type ExecutionResult = std::result::Result<Vec<u8>, Vec<u8>>;
+
+/// Wire-format task outputs and child job submissions in submission order.
+///
+/// The serialized form consists of two consecutive wire frames. The first contains the task
+/// outputs. The second contains a graph payload followed by an inputs payload for each child.
+#[derive(Debug)]
+pub struct ExecutionSuccessOutcome {
+    outputs: Vec<u8>,
+    children: Vec<CompressedJobSubmission>,
+}
+
+impl ExecutionSuccessOutcome {
+    /// Decodes the outputs and child submissions frames.
+    ///
+    /// # Returns
+    ///
+    /// The task outputs and child submissions on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ExecutionSuccessDecodeError`] if either frame is malformed, a child payload is missing
+    ///   its pair, or bytes follow the second frame.
+    pub fn from_wire(mut bytes: Vec<u8>) -> Result<Self, ExecutionSuccessDecodeError> {
+        let to_decode_error = ExecutionSuccessDecodeError::new;
+        let (_, remaining) =
+            WireFrameBuilder::unframe_payload_slices(&bytes).map_err(to_decode_error)?;
+        let outputs_len = bytes.len() - remaining.len();
+        let (child_payloads, remaining) =
+            WireFrameBuilder::unframe_payload_slices(remaining).map_err(to_decode_error)?;
+        if !remaining.is_empty() {
+            return Err(to_decode_error(WireError::InvalidFormat(
+                "bytes after child submissions frame",
+            )));
+        }
+        let (children, unpaired) = child_payloads.as_chunks::<2>();
+        if !unpaired.is_empty() {
+            return Err(to_decode_error(WireError::InvalidFormat(
+                "child submission is missing its inputs payload",
+            )));
+        }
+        let children = children
+            .iter()
+            .map(|[graph, inputs]| CompressedJobSubmission {
+                compressed_serialized_task_graph: graph.to_vec(),
+                compressed_serialized_job_inputs: inputs.to_vec(),
+            })
+            .collect();
+        bytes.truncate(outputs_len);
+        let outcome = Self {
+            outputs: bytes,
+            children,
+        };
+        Ok(outcome)
+    }
+
+    #[must_use]
+    pub fn outputs(&self) -> &[u8] {
+        &self.outputs
+    }
+
+    #[must_use]
+    pub fn children(&self) -> &[CompressedJobSubmission] {
+        &self.children
+    }
+
+    /// Consumes the outcome and returns its contents.
+    ///
+    /// # Returns
+    ///
+    /// * The wire-format task outputs.
+    /// * The child job submissions in submission order.
+    #[must_use]
+    pub fn into_parts(self) -> (Vec<u8>, Vec<CompressedJobSubmission>) {
+        (self.outputs, self.children)
+    }
+
+    /// Appends the child submissions frame to the outputs frame.
+    ///
+    /// # Returns
+    ///
+    /// The two consecutive frames on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`WireFrameBuilder::append_payload`]'s return values on failure.
+    fn into_wire(self) -> Result<Vec<u8>, WireError> {
+        let mut builder = WireFrameBuilder::with_prefix(self.outputs);
+        for child in self.children {
+            builder.append_payload(&child.compressed_serialized_task_graph)?;
+            builder.append_payload(&child.compressed_serialized_job_inputs)?;
+        }
+        Ok(builder.release())
+    }
+}
 
 /// Trait implemented by the `#[task]` proc-macro for each user-defined task function.
 ///
@@ -88,16 +191,17 @@ pub trait TaskHandler: Send + Sync {
     ///
     /// # Parameters
     ///
-    /// * `raw_ctx` - Msgpack-encoded [`TaskContext`].
+    /// * `raw_ctx` - Msgpack-encoded task metadata.
     /// * `raw_args` - Wire-format-encoded task inputs.
     ///
     /// # Returns
     ///
-    /// The serialized return tuple (forwarded from [`Task::execute`]) on success.
+    /// The wire-format [`ExecutionSuccessOutcome`] on success.
     ///
     /// # Errors
     ///
-    /// The serialized [`TdlError`] (forwarded from [`Task::execute`]) on failure.
+    /// A serialized [`TdlError`] if decoding inputs or context, executing the task, or serializing
+    /// its result fails.
     fn execute_raw(&self, raw_ctx: &[u8], raw_args: &[u8]) -> ExecutionResult;
 
     /// # Returns
@@ -108,8 +212,7 @@ pub trait TaskHandler: Send + Sync {
 
 /// Bridges a concrete [`Task`] implementation to the type-erased [`TaskHandler`] interface.
 ///
-/// Handles deserialization of [`TaskContext`] (from msgpack) and task parameters (from wire
-/// format), delegates to [`Task::execute`], and serializes the result back into bytes.
+/// Decodes task metadata and parameters, delegates to [`Task::execute`], and serializes the result.
 ///
 /// # Type Parameters
 ///
@@ -134,15 +237,23 @@ impl<TaskType: Task> TaskHandlerImpl<TaskType> {
 
 impl<TaskType: Task + Send + Sync> TaskHandler for TaskHandlerImpl<TaskType> {
     fn execute_raw(&self, raw_ctx: &[u8], raw_args: &[u8]) -> ExecutionResult {
-        let ctx: TaskContext = rmp_serde::from_slice(raw_ctx).map_err(|e| {
+        let raw: CoreTaskContext = rmp_serde::from_slice(raw_ctx).map_err(|e| {
             serialize_error(&TdlError::DeserializationError(format!(
-                "failed to deserialize `TaskContext`: {e}"
+                "failed to deserialize task metadata: {e}"
             )))
         })?;
         let params: TaskType::Params = TaskInputsSerializer::deserialize(raw_args)
             .map_err(|e| serialize_error(&TdlError::DeserializationError(e.to_string())))?;
-        let result_tuple = TaskType::execute(ctx, params).map_err(|e| serialize_error(&e))?;
-        TaskType::serialize_return(&result_tuple).map_err(|e| serialize_error(&e))
+        let (ctx, child_job_submission_receiver) = TaskContext::from_raw(raw);
+        let result = TaskType::execute(ctx, params);
+        let children = child_job_submission_receiver.take();
+        let outputs = result
+            .and_then(|result_tuple| TaskType::serialize_return(&result_tuple))
+            .map_err(|e| serialize_error(&e))?;
+        let outcome = ExecutionSuccessOutcome { outputs, children };
+        outcome
+            .into_wire()
+            .map_err(|e| serialize_error(&TdlError::SerializationError(e.to_string())))
     }
 
     fn name(&self) -> &'static str {
@@ -170,11 +281,15 @@ fn serialize_error(err: &TdlError) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+
     use serde::Deserialize;
     use serde::Serialize;
+    use spider_core::task::TaskGraph;
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
     use spider_core::types::id::TaskId;
+    use spider_core::types::io::TaskGraphInputBuilder;
     use spider_core::types::io::TaskInput;
     use spider_core::types::io::TaskInputsSerializer;
     use spider_core::types::io::TaskOutputsSerializer;
@@ -185,6 +300,10 @@ mod tests {
     use crate::task_context::TaskContext;
 
     const INTENTIONAL_FAILURE: &str = "intentional failure";
+
+    thread_local! {
+        static RETAINED_CONTEXT: RefCell<Option<TaskContext>> = const { RefCell::new(None) };
+    }
 
     #[derive(Deserialize)]
     struct AddParams {
@@ -251,16 +370,79 @@ mod tests {
         }
     }
 
+    #[derive(Serialize, Deserialize)]
+    enum SubmitMode {
+        Succeed,
+        FailExecution,
+        FailSerialization,
+    }
+
+    #[derive(Deserialize)]
+    struct SubmitParams {
+        mode: SubmitMode,
+    }
+
+    struct SubmitChild;
+
+    impl Task for SubmitChild {
+        type Params = SubmitParams;
+        type Return = (SubmitMode,);
+
+        const NAME: &'static str = "test::submit_child";
+
+        fn execute(ctx: TaskContext, params: Self::Params) -> Result<Self::Return, TdlError> {
+            ctx.create_child_job_submission(
+                &TaskGraph::default(),
+                &TaskGraphInputBuilder::new().build(),
+            )?;
+            RETAINED_CONTEXT.with(|retained| *retained.borrow_mut() = Some(ctx));
+            match params.mode {
+                SubmitMode::Succeed | SubmitMode::FailSerialization => Ok((params.mode,)),
+                SubmitMode::FailExecution => {
+                    Err(TdlError::ExecutionError(INTENTIONAL_FAILURE.to_owned()))
+                }
+            }
+        }
+
+        fn serialize_return(result: &Self::Return) -> Result<Vec<u8>, TdlError> {
+            RETAINED_CONTEXT.with(|retained| {
+                let retained = retained.borrow();
+                assert_child_submissions_closed(
+                    retained.as_ref().expect("task must retain its context"),
+                );
+            });
+            match result.0 {
+                SubmitMode::Succeed | SubmitMode::FailExecution => {
+                    TaskOutputsSerializer::from_tuple(result)
+                        .map_err(|e| TdlError::SerializationError(e.to_string()))
+                }
+                SubmitMode::FailSerialization => {
+                    Err(TdlError::SerializationError(INTENTIONAL_FAILURE.to_owned()))
+                }
+            }
+        }
+    }
+
+    fn assert_child_submissions_closed(ctx: &TaskContext) {
+        assert!(matches!(
+            ctx.create_child_job_submission(
+                &TaskGraph::default(),
+                &TaskGraphInputBuilder::new().build(),
+            ),
+            Err(TdlError::InvalidTaskContext(_))
+        ));
+    }
+
     fn make_encoded_ctx() -> Vec<u8> {
-        let ctx = TaskContext::new(
+        let ctx = CoreTaskContext::new(
             JobId::random(),
             TaskId::Index(0),
             1,
             ResourceGroupId::random(),
             None,
         )
-        .expect("failed to build `TaskContext`");
-        rmp_serde::to_vec(&ctx).expect("failed to serialize `TaskContext`")
+        .expect("failed to build task metadata");
+        rmp_serde::to_vec(&ctx).expect("failed to serialize task metadata")
     }
 
     /// Asserts the given result contains a deserialization error
@@ -290,7 +472,16 @@ mod tests {
         let result = handler.execute_raw(&raw_ctx, &raw_args);
         match result {
             Ok(bytes) => {
-                let outputs = TaskOutputsSerializer::deserialize(&bytes)?;
+                let mut expected = TaskOutputsSerializer::from_tuple(&(A + B,))?;
+                expected.extend_from_slice(&0_u32.to_le_bytes());
+                assert_eq!(bytes, expected);
+
+                let ExecutionSuccessOutcome {
+                    outputs: serialized_outputs,
+                    children,
+                } = ExecutionSuccessOutcome::from_wire(bytes)?;
+                assert_eq!(children, Vec::new());
+                let outputs = TaskOutputsSerializer::deserialize(&serialized_outputs)?;
                 assert_eq!(outputs.len(), 1);
                 let sum: int32 = rmp_serde::from_slice(&outputs[0])?;
                 assert_eq!(sum, A + B);
@@ -299,6 +490,36 @@ mod tests {
                 let err: TdlError = rmp_serde::from_slice(&bytes)?;
                 panic!("unexpected error: {err}");
             }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn success_outcome_rejects_malformed_child_frame() -> anyhow::Result<()> {
+        use std::error::Error;
+
+        let outputs = TaskOutputsSerializer::new().release();
+        let mut trailing_bytes = WireFrameBuilder::with_prefix(outputs.clone()).release();
+        trailing_bytes.push(0);
+        let mut builder = WireFrameBuilder::with_prefix(outputs.clone());
+        builder.append_payload(b"graph")?;
+
+        for (bytes, diagnostic) in [
+            (outputs, "buffer too small for the payload count header"),
+            (trailing_bytes, "bytes after child submissions frame"),
+            (
+                builder.release(),
+                "child submission is missing its inputs payload",
+            ),
+        ] {
+            let error = ExecutionSuccessOutcome::from_wire(bytes)
+                .expect_err("malformed child frame must fail");
+            let Some(WireError::InvalidFormat(reason)) =
+                error.source().and_then(|source| source.downcast_ref())
+            else {
+                panic!("expected invalid wire format, got {error:?}");
+            };
+            assert_eq!(*reason, diagnostic);
         }
         Ok(())
     }
@@ -357,6 +578,52 @@ mod tests {
                 let err: TdlError = rmp_serde::from_slice(&bytes)?;
                 assert!(matches!(err, TdlError::SerializationError(_)));
             }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn handler_closes_submissions_on_success_and_failure() -> anyhow::Result<()> {
+        let handler = TaskHandlerImpl::<SubmitChild>::new();
+        let raw_ctx = make_encoded_ctx();
+        for mode in [
+            SubmitMode::Succeed,
+            SubmitMode::FailExecution,
+            SubmitMode::FailSerialization,
+        ] {
+            let mut inputs = TaskInputsSerializer::new();
+            inputs.append(TaskInput::ValuePayload(rmp_serde::to_vec(&mode)?))?;
+            let result = handler.execute_raw(&raw_ctx, &inputs.release());
+            match mode {
+                SubmitMode::Succeed => {
+                    let bytes = result.expect("child-producing task must succeed");
+                    let ExecutionSuccessOutcome {
+                        outputs: serialized_outputs,
+                        children,
+                    } = ExecutionSuccessOutcome::from_wire(bytes)?;
+                    assert_eq!(children.len(), 1);
+                    assert_eq!(
+                        TaskOutputsSerializer::deserialize(&serialized_outputs)?,
+                        vec![rmp_serde::to_vec(&mode)?]
+                    );
+                }
+                SubmitMode::FailExecution | SubmitMode::FailSerialization => {
+                    let bytes = result.expect_err("task must fail");
+                    let error: TdlError = rmp_serde::from_slice(&bytes)?;
+                    let reason = match (mode, error) {
+                        (SubmitMode::FailExecution, TdlError::ExecutionError(reason))
+                        | (SubmitMode::FailSerialization, TdlError::SerializationError(reason)) => {
+                            reason
+                        }
+                        (_, error) => panic!("unexpected task error: {error:?}"),
+                    };
+                    assert_eq!(reason, INTENTIONAL_FAILURE);
+                }
+            }
+            let retained = RETAINED_CONTEXT
+                .with(|ctx| ctx.borrow_mut().take())
+                .expect("task must retain its context");
+            assert_child_submissions_closed(&retained);
         }
         Ok(())
     }

@@ -5,6 +5,12 @@ use serde::Serialize;
 
 use crate::types::id::TaskId;
 
+/// The maximum number of child jobs of one job, over all of its tasks' reports.
+pub const MAX_CHILDREN_PER_JOB: usize = 1024;
+
+/// The maximum compressed size of child job submissions from one task.
+pub const MAX_TASK_CHILDREN_SIZE: u64 = 16 * 1024 * 1024;
+
 /// A job submission as submitted: its zstd-compressed serialized task graph and its zstd-compressed
 /// serialized job inputs, not validated yet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

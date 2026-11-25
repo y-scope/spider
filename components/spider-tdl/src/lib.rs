@@ -6,10 +6,12 @@ pub mod task;
 pub mod task_context;
 pub mod version;
 
+pub use error::ExecutionSuccessDecodeError;
 pub use error::TdlError;
 #[cfg(feature = "derive")]
 pub use spider_tdl_derive::task;
 pub use task::ExecutionResult;
+pub use task::ExecutionSuccessOutcome;
 pub use task::Task;
 pub use task::TaskHandler;
 pub use task::TaskHandlerImpl;

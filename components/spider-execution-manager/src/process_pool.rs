@@ -12,6 +12,7 @@ use bytes::Bytes;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use spider_core::job::submission::CompressedJobSubmission;
+use spider_core::task::TaskContext;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -20,8 +21,6 @@ use spider_task_executor::protocol::ExecutorOutcome;
 use spider_task_executor::protocol::MAX_FRAME_SIZE;
 use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
-use spider_tdl::TaskContext;
-use spider_tdl::TdlError;
 use spider_utils::wire::WireError;
 use tokio::io::AsyncRead;
 use tokio::process::Child;
@@ -149,7 +148,7 @@ pub enum InternalError {
 
     /// Failed to construct the [`TaskContext`] when building the executor request.
     #[error("failed to build task context: {0}")]
-    BuildTaskContext(#[from] TdlError),
+    BuildTaskContext(#[from] spider_core::task::Error),
 }
 
 /// The process pool of pre-forked task executor subprocesses ready for task execution.
@@ -705,7 +704,13 @@ mod tests {
             spider_core::types::io::TaskInputsSerializer::new().release()
         );
         let ctx: TaskContext = rmp_serde::from_slice(&raw_ctx)?;
-        assert_eq!(ctx.get_task_graph_outputs()?, Some(outputs));
+        let serialized_outputs = ctx
+            .serialized_task_graph_outputs()
+            .expect("commit task context must carry task-graph outputs");
+        assert_eq!(
+            SerializedTaskOutputs::deserialize_from_raw(serialized_outputs)?,
+            outputs
+        );
         Ok(())
     }
 
@@ -734,7 +739,13 @@ mod tests {
             spider_core::types::io::TaskInputsSerializer::new().release()
         );
         let ctx: TaskContext = rmp_serde::from_slice(&raw_ctx)?;
-        assert_eq!(ctx.get_task_graph_outputs()?, Some(Vec::new()));
+        let serialized_outputs = ctx
+            .serialized_task_graph_outputs()
+            .expect("commit task context must carry task-graph outputs");
+        assert_eq!(
+            SerializedTaskOutputs::deserialize_from_raw(serialized_outputs)?,
+            outputs
+        );
         Ok(())
     }
 
@@ -758,7 +769,7 @@ mod tests {
 
         assert_eq!(raw_inputs, vec![10, 20, 30]);
         let ctx: TaskContext = rmp_serde::from_slice(&raw_ctx)?;
-        assert!(ctx.get_task_graph_outputs()?.is_none());
+        assert!(ctx.serialized_task_graph_outputs().is_none());
         Ok(())
     }
 
