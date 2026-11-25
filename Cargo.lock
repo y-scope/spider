@@ -1051,6 +1051,7 @@ version = "0.1.0-dev"
 dependencies = [
  "rmp-serde",
  "serde",
+ "spider-core",
  "spider-tdl",
 ]
 
@@ -2010,7 +2011,6 @@ dependencies = [
  "spider-core",
  "spider-proto-rust",
  "spider-task-executor",
- "spider-tdl",
  "spider-utils",
  "thiserror",
  "tokio",
@@ -2117,6 +2117,7 @@ dependencies = [
  "serde",
  "spider-core",
  "spider-tdl-derive",
+ "spider-utils",
  "thiserror",
 ]
 

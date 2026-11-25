@@ -23,7 +23,6 @@ serde = { workspace = true }
 spider-core = { workspace = true }
 spider-proto-rust = { workspace = true }
 spider-task-executor = { workspace = true }
-spider-tdl = { workspace = true }
 spider-utils = { workspace = true }
 thiserror = { workspace = true }
 tokio = {

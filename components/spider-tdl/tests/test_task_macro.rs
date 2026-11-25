@@ -6,12 +6,12 @@
 
 use serde::Deserialize;
 use serde::Serialize;
+use spider_core::task::TaskContext as CoreTaskContext;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
 use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskInputsSerializer;
-use spider_core::types::io::TaskOutputsSerializer;
 use spider_tdl::Task;
 use spider_tdl::TaskContext;
 use spider_tdl::TaskHandler;
@@ -79,15 +79,15 @@ fn translate(_ctx: TaskContext, p: Point, dx: int32, dy: int32) -> Result<(Point
 ///
 /// A mocked encoded task context for testing.
 fn make_encoded_ctx() -> Vec<u8> {
-    let ctx = TaskContext::new(
+    let ctx = CoreTaskContext::new(
         JobId::random(),
         TaskId::Index(0),
         1,
         ResourceGroupId::random(),
         None,
     )
-    .expect("failed to build `TaskContext`");
-    rmp_serde::to_vec(&ctx).expect("failed to serialize `TaskContext`")
+    .expect("failed to build task metadata");
+    rmp_serde::to_vec(&ctx).expect("failed to serialize task metadata")
 }
 
 /// Appends the given value to the input serializer.
@@ -124,20 +124,30 @@ fn append_value<Val: Serialize>(
 ///
 /// Returns an error if:
 ///
-/// * Forwards [`TaskOutputsSerializer::deserialize`]'s return values on failure.
+/// * Forwards [`decode_output_payloads`]'s return values on failure.
 /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
 ///
 /// # Panics
 ///
 /// Panics if `index` is out of bounds for the decoded output payloads.
 fn decode_outputs<Val: for<'de> Deserialize<'de>>(
-    bytes: &[u8],
+    bytes: Vec<u8>,
     index: usize,
 ) -> anyhow::Result<Val> {
-    let outputs = TaskOutputsSerializer::deserialize(bytes)?;
+    let outputs = decode_output_payloads(bytes)?;
     Ok(rmp_serde::from_slice(
         outputs.get(index).expect("index out of bound"),
     )?)
+}
+
+/// Decodes output payloads from a successful result with no child submissions.
+fn decode_output_payloads(bytes: Vec<u8>) -> anyhow::Result<Vec<Vec<u8>>> {
+    use spider_core::types::io::TaskOutputsSerializer;
+    use spider_tdl::ExecutionSuccessOutcome;
+
+    let outcome = ExecutionSuccessOutcome::from_wire(bytes)?;
+    assert_eq!(outcome.children(), []);
+    Ok(TaskOutputsSerializer::deserialize(outcome.outputs())?)
 }
 
 #[test]
@@ -165,7 +175,7 @@ fn aliased_task_context_compiles_and_runs() -> anyhow::Result<()> {
     let result = handler.execute_raw(&make_encoded_ctx(), &raw_args);
     let bytes = result.map_err(|e| anyhow::anyhow!("expected outputs, got error bytes: {e:?}"))?;
 
-    let value: int32 = decode_outputs(&bytes, 0)?;
+    let value: int32 = decode_outputs(bytes, 0)?;
     assert_eq!(value, INPUT);
     Ok(())
 }
@@ -183,7 +193,7 @@ fn aliased_tdl_error_compiles_and_runs() -> anyhow::Result<()> {
     let result = handler.execute_raw(&make_encoded_ctx(), &raw_args);
     let bytes = result.map_err(|e| anyhow::anyhow!("expected outputs, got error bytes: {e:?}"))?;
 
-    let value: int32 = decode_outputs(&bytes, 0)?;
+    let value: int32 = decode_outputs(bytes, 0)?;
     assert_eq!(value, INPUT);
     Ok(())
 }
@@ -206,7 +216,7 @@ fn handler_runs_tuple_return_task() -> anyhow::Result<()> {
     let result = handler.execute_raw(&make_encoded_ctx(), &raw_args);
     let bytes = result.map_err(|e| anyhow::anyhow!("expected outputs, got error bytes: {e:?}"))?;
 
-    let outputs = TaskOutputsSerializer::deserialize(&bytes)?;
+    let outputs = decode_output_payloads(bytes)?;
     assert_eq!(outputs.len(), 2);
     let quotient: int32 = rmp_serde::from_slice(&outputs[0])?;
     let remainder: int32 = rmp_serde::from_slice(&outputs[1])?;
@@ -229,7 +239,7 @@ fn handler_runs_single_value_return_task() -> anyhow::Result<()> {
     let result = handler.execute_raw(&make_encoded_ctx(), &raw_args);
     let bytes = result.map_err(|e| anyhow::anyhow!("expected outputs, got error bytes: {e:?}"))?;
 
-    let value: int32 = decode_outputs(&bytes, 0)?;
+    let value: int32 = decode_outputs(bytes, 0)?;
     assert_eq!(value, EXPECTED_OUTPUT);
     Ok(())
 }
@@ -244,7 +254,7 @@ fn handler_runs_no_params_task() -> anyhow::Result<()> {
     let result = handler.execute_raw(&make_encoded_ctx(), &raw_args);
     let bytes = result.map_err(|e| anyhow::anyhow!("expected outputs, got error bytes: {e:?}"))?;
 
-    let value: int32 = decode_outputs(&bytes, 0)?;
+    let value: int32 = decode_outputs(bytes, 0)?;
     assert_eq!(value, EXPECTED_VALUE);
     Ok(())
 }
@@ -270,7 +280,7 @@ fn handler_runs_struct_param_task() -> anyhow::Result<()> {
     let result = handler.execute_raw(&make_encoded_ctx(), &raw_args);
     let bytes = result.map_err(|e| anyhow::anyhow!("expected outputs, got error bytes: {e:?}"))?;
 
-    let translated: Point = decode_outputs(&bytes, 0)?;
+    let translated: Point = decode_outputs(bytes, 0)?;
     assert_eq!(translated, EXPECTED_POINT);
     Ok(())
 }
@@ -294,30 +304,5 @@ fn handler_propagates_task_error() -> anyhow::Result<()> {
 
     let err: TdlError = rmp_serde::from_slice(&bytes)?;
     assert!(matches!(err, TdlError::ExecutionError(ref msg) if msg == "division by zero"));
-    Ok(())
-}
-
-#[test]
-fn direct_execute_call_round_trips() -> anyhow::Result<()> {
-    const OPERAND_A: int32 = 7;
-    const OPERAND_B: int32 = 35;
-    const EXPECTED_SUM: int32 = OPERAND_A + OPERAND_B;
-
-    let ctx = TaskContext::new(
-        JobId::random(),
-        TaskId::Index(0),
-        1,
-        ResourceGroupId::random(),
-        None,
-    )?;
-
-    let mut inputs = TaskInputsSerializer::new();
-    append_value(&mut inputs, &OPERAND_A)?;
-    append_value(&mut inputs, &OPERAND_B)?;
-    let raw_args = inputs.release();
-
-    let params = TaskInputsSerializer::deserialize::<<add as Task>::Params>(&raw_args)?;
-    let (sum,) = <add as Task>::execute(ctx, params)?;
-    assert_eq!(sum, EXPECTED_SUM);
     Ok(())
 }

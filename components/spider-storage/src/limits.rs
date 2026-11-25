@@ -1,12 +1,8 @@
 //! Limits that the storage service enforces.
 
+pub use spider_core::job::submission::MAX_CHILDREN_PER_JOB;
+pub use spider_core::job::submission::MAX_TASK_CHILDREN_SIZE as MAX_REPORT_CHILDREN_SIZE;
 use spider_proto_rust::storage::MAX_TASK_INSTANCE_MESSAGE_SIZE;
-
-/// The maximum number of child jobs of one job, over all of its tasks' reports.
-pub const MAX_CHILDREN_PER_JOB: usize = 1024;
-
-/// The maximum number of compressed bytes of the child jobs of one success report.
-pub const MAX_REPORT_CHILDREN_SIZE: u64 = 16 * 1024 * 1024;
 
 /// The maximum number of bytes of the outputs of one success report.
 pub const MAX_REPORT_OUTPUTS_SIZE: u64 = 4 * 1024 * 1024;
