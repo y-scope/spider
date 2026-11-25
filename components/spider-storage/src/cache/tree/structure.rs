@@ -83,16 +83,6 @@ impl TreeStructure {
         self.nodes.get(&job_id)
     }
 
-    /// # Returns
-    ///
-    /// The IDs of the tree's jobs, in ascending order.
-    #[must_use]
-    pub fn sorted_job_ids(&self) -> Vec<JobId> {
-        let mut job_ids: Vec<JobId> = self.nodes.keys().copied().collect();
-        job_ids.sort_unstable_by_key(JobId::get);
-        job_ids
-    }
-
     /// Inserts `children`, the registered children of the tree's job `parent_id`, into the tree,
     /// and sets the parent's number of active children to the number of `children`.
     ///
@@ -221,6 +211,16 @@ impl TreeStructure {
     #[must_use]
     pub fn is_quiescent(&self) -> bool {
         self.nodes.is_empty()
+    }
+
+    /// # Returns
+    ///
+    /// The IDs of the tree's jobs, in ascending order.
+    #[must_use]
+    pub(crate) fn sorted_job_ids(&self) -> Vec<JobId> {
+        let mut job_ids: Vec<JobId> = self.nodes.keys().copied().collect();
+        job_ids.sort_unstable_by_key(JobId::get);
+        job_ids
     }
 }
 
