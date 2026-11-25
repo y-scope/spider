@@ -598,7 +598,7 @@ impl EventPlan {
                 .node(job_id)
                 .ok_or(InternalError::JobNotFound(job_id))?;
             if node.is_abortable() {
-                event_plan.absorb_changes(Self::deactivate(job_id, &node));
+                event_plan.extend(Self::deactivate(job_id, &node));
             }
         }
         Ok(event_plan)
@@ -739,7 +739,7 @@ impl EventPlan {
 
     /// Adds the updates, the publications and the numbers of active children of `event_plan` to
     /// this plan, which keeps its outcome and its registration.
-    fn absorb_changes(&mut self, event_plan: Self) {
+    fn extend(&mut self, event_plan: Self) {
         self.updates.extend(event_plan.updates);
         self.publications.extend(event_plan.publications);
         self.num_active_children
