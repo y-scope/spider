@@ -123,7 +123,7 @@ impl TaskContext {
 /// Dropping the receiver discards any uncollected submissions and closes the sender.
 #[derive(Debug)]
 #[must_use = "dropping the receiver closes child job submissions"]
-pub struct ChildJobSubmissionReceiver {
+pub(crate) struct ChildJobSubmissionReceiver {
     submissions: Arc<Mutex<ChildJobSubmissions>>,
 }
 
@@ -134,7 +134,7 @@ impl ChildJobSubmissionReceiver {
     ///
     /// The child job submissions in submission order.
     #[must_use]
-    pub fn take(self) -> Vec<CompressedJobSubmission> {
+    pub(crate) fn take(self) -> Vec<CompressedJobSubmission> {
         match self.close() {
             ChildJobSubmissions::Collecting { children, .. } => children,
             ChildJobSubmissions::Closed => Vec::new(),

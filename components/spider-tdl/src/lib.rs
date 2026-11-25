@@ -15,6 +15,5 @@ pub use task::ExecutionSuccessOutcome;
 pub use task::Task;
 pub use task::TaskHandler;
 pub use task::TaskHandlerImpl;
-pub use task_context::ChildJobSubmissionReceiver;
 pub use task_context::TaskContext;
 pub use version::Version;
