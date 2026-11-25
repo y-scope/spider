@@ -748,12 +748,18 @@ impl<
         .await
     }
 
-    /// Cancels the job: submits its cancel to the job's tree and waits until the committer has
-    /// applied it, which publishes the cleanup task, if any.
+    /// Cancels the tree rooted at the job, which must be its tree's root: submits the cancel to the
+    /// tree and waits until the committer has applied it. The cancel:
+    ///
+    /// * Moves the job and every other running or blocking job of the tree to its abort target.
+    /// * Publishes the cleanup task of each job that moves to [`JobState::CleanupReady`].
+    ///
+    /// A cancel of a job other than the root is a broken invariant that shuts the service down
+    /// fatally.
     ///
     /// # Returns
     ///
-    /// The current [`JobState`] after the cancellation operation on success. Must be one of:
+    /// The job's [`JobState`] after the cancellation operation on success. Must be one of:
     ///
     /// * [`JobState::CleanupReady`]
     /// * [`JobState::Cancelled`]

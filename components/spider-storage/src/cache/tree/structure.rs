@@ -86,7 +86,6 @@ impl TreeStructure {
     /// # Returns
     ///
     /// The IDs of the tree's jobs, in ascending order.
-    #[cfg(any(test, debug_assertions))]
     #[must_use]
     pub fn sorted_job_ids(&self) -> Vec<JobId> {
         let mut job_ids: Vec<JobId> = self.nodes.keys().copied().collect();
@@ -155,6 +154,8 @@ impl TreeStructure {
     /// * [`Violation::ChildIdNotAboveParent`] if a job's ID is not above its parent's.
     /// * [`Violation::BlockingJobWithoutActiveChild`] if a job blocks on its children without an
     ///   active child.
+    /// * [`Violation::AbortableJobOfInactiveRoot`] if the root is [`JobState::CleanupReady`] or
+    ///   terminal and a job is abortable (see [`TreeNode::is_abortable`]).
     #[cfg(any(test, debug_assertions))]
     pub fn check_invariants(&self) -> Result<(), Violation> {
         let mut nodes: Vec<(JobId, &TreeNode)> = self
@@ -163,6 +164,10 @@ impl TreeStructure {
             .map(|(job_id, node)| (*job_id, node))
             .collect();
         nodes.sort_unstable_by_key(|(job_id, _)| job_id.get());
+        let is_root_inactive = self
+            .nodes
+            .get(&self.root_id)
+            .is_none_or(|root| root.state == JobState::CleanupReady);
         for (job_id, node) in nodes {
             if node.state.is_terminal() {
                 return Err(Violation::TerminalJobInTree {
@@ -183,6 +188,9 @@ impl TreeStructure {
             }
             if node.state == JobState::BlockingOnChildren && node.num_active_children == 0 {
                 return Err(Violation::BlockingJobWithoutActiveChild(job_id));
+            }
+            if is_root_inactive && node.is_abortable() {
+                return Err(Violation::AbortableJobOfInactiveRoot(job_id));
             }
         }
         Ok(())
@@ -241,6 +249,22 @@ impl TreeNode {
 
     /// # Returns
     ///
+    /// Whether a cancel of the tree moves the job to its abort target (see [`Self::abort_target`]):
+    /// whether it is [`JobState::Running`] or [`JobState::BlockingOnChildren`].
+    pub(super) const fn is_abortable(&self) -> bool {
+        match self.state {
+            JobState::Running | JobState::BlockingOnChildren => true,
+            JobState::Ready
+            | JobState::CommitReady
+            | JobState::CleanupReady
+            | JobState::Succeeded
+            | JobState::Failed
+            | JobState::Cancelled => false,
+        }
+    }
+
+    /// # Returns
+    ///
     /// The state that a cancel moves the job to: [`JobState::Cancelled`] if the job is
     /// [`JobState::Ready`] or has no cleanup task, otherwise [`JobState::CleanupReady`]. A
     /// [`JobState::Ready`] job never moves to [`JobState::CleanupReady`]: none of its tasks ran,
@@ -281,6 +305,10 @@ pub enum Violation {
     /// A job blocks on its children and counts no active child.
     #[error("I2: the job {0:?} blocks on its children without an active child")]
     BlockingJobWithoutActiveChild(JobId),
+
+    /// A job is abortable while the root is [`JobState::CleanupReady`] or terminal.
+    #[error("I4: the job {0:?} is abortable while its root is cleanup-ready or terminal")]
+    AbortableJobOfInactiveRoot(JobId),
 }
 
 #[cfg(test)]
@@ -677,8 +705,7 @@ mod tests {
         let round_payload =
             usize::try_from(MAX_ROUND_PAYLOAD).expect("the round payload should fit a usize");
         let events = vec![
-            root_event(TreeEventKind::CancelRoot),
-            event(2, failure(Lane::Regular, "boom")),
+            event(2, TreeEventKind::CommitDone),
             event(3, registration(first_children)),
             event(
                 4,
@@ -698,11 +725,7 @@ mod tests {
                 plan.outcomes.as_slice(),
                 [
                     RoundOutcome::Planned {
-                        outcome: TreeEventOutcome::Applied(JobState::CleanupReady),
-                        has_child_registration: false,
-                    },
-                    RoundOutcome::Planned {
-                        outcome: TreeEventOutcome::Applied(JobState::Failed),
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobNoLongerCommitReady),
                         has_child_registration: false,
                     },
                     RoundOutcome::Planned {
@@ -729,8 +752,6 @@ mod tests {
                 .map(|update| (update.job_id.get(), update.to))
                 .collect::<Vec<_>>(),
             [
-                (ROOT_ID.get(), JobState::CleanupReady),
-                (2, JobState::Failed),
                 (3, JobState::BlockingOnChildren),
                 (5, JobState::BlockingOnChildren),
                 (6, JobState::Succeeded),
@@ -893,6 +914,145 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_cancel_moves_every_abortable_job_of_the_tree_to_its_abort_target() -> anyhow::Result<()> {
+        let structure = tree(
+            TreeNode {
+                has_cleanup: true,
+                ..BLOCKING_ROOT
+            },
+            [
+                (
+                    2,
+                    TreeNode {
+                        state: JobState::BlockingOnChildren,
+                        has_cleanup: true,
+                        ..CHILD_NODE
+                    },
+                ),
+                (
+                    3,
+                    TreeNode {
+                        state: JobState::CommitReady,
+                        has_commit: true,
+                        has_cleanup: true,
+                        ..CHILD_NODE
+                    },
+                ),
+                (
+                    4,
+                    TreeNode {
+                        has_cleanup: true,
+                        ..GRANDCHILD
+                    },
+                ),
+                (5, GRANDCHILD),
+            ],
+        );
+        let plan = structure.plan_events(&[root_event(TreeEventKind::CancelRoot)])?;
+        assert!(
+            matches!(
+                plan.outcomes.as_slice(),
+                [RoundOutcome::Planned {
+                    outcome: TreeEventOutcome::Applied(JobState::CleanupReady),
+                    has_child_registration: false,
+                }]
+            ),
+            "a cancel of a tree gave {:?}",
+            plan.outcomes
+        );
+        assert_eq!(
+            plan.updates,
+            [
+                JobStateUpdate::new(
+                    ROOT_ID,
+                    JobState::BlockingOnChildren,
+                    JobState::CleanupReady
+                ),
+                JobStateUpdate::new(
+                    JobId::from(2),
+                    JobState::BlockingOnChildren,
+                    JobState::CleanupReady
+                ),
+                JobStateUpdate::new(JobId::from(4), JobState::Running, JobState::CleanupReady),
+                JobStateUpdate::new(JobId::from(5), JobState::Running, JobState::Cancelled),
+            ]
+        );
+        assert_eq!(
+            plan.publications,
+            [
+                Publication::Cleanup(ROOT_ID),
+                Publication::Cleanup(JobId::from(2)),
+                Publication::Cleanup(JobId::from(4)),
+            ]
+        );
+        assert_eq!(plan.num_active_children, HashMap::new());
+        Ok(())
+    }
+
+    #[test]
+    fn a_cancel_skips_a_commit_ready_non_root_job_which_then_finishes() -> anyhow::Result<()> {
+        let structure = tree(
+            BLOCKING_ROOT,
+            [
+                (
+                    2,
+                    TreeNode {
+                        state: JobState::CommitReady,
+                        has_commit: true,
+                        has_cleanup: true,
+                        ..CHILD_NODE
+                    },
+                ),
+                (3, CHILD_NODE),
+            ],
+        );
+        let plan = structure.plan_events(&[
+            root_event(TreeEventKind::CancelRoot),
+            event(2, TreeEventKind::CommitDone),
+        ])?;
+        assert!(
+            matches!(
+                plan.outcomes.as_slice(),
+                [
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::Cancelled),
+                        ..
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::Succeeded),
+                        ..
+                    },
+                ]
+            ),
+            "a cancel and a commit of a skipped job gave {:?}",
+            plan.outcomes
+        );
+        assert_eq!(
+            plan.updates,
+            [
+                JobStateUpdate::new(ROOT_ID, JobState::BlockingOnChildren, JobState::Cancelled),
+                JobStateUpdate::new(JobId::from(3), JobState::Running, JobState::Cancelled),
+                JobStateUpdate::new(JobId::from(2), JobState::CommitReady, JobState::Succeeded),
+            ]
+        );
+        assert_eq!(plan.num_active_children, HashMap::new());
+        assert_eq!(plan.publications, []);
+        Ok(())
+    }
+
+    #[test]
+    fn a_cancel_of_a_job_other_than_the_root_is_an_internal_error() {
+        let result = tree_with_children([2]).plan_events(&[event(2, TreeEventKind::CancelRoot)]);
+        assert!(
+            matches!(
+                result,
+                Err(InternalError::NonRootCancelled(job_id)) if job_id == JobId::from(2)
+            ),
+            "a cancel of a child gave {result:?}"
+        );
     }
 
     #[test]
@@ -1451,6 +1611,56 @@ mod tests {
                 "a root blocking without a child",
                 TreeStructure::new_root(ROOT_ID, BLOCKING_ROOT),
                 Err(Violation::BlockingJobWithoutActiveChild(ROOT_ID)),
+            ),
+        ] {
+            assert_eq!(structure.check_invariants(), expected, "{description}");
+        }
+    }
+
+    #[test]
+    fn check_invariants_reports_an_abortable_job_of_an_inactive_root() {
+        const CLEANUP_READY_ROOT: TreeNode = TreeNode {
+            state: JobState::CleanupReady,
+            ..PLAIN_NODE
+        };
+        let mut cancelled_root_tree = tree(
+            BLOCKING_ROOT,
+            [
+                (
+                    2,
+                    TreeNode {
+                        state: JobState::BlockingOnChildren,
+                        ..CHILD_NODE
+                    },
+                ),
+                (3, GRANDCHILD),
+            ],
+        );
+        cancelled_root_tree.apply_state(ROOT_ID, JobState::Cancelled);
+        for (description, structure, expected) in [
+            (
+                "a cleanup-ready root with a commit-ready child",
+                tree(
+                    CLEANUP_READY_ROOT,
+                    [(
+                        2,
+                        TreeNode {
+                            state: JobState::CommitReady,
+                            ..CHILD_NODE
+                        },
+                    )],
+                ),
+                Ok(()),
+            ),
+            (
+                "a cleanup-ready root with a running child",
+                tree(CLEANUP_READY_ROOT, [(2, CHILD_NODE)]),
+                Err(Violation::AbortableJobOfInactiveRoot(JobId::from(2))),
+            ),
+            (
+                "a cancelled root with a blocking child",
+                cancelled_root_tree,
+                Err(Violation::AbortableJobOfInactiveRoot(JobId::from(2))),
             ),
         ] {
             assert_eq!(structure.check_invariants(), expected, "{description}");

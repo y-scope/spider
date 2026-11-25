@@ -1,6 +1,7 @@
 //! The plan of a round of job-tree events.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use spider_core::job::JobState;
 use spider_core::task::TaskIndex;
@@ -376,15 +377,14 @@ impl EventPlan {
     ///   * [`TreeEventKind::TerminalFailure`]: the job moves from its lane's state to
     ///     [`JobState::Failed`] and stores the failure's message, cut to
     ///     [`MAX_ERROR_MESSAGE_CHARS`] characters.
-    ///   * [`TreeEventKind::CancelRoot`]: the root moves to [`JobState::Cancelled`] if it is
-    ///     [`JobState::Ready`] or has no cleanup task, otherwise to [`JobState::CleanupReady`],
-    ///     with its cleanup task published.
+    ///   * [`TreeEventKind::CancelRoot`]: the root's tree is cancelled (see [`Self::cancel_root`]).
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * Forwards [`Self::climb_after_success`]'s return values on failure.
+    /// * Forwards [`Self::cancel_root`]'s return values on failure.
     fn of(event: &TreeEvent, overlay: &Overlay<'_>) -> Result<Self, InternalError> {
         let job_id = event.job_id;
         let Some(node) = overlay.node(job_id) else {
@@ -430,7 +430,7 @@ impl EventPlan {
             TreeEventKind::TerminalFailure { message, .. } => {
                 Self::fail_job(job_id, node.state, message)
             }
-            TreeEventKind::CancelRoot => Self::cancel_root(job_id, &node),
+            TreeEventKind::CancelRoot => Self::cancel_root(job_id, &node, overlay)?,
         };
         Ok(event_plan)
     }
@@ -543,20 +543,53 @@ impl EventPlan {
 
     /// Factory function.
     ///
+    /// Plans the cancel of the tree whose root is `root_id`, whose node is `root`, against
+    /// `overlay`:
+    ///
+    /// 1. The root is deactivated (see [`Self::deactivate`]).
+    /// 2. Every other abortable job of the tree is deactivated too (see [`Self::abort_rest`]).
+    ///
+    /// A [`JobState::CommitReady`] job other than the root is left to finish its commit.
+    ///
     /// # Returns
     ///
-    /// The plan of cancelling the root `root_id`, whose node is `node`: the root moves from the
-    /// node's state to its abort target (see [`TreeNode::abort_target`]), with its cleanup task
-    /// published if that is [`JobState::CleanupReady`].
-    fn cancel_root(root_id: JobId, node: &TreeNode) -> Self {
+    /// The plan of the cancel on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::NonRootCancelled`] if `root_id` is not the tree's root.
+    /// * Forwards [`Self::abort_rest`]'s return values on failure.
+    fn cancel_root(
+        root_id: JobId,
+        root: &TreeNode,
+        overlay: &Overlay<'_>,
+    ) -> Result<Self, InternalError> {
+        if root_id != overlay.structure.root_id() {
+            return Err(InternalError::NonRootCancelled(root_id));
+        }
+        let mut event_plan = Self::deactivate(root_id, root);
+        event_plan.abort_rest(overlay)?;
+        Ok(event_plan)
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// The plan of deactivating `job_id`, whose node is `node`: the job moves from the node's state
+    /// to its abort target (see [`TreeNode::abort_target`]), with its cleanup task published if
+    /// that is [`JobState::CleanupReady`].
+    fn deactivate(job_id: JobId, node: &TreeNode) -> Self {
         let from = node.state;
         let to = node.abort_target();
         let publications = if to == JobState::CleanupReady {
-            vec![Publication::Cleanup(root_id)]
+            vec![Publication::Cleanup(job_id)]
         } else {
             Vec::new()
         };
-        Self::applying_and_publishing(JobStateUpdate::new(root_id, from, to), publications)
+        Self::applying_and_publishing(JobStateUpdate::new(job_id, from, to), publications)
     }
 
     /// Factory function.
@@ -672,6 +705,41 @@ impl EventPlan {
             succeeded_job_id = parent_id;
         }
         Ok(())
+    }
+
+    /// Deactivates, in ascending ID order, every abortable job of the tree (see
+    /// [`TreeNode::is_abortable`]) that this plan doesn't change yet, reading the jobs from
+    /// `overlay` and adding the changes to this plan (see [`Self::deactivate`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::JobNotFound`] if a job of the tree's structure is not in the overlay.
+    fn abort_rest(&mut self, overlay: &Overlay<'_>) -> Result<(), InternalError> {
+        let changed_job_ids: HashSet<JobId> =
+            self.updates.iter().map(|update| update.job_id).collect();
+        for job_id in overlay.structure.sorted_job_ids() {
+            if changed_job_ids.contains(&job_id) {
+                continue;
+            }
+            let node = overlay
+                .node(job_id)
+                .ok_or(InternalError::JobNotFound(job_id))?;
+            if node.is_abortable() {
+                self.absorb_changes(Self::deactivate(job_id, &node));
+            }
+        }
+        Ok(())
+    }
+
+    /// Adds the updates, the publications and the numbers of active children of `event_plan` to
+    /// this plan, which keeps its outcome and its registration.
+    fn absorb_changes(&mut self, event_plan: Self) {
+        self.updates.extend(event_plan.updates);
+        self.publications.extend(event_plan.publications);
+        self.num_active_children
+            .extend(event_plan.num_active_children);
     }
 
     /// # Returns
