@@ -57,10 +57,6 @@ impl TaskContext {
     ///
     /// * [`TdlError::InvalidTaskContext`] if this is a commit or cleanup task.
     /// * Forwards [`ChildJobSubmissionSender::send`]'s return values on failure.
-    ///
-    /// # Panics
-    ///
-    /// Panics if another panic poisoned the child submission state.
     pub fn create_child_job_submission(
         &self,
         task_graph: &TaskGraph,
