@@ -284,8 +284,7 @@ impl TwoRegistrationRace {
 struct TwoRegistrationTree {
     root_id: JobId,
     leaf_ids: [JobId; 2],
-    root_has_cleanup: bool,
-    leaf_has_cleanup: bool,
+    cleanups: Cleanups,
     grandchild_shapes: Vec<JobShape>,
 }
 
@@ -320,8 +319,7 @@ impl TwoRegistrationTree {
         Self {
             root_id,
             leaf_ids: [first_id, second_id],
-            root_has_cleanup,
-            leaf_has_cleanup: all,
+            cleanups,
             grandchild_shapes: (0..NUM_GRANDCHILDREN)
                 .map(|index| shape_with_cleanup(all && index != 1))
                 .collect(),
@@ -332,9 +330,9 @@ impl TwoRegistrationTree {
     ///
     /// The states that the cancel moves the root and the leaves to.
     fn cancelled(&self) -> HashMap<JobId, JobState> {
-        let leaf_target = abort_target(self.leaf_has_cleanup);
+        let leaf_target = abort_target(self.cleanups == Cleanups::All);
         HashMap::from([
-            (self.root_id, abort_target(self.root_has_cleanup)),
+            (self.root_id, abort_target(self.cleanups != Cleanups::None)),
             (self.leaf_ids[0], leaf_target),
             (self.leaf_ids[1], leaf_target),
         ])

@@ -958,10 +958,6 @@ impl TestEnv {
     /// # Returns
     ///
     /// The IDs of the children of `parent_id` in the database, by ascending ID.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the query fails.
     pub async fn children_of(&self, parent_id: JobId) -> Vec<JobId> {
         self.child_rows(parent_id)
             .await
@@ -994,10 +990,6 @@ impl TestEnv {
     /// # Returns
     ///
     /// The states of the rows of the tree rooted at `root_id` in the database, by job.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the query fails.
     pub async fn tree_rows(&self, root_id: JobId) -> HashMap<JobId, JobState> {
         tree_rows(&self.pool, root_id).await
     }
@@ -1074,7 +1066,7 @@ impl TestEnv {
     ///
     /// # Panics
     ///
-    /// Panics if the query fails or the assertion fails.
+    /// Panics if the assertion fails.
     pub async fn assert_tree_rows(
         &self,
         root_id: JobId,
@@ -1092,7 +1084,7 @@ impl TestEnv {
     ///
     /// # Panics
     ///
-    /// Panics if the query fails or a row is not terminal.
+    /// Panics if a row is not terminal.
     pub async fn assert_quiescent(&self, root_id: JobId) {
         let non_terminal_rows: HashMap<JobId, JobState> = self
             .tree_rows(root_id)
@@ -1518,10 +1510,6 @@ impl CommitSnapshot {
     /// # Returns
     ///
     /// The states of the rows of the tree at the write, by job.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the snapshot's reader doesn't finish within [`HOOK_TIMEOUT`] or panics.
     pub async fn rows(self) -> HashMap<JobId, JobState> {
         join(self.reader_join_handle).await
     }
