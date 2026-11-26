@@ -675,14 +675,21 @@ mod tests {
 
     #[test]
     fn build_request_routes_commit_outputs_to_separate_payload() -> anyhow::Result<()> {
+        let job_id = JobId::from(11);
+        let task_id = TaskId::Commit;
+        let task_instance_id = 29;
+        let resource_group_id = ResourceGroupId::from(47);
         let output_cases: [Vec<TaskOutput>; 2] = [vec![vec![1, 2, 3], vec![4, 5, 6]], vec![]];
         for outputs in output_cases {
             let serialized = SerializedTaskOutputs::serialize_with_size_hint(&outputs)?.to_raw();
             let request = ExecuteRequest {
-                job_id: JobId::random(),
-                task_id: TaskId::Commit,
-                resource_group_id: ResourceGroupId::random(),
-                ctx: make_execution_context(serialized.clone()),
+                job_id,
+                task_id,
+                resource_group_id,
+                ctx: ExecutionContext {
+                    task_instance_id,
+                    ..make_execution_context(serialized.clone())
+                },
             };
 
             let Request::Execute {
@@ -694,7 +701,11 @@ mod tests {
                 panic!("build_request must produce a Request::Execute");
             };
             assert_eq!(raw_inputs, TaskInputsSerializer::new().release());
-            let (_, outputs) = TaskContextFrame::from_wire(&raw_ctx)?.into_parts();
+            let (metadata, outputs) = TaskContextFrame::from_wire(&raw_ctx)?.into_parts();
+            assert_eq!(metadata.job_id(), job_id);
+            assert_eq!(metadata.task_id(), task_id);
+            assert_eq!(metadata.task_instance_id(), task_instance_id);
+            assert_eq!(metadata.resource_group_id(), resource_group_id);
             assert_eq!(outputs, Some(serialized.as_slice()));
         }
         Ok(())
@@ -702,12 +713,18 @@ mod tests {
 
     #[test]
     fn build_request_routes_non_commit_task_inputs() -> anyhow::Result<()> {
-        for task_id in [TaskId::Index(0), TaskId::Cleanup] {
+        let job_id = JobId::from(53);
+        let task_instance_id = 61;
+        let resource_group_id = ResourceGroupId::from(71);
+        for task_id in [TaskId::Index(7), TaskId::Cleanup] {
             let request = ExecuteRequest {
-                job_id: JobId::random(),
+                job_id,
                 task_id,
-                resource_group_id: ResourceGroupId::random(),
-                ctx: make_execution_context(vec![10, 20, 30]),
+                resource_group_id,
+                ctx: ExecutionContext {
+                    task_instance_id,
+                    ..make_execution_context(vec![10, 20, 30])
+                },
             };
 
             let Request::Execute {
@@ -720,8 +737,12 @@ mod tests {
             };
 
             assert_eq!(raw_inputs, vec![10, 20, 30]);
-            let (_, outputs) = TaskContextFrame::from_wire(&raw_ctx)?.into_parts();
-            assert!(outputs.is_none());
+            let (metadata, outputs) = TaskContextFrame::from_wire(&raw_ctx)?.into_parts();
+            assert_eq!(metadata.job_id(), job_id);
+            assert_eq!(metadata.task_id(), task_id);
+            assert_eq!(metadata.task_instance_id(), task_instance_id);
+            assert_eq!(metadata.resource_group_id(), resource_group_id);
+            assert_eq!(outputs, None);
         }
         Ok(())
     }
