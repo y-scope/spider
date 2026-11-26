@@ -390,18 +390,20 @@ impl<
         if let Err(violation) = self.structure.check_invariants() {
             panic!("the tree should keep its invariants after a round: {violation}");
         }
-        assert_eq!(
-            self.structure.nodes().count(),
-            self.jcbs.len(),
-            "the committer should hold the control blocks of exactly its structure's jobs"
-        );
+        let mut num_jobs = 0;
         for (job_id, node) in self.structure.nodes() {
+            num_jobs += 1;
             assert_eq!(
                 node.state,
                 self.jcb(job_id).state().await,
                 "the structure should hold the cached state of the job {job_id:?}"
             );
         }
+        assert_eq!(
+            num_jobs,
+            self.jcbs.len(),
+            "the committer should hold the control blocks of exactly its structure's jobs"
+        );
     }
 
     /// # Returns
