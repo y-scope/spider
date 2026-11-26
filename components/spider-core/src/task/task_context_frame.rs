@@ -148,6 +148,8 @@ mod tests {
     use crate::types::id::JobId;
     use crate::types::id::ResourceGroupId;
     use crate::types::id::TaskId;
+    use crate::types::io::SerializedTaskOutputs;
+    use crate::types::io::TaskOutputsSerializeOption;
 
     /// # Returns
     ///
@@ -170,6 +172,34 @@ mod tests {
         let (payloads, remaining) = WireFrameBuilder::unframe_payload_slices(&wire)?;
         assert_eq!(payloads, [encoded_metadata.as_slice(), &outputs]);
         assert_eq!(remaining, [] as [u8; 0]);
+        Ok(())
+    }
+
+    #[test]
+    fn from_wire_decodes_metadata_and_optional_outputs() -> anyhow::Result<()> {
+        let job_id = JobId::from(11);
+        let task_instance_id = 29_u64;
+        let resource_group_id = ResourceGroupId::from(47);
+        let serialized_outputs =
+            SerializedTaskOutputs::serialize(&[vec![1, 2, 3]], TaskOutputsSerializeOption::Wire)?
+                .to_raw();
+        for (task_id, outputs) in [
+            (TaskId::Commit, Some(serialized_outputs.as_slice())),
+            (TaskId::Index(7), None),
+        ] {
+            let mut builder = WireFrameBuilder::new();
+            builder.append_serialize(&(job_id, task_id, task_instance_id, resource_group_id))?;
+            if let Some(outputs) = outputs {
+                builder.append_payload(outputs)?;
+            }
+            let wire = builder.release();
+            let (metadata, decoded_outputs) = TaskContextFrame::from_wire(&wire)?.into_parts();
+            assert_eq!(metadata.job_id(), job_id);
+            assert_eq!(metadata.task_id(), task_id);
+            assert_eq!(metadata.task_instance_id(), task_instance_id);
+            assert_eq!(metadata.resource_group_id(), resource_group_id);
+            assert_eq!(decoded_outputs, outputs);
+        }
         Ok(())
     }
 
