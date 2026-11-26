@@ -7,7 +7,7 @@
 use std::marker::PhantomData;
 
 use spider_core::job::submission::CompressedJobSubmission;
-use spider_core::task::TaskContext as CoreTaskContext;
+use spider_core::task::TaskContextFrame;
 use spider_core::types::io::TaskInputsSerializer;
 use spider_core::types::io::TaskOutputsSerializer;
 use spider_utils::wire::WireError;
@@ -191,7 +191,7 @@ pub trait TaskHandler: Send + Sync {
     ///
     /// # Parameters
     ///
-    /// * `raw_ctx` - Msgpack-encoded task metadata.
+    /// * `raw_ctx` - The encoded [`TaskContextFrame`].
     /// * `raw_args` - Wire-format-encoded task inputs.
     ///
     /// # Returns
@@ -237,14 +237,16 @@ impl<TaskType: Task> TaskHandlerImpl<TaskType> {
 
 impl<TaskType: Task + Send + Sync> TaskHandler for TaskHandlerImpl<TaskType> {
     fn execute_raw(&self, raw_ctx: &[u8], raw_args: &[u8]) -> ExecutionResult {
-        let raw: CoreTaskContext = rmp_serde::from_slice(raw_ctx).map_err(|e| {
+        let frame = TaskContextFrame::from_wire(raw_ctx).map_err(|e| {
             serialize_error(&TdlError::DeserializationError(format!(
-                "failed to deserialize task metadata: {e}"
+                "failed to deserialize task context: {e}"
             )))
         })?;
         let params: TaskType::Params = TaskInputsSerializer::deserialize(raw_args)
             .map_err(|e| serialize_error(&TdlError::DeserializationError(e.to_string())))?;
-        let (ctx, child_job_submission_receiver) = TaskContext::from_raw(raw);
+        let (raw, serialized_task_graph_outputs) = frame.into_parts();
+        let (ctx, child_job_submission_receiver) =
+            TaskContext::from_raw(raw, serialized_task_graph_outputs.map(<[u8]>::to_vec));
         let result = TaskType::execute(ctx, params);
         let children = child_job_submission_receiver.take();
         let outputs = result
@@ -285,6 +287,7 @@ mod tests {
 
     use serde::Deserialize;
     use serde::Serialize;
+    use spider_core::task::TaskContext as CoreTaskContext;
     use spider_core::task::TaskGraph;
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
@@ -439,10 +442,11 @@ mod tests {
             TaskId::Index(0),
             1,
             ResourceGroupId::random(),
-            None,
-        )
-        .expect("failed to build task metadata");
-        rmp_serde::to_vec(&ctx).expect("failed to serialize task metadata")
+        );
+        TaskContextFrame::new(ctx, None)
+            .expect("failed to build task context frame")
+            .to_wire()
+            .expect("failed to encode task context frame")
     }
 
     /// Asserts the given result contains a deserialization error
@@ -550,7 +554,9 @@ mod tests {
         let raw_args = Add::make_inputs(1, 2)?;
 
         // 0xC1 is a reserved/invalid msgpack byte.
-        let result = handler.execute_raw(&[0xc1], &raw_args);
+        let mut context = WireFrameBuilder::new();
+        context.append_payload(&[0xc1])?;
+        let result = handler.execute_raw(&context.release(), &raw_args);
         assert_deserialization_failure(result);
         Ok(())
     }

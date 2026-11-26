@@ -7,6 +7,7 @@
 use serde::Deserialize;
 use serde::Serialize;
 use spider_core::task::TaskContext as CoreTaskContext;
+use spider_core::task::TaskContextFrame;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -84,10 +85,11 @@ fn make_encoded_ctx() -> Vec<u8> {
         TaskId::Index(0),
         1,
         ResourceGroupId::random(),
-        None,
-    )
-    .expect("failed to build task metadata");
-    rmp_serde::to_vec(&ctx).expect("failed to serialize task metadata")
+    );
+    TaskContextFrame::new(ctx, None)
+        .expect("failed to build task context frame")
+        .to_wire()
+        .expect("failed to encode task context frame")
 }
 
 /// Appends the given value to the input serializer.

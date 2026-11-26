@@ -22,6 +22,7 @@ use crate::error::TdlError;
 #[derive(Debug, Clone)]
 pub struct TaskContext {
     raw: CoreTaskContext,
+    serialized_task_graph_outputs: Option<Vec<u8>>,
     child_job_submission_sender: ChildJobSubmissionSender,
 }
 
@@ -83,7 +84,7 @@ impl TaskContext {
     ///
     /// * [`TdlError::DeserializationError`] if the task-graph outputs cannot be deserialized.
     pub fn get_task_graph_outputs(&self) -> Result<Option<Vec<TaskOutput>>, TdlError> {
-        match self.raw.serialized_task_graph_outputs() {
+        match self.serialized_task_graph_outputs.as_deref() {
             Some(bytes) => {
                 let task_graph_outputs = SerializedTaskOutputs::deserialize_from_raw(bytes)
                     .map_err(|e| TdlError::DeserializationError(e.to_string()))?;
@@ -93,19 +94,25 @@ impl TaskContext {
         }
     }
 
-    /// Pairs task metadata with a new child job submission sender and receiver.
+    /// Creates a runtime context with the given metadata and serialized task-graph outputs.
     ///
     /// # Returns
     ///
+    /// A tuple containing:
+    ///
     /// * The task context.
     /// * The receiver for the context's child job submissions.
-    pub(crate) fn from_raw(raw: CoreTaskContext) -> (Self, ChildJobSubmissionReceiver) {
+    pub(crate) fn from_raw(
+        raw: CoreTaskContext,
+        serialized_task_graph_outputs: Option<Vec<u8>>,
+    ) -> (Self, ChildJobSubmissionReceiver) {
         let submissions = Arc::new(Mutex::new(ChildJobSubmissions::Collecting {
             children: Vec::new(),
             compressed_size: 0,
         }));
         let context = Self {
             raw,
+            serialized_task_graph_outputs,
             child_job_submission_sender: ChildJobSubmissionSender {
                 submissions: Arc::clone(&submissions),
             },
@@ -264,22 +271,16 @@ mod tests {
 
     /// # Returns
     ///
+    /// A tuple containing:
+    ///
     /// * A context with valid metadata for the given task kind.
     /// * The receiver for its child job submissions.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the task context cannot be constructed.
     fn create_context(task_id: TaskId) -> (TaskContext, ChildJobSubmissionReceiver) {
-        let raw = CoreTaskContext::new(
-            JobId::random(),
-            task_id,
-            13,
-            ResourceGroupId::random(),
+        let raw = CoreTaskContext::new(JobId::random(), task_id, 13, ResourceGroupId::random());
+        TaskContext::from_raw(
+            raw,
             (task_id == TaskId::Commit).then(|| serialize_outputs(&[])),
         )
-        .expect("task context metadata must be valid");
-        TaskContext::from_raw(raw)
     }
 
     /// # Returns
@@ -436,29 +437,6 @@ mod tests {
     }
 
     #[test]
-    fn raw_context_preserves_msgpack_layout() -> anyhow::Result<()> {
-        let job_id = JobId::random();
-        let task_id = TaskId::Index(0);
-        let task_instance_id = 13;
-        let resource_group_id = ResourceGroupId::random();
-        let raw = CoreTaskContext::new(job_id, task_id, task_instance_id, resource_group_id, None)?;
-        let expected = rmp_serde::to_vec(&(
-            job_id,
-            task_id,
-            task_instance_id,
-            resource_group_id,
-            Option::<Vec<u8>>::None,
-        ))?;
-        assert_eq!(rmp_serde::to_vec(&raw)?, expected);
-        let (ctx, _receiver) = TaskContext::from_raw(rmp_serde::from_slice(&expected)?);
-        assert_eq!(ctx.job_id(), job_id);
-        assert_eq!(ctx.task_id(), task_id);
-        assert_eq!(ctx.task_instance_id(), task_instance_id);
-        assert_eq!(ctx.resource_group_id(), resource_group_id);
-        Ok(())
-    }
-
-    #[test]
     fn get_task_graph_outputs_returns_commit_outputs() -> anyhow::Result<()> {
         let outputs: Vec<TaskOutput> = vec![vec![1, 2, 3], vec![4, 5, 6]];
         let raw = CoreTaskContext::new(
@@ -466,9 +444,8 @@ mod tests {
             TaskId::Commit,
             1,
             ResourceGroupId::random(),
-            Some(serialize_outputs(&outputs)),
-        )?;
-        let (ctx, _receiver) = TaskContext::from_raw(raw);
+        );
+        let (ctx, _receiver) = TaskContext::from_raw(raw, Some(serialize_outputs(&outputs)));
         assert_eq!(ctx.get_task_graph_outputs()?, Some(outputs));
         Ok(())
     }
@@ -488,35 +465,17 @@ mod tests {
     }
 
     #[test]
-    fn get_task_graph_outputs_rejects_invalid_bytes() -> anyhow::Result<()> {
+    fn get_task_graph_outputs_rejects_invalid_bytes() {
         let raw = CoreTaskContext::new(
             JobId::random(),
             TaskId::Commit,
             1,
             ResourceGroupId::random(),
-            Some(vec![0xff, 0x00, 0x13, 0x37]),
-        )?;
-        let (ctx, _receiver) = TaskContext::from_raw(raw);
+        );
+        let (ctx, _receiver) = TaskContext::from_raw(raw, Some(vec![0xff, 0x00, 0x13, 0x37]));
         assert!(matches!(
             ctx.get_task_graph_outputs(),
             Err(TdlError::DeserializationError(_))
         ));
-        Ok(())
-    }
-
-    #[test]
-    fn get_task_graph_outputs_survives_msgpack_round_trip() -> anyhow::Result<()> {
-        let outputs: Vec<TaskOutput> = vec![vec![1, 2, 3], vec![4, 5, 6]];
-        let raw = CoreTaskContext::new(
-            JobId::random(),
-            TaskId::Commit,
-            1,
-            ResourceGroupId::random(),
-            Some(serialize_outputs(&outputs)),
-        )?;
-        let encoded = rmp_serde::to_vec(&raw)?;
-        let (ctx, _receiver) = TaskContext::from_raw(rmp_serde::from_slice(&encoded)?);
-        assert_eq!(ctx.get_task_graph_outputs()?, Some(outputs));
-        Ok(())
     }
 }
