@@ -559,8 +559,20 @@ mod tests {
         // 0xC1 is a reserved/invalid msgpack byte.
         let mut context = WireFrameBuilder::new();
         context.append_payload(&[0xc1])?;
-        let result = handler.execute_raw(&context.release(), &raw_args);
-        assert_deserialization_failure(result);
+        let raw_ctx = context.release();
+        let Err(context_error) = TaskContextFrame::from_wire(&raw_ctx) else {
+            panic!("invalid context frame must fail to decode");
+        };
+
+        let error = handler
+            .execute_raw(&raw_ctx, &raw_args)
+            .expect_err("invalid context frame must prevent execution");
+        assert_eq!(
+            rmp_serde::from_slice::<TdlError>(&error)?,
+            TdlError::DeserializationError(format!(
+                "failed to deserialize task context: {context_error}"
+            ))
+        );
         Ok(())
     }
 

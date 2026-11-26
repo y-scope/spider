@@ -205,20 +205,34 @@ mod tests {
 
     #[test]
     fn from_wire_rejects_mismatched_task_and_outputs() -> anyhow::Result<()> {
-        for (task_id, has_outputs) in [
-            (TaskId::Commit, false),
-            (TaskId::Index(0), true),
-            (TaskId::Cleanup, true),
+        for (task_id, has_outputs, expected_message) in [
+            (
+                TaskId::Commit,
+                false,
+                "task-graph outputs are required for a commit task but were not provided",
+            ),
+            (
+                TaskId::Index(0),
+                true,
+                "task-graph outputs are only valid for a commit task, but the current task is 0",
+            ),
+            (
+                TaskId::Cleanup,
+                true,
+                "task-graph outputs are only valid for a commit task, but the current task is \
+                 cleanup",
+            ),
         ] {
             let mut builder = WireFrameBuilder::new();
             builder.append_serialize(&task_context(task_id))?;
             if has_outputs {
                 builder.append_payload(&[])?;
             }
-            assert!(matches!(
-                TaskContextFrame::from_wire(&builder.release()),
-                Err(Error::InvalidTaskContext(_))
-            ));
+            let wire = builder.release();
+            let Err(Error::InvalidTaskContext(message)) = TaskContextFrame::from_wire(&wire) else {
+                panic!("expected a task context error for task {task_id}");
+            };
+            assert_eq!(message, expected_message);
         }
         Ok(())
     }
@@ -232,7 +246,9 @@ mod tests {
         for wire in [WireFrameBuilder::new().release(), builder.release()] {
             assert!(matches!(
                 TaskContextFrame::from_wire(&wire),
-                Err(Error::TaskContextWireError(WireError::InvalidFormat(_)))
+                Err(Error::TaskContextWireError(WireError::InvalidFormat(
+                    "expected one or two task context payloads"
+                )))
             ));
         }
         Ok(())
@@ -250,11 +266,16 @@ mod tests {
 
         let mut wire = TaskContextFrame::new(metadata, Some(&[1, 2, 3]))?.to_wire()?;
         wire.push(0);
-        for invalid in [wire, trailing_metadata] {
-            assert!(matches!(
-                TaskContextFrame::from_wire(&invalid),
-                Err(Error::TaskContextWireError(WireError::InvalidFormat(_)))
-            ));
+        for (wire, expected_message) in [
+            (wire, "bytes after task context frame"),
+            (trailing_metadata, "bytes after task context metadata"),
+        ] {
+            let Err(Error::TaskContextWireError(WireError::InvalidFormat(message))) =
+                TaskContextFrame::from_wire(&wire)
+            else {
+                panic!("expected a wire format error for {expected_message}");
+            };
+            assert_eq!(message, expected_message);
         }
         Ok(())
     }
