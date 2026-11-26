@@ -464,7 +464,8 @@ impl<
     /// Marks a task instance as succeeded, with the child jobs that its report creates.
     ///
     /// A report that breaks a limit of [`crate::limits`], whose children fail to decode or build,
-    /// or whose number of outputs doesn't match its task's fails the task instance instead.
+    /// or whose number of outputs doesn't match its task's fails the task instance instead (see
+    /// [`Self::fail_task_instance`]).
     ///
     /// # Returns
     ///
