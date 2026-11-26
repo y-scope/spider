@@ -32,7 +32,11 @@ fn lib_path() -> std::path::PathBuf {
 
 /// # Returns
 ///
-/// An encoded task context for testing.
+/// An encoded task context frame for a regular task.
+///
+/// # Panics
+///
+/// Panics if constructing or encoding the task context frame fails.
 fn encode_ctx() -> Vec<u8> {
     let ctx = TaskContext::new(
         JobId::random(),
