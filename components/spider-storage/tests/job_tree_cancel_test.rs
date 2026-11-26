@@ -72,7 +72,7 @@ impl RootCommitRace {
 }
 
 /// Which jobs of a test tree have a cleanup task.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Cleanups {
     /// No job: every deactivated job becomes `Cancelled`, so the tree is quiescent once the race is
     /// decided and its committer exits.
@@ -204,8 +204,8 @@ impl RegistrationTree {
     /// # Returns
     ///
     /// The jobs of the tree before the registration.
-    fn job_ids(&self) -> Vec<JobId> {
-        self.has_cleanup.keys().copied().collect()
+    fn job_ids(&self) -> impl Iterator<Item = JobId> + '_ {
+        self.has_cleanup.keys().copied()
     }
 
     /// # Returns
@@ -228,7 +228,6 @@ impl RegistrationTree {
     /// The states of the jobs of the tree before the race.
     fn before_race(&self) -> HashMap<JobId, JobState> {
         self.job_ids()
-            .into_iter()
             .map(|job_id| {
                 let state = if job_id == self.root_id && self.registrar_id != self.root_id {
                     JobState::BlockingOnChildren
@@ -245,7 +244,6 @@ impl RegistrationTree {
     /// The states that the cancel moves the jobs of the tree before the registration to.
     fn cancelled(&self) -> HashMap<JobId, JobState> {
         self.job_ids()
-            .into_iter()
             .map(|job_id| (job_id, self.target(job_id)))
             .collect()
     }
@@ -767,29 +765,21 @@ impl TestEnv {
     /// * A registration planned first inserts the children.
     /// * The cancel then deactivates them in its own database write.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`ServiceState::cancel_job`]'s return values on failure.
-    ///
     /// # Panics
     ///
     /// Panics if the outcome is not the one asserted.
-    ///
-    /// [`ServiceState::cancel_job`]: spider_storage::state::ServiceState::cancel_job
     async fn assert_cancel_races_registration(
         &self,
         registrar: Registrar,
         cleanups: Cleanups,
         race: RegistrationRace,
-    ) -> anyhow::Result<()> {
+    ) {
         let what = format!("{registrar:?}, {cleanups:?}, {race:?}");
         let tree = RegistrationTree::start(self, registrar, cleanups).await;
         let task_instance_id = self
             .create_instance(tree.registrar_id, TaskId::Index(0))
             .await;
-        let probes = TreeProbes::arm(self, tree.root_id, &tree.job_ids());
+        let probes = TreeProbes::arm(self, tree.root_id, &tree.job_ids().collect::<Vec<_>>());
         let submit_hook = self.observe(
             HookPoint::JobEventAfterSubmit,
             HookFilter::job(tree.registrar_id),
@@ -815,7 +805,6 @@ impl TestEnv {
             tree.target(tree.root_id),
             &format!("{what}: the cancel"),
         );
-        cancelled?;
         let after_cancel = self.assert_registration(&tree, race, &report, &what).await;
 
         let num_registrations = usize::from(!matches!(race, RegistrationRace::AfterCancelReply));
@@ -846,7 +835,6 @@ impl TestEnv {
         probes.assert_transitions(
             &tree
                 .job_ids()
-                .into_iter()
                 .map(|job_id| {
                     let num_transitions = if !race.is_cancel_first() && job_id == tree.registrar_id
                     {
@@ -866,7 +854,6 @@ impl TestEnv {
         );
         self.finish_tree(tree.root_id, &after_cancel, &HashMap::new(), &what)
             .await;
-        Ok(())
     }
 
     /// Runs the registration of `tree`'s children, through the instance `task_instance_id`, and the
@@ -982,7 +969,8 @@ impl TestEnv {
     /// 1. `report` runs until its phase A is paused right after the task's success, holding the
     ///    registering job's read guard.
     /// 2. `cancelled` runs until its round of `tree` has written.
-    /// 3. The phase A is released.
+    /// 3. The round's apply finds the registering job's write lock held.
+    /// 4. The phase A is released.
     ///
     /// # Returns
     ///
@@ -1009,6 +997,10 @@ impl TestEnv {
             HookPoint::CommitterRoundAfterDbWrite,
             HookFilter::job(tree.root_id),
         );
+        let contended_hook = self.observe(
+            HookPoint::TreeStateApplyLockContended,
+            HookFilter::job(tree.registrar_id),
+        );
         let report_join_handle = tokio::spawn(report);
         reached(&pause_hook, 1).await;
         let cancel_join_handle = tokio::spawn(cancelled);
@@ -1018,6 +1010,7 @@ impl TestEnv {
         // writer, so only the rows are read here.
         self.assert_tree_rows(tree.root_id, &tree.cancelled(), what)
             .await;
+        reached(&contended_hook, 1).await;
         assert!(
             !cancel_join_handle.is_finished(),
             "{what}: the cancel should wait for the paused phase A"
@@ -1237,22 +1230,14 @@ impl TestEnv {
     ///   deactivates.
     /// * A registration planned after the cancel is stale and inserts no child.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`ServiceState::cancel_job`]'s return values on failure.
-    ///
     /// # Panics
     ///
     /// Panics if the outcome is not the one asserted.
-    ///
-    /// [`ServiceState::cancel_job`]: spider_storage::state::ServiceState::cancel_job
     async fn assert_cancel_races_two_registrations(
         &self,
         cleanups: Cleanups,
         race: TwoRegistrationRace,
-    ) -> anyhow::Result<()> {
+    ) {
         let what = format!("two registrations, {cleanups:?}, {race:?}");
         let tree = TwoRegistrationTree::start(self, cleanups).await;
         let root_id = tree.root_id;
@@ -1272,7 +1257,6 @@ impl TestEnv {
             after_cancel[&root_id],
             &format!("{what}: the cancel"),
         );
-        cancelled?;
         let leaf_stale = regular_stale(after_cancel[&first_id]);
         let mut transitions = HashMap::from([(root_id, 1)]);
         for (index, (leaf_id, registration)) in [(first_id, &first), (second_id, &second)]
@@ -1306,7 +1290,6 @@ impl TestEnv {
         );
         self.finish_tree(root_id, &after_cancel, &HashMap::new(), &what)
             .await;
-        Ok(())
     }
 
     /// Runs the registrations of both leaves of `tree`, through their instances
@@ -1649,7 +1632,7 @@ async fn a_cancel_deactivates_a_commit_ready_root() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires MariaDB"]
-async fn a_root_cancel_racing_a_registration_never_leaves_a_live_child() -> anyhow::Result<()> {
+async fn a_root_cancel_racing_a_registration_never_leaves_a_live_child() {
     let env = TestEnv::start_keeping_task_instances().await;
     for (registrar, cleanups) in [
         (Registrar::Leaf, Cleanups::None),
@@ -1659,27 +1642,25 @@ async fn a_root_cancel_racing_a_registration_never_leaves_a_live_child() -> anyh
         (Registrar::Root, Cleanups::All),
     ] {
         for race in RegistrationRace::iter() {
-            Box::pin(env.assert_cancel_races_registration(registrar, cleanups, race)).await?;
+            Box::pin(env.assert_cancel_races_registration(registrar, cleanups, race)).await;
         }
     }
     env.assert_lanes_empty().await;
     env.finish().await;
-    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires MariaDB"]
-async fn a_root_cancel_racing_two_registrations_never_leaves_a_live_child() -> anyhow::Result<()> {
+async fn a_root_cancel_racing_two_registrations_never_leaves_a_live_child() {
     let env = TestEnv::start_keeping_task_instances().await;
     for cleanups in [Cleanups::None, Cleanups::All, Cleanups::RootOnly] {
         for race in TwoRegistrationRace::iter() {
             env.assert_cancel_races_two_registrations(cleanups, race)
-                .await?;
+                .await;
         }
     }
     env.assert_lanes_empty().await;
     env.finish().await;
-    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

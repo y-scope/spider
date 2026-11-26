@@ -826,7 +826,19 @@ impl<
         to: JobState,
     ) -> Result<(), CacheError> {
         let jcb = &self.inner;
-        let mut job = jcb.job_execution_state.write().await;
+        let mut job = if let Some(job) = jcb.job_execution_state.try_write() {
+            job
+        } else {
+            // A pause that the service's shutdown ends lets the apply go on, as it would without
+            // the hook.
+            let _ = jcb
+                .hooks
+                .hit(HookPoint::TreeStateApplyLockContended, || {
+                    jcb.hook_context(None)
+                })
+                .await;
+            jcb.job_execution_state.write().await
+        };
         if job.state != from {
             return Err(InternalError::CacheDbDivergence {
                 job_id: jcb.id,
@@ -1205,6 +1217,14 @@ impl<R: InboundQueueSender, T: TaskInstancePoolConnector> JobExecutionStateHandl
     /// A writer guard of the underlying job execution state, whatever the job state.
     async fn write(&self) -> RwLockWriteGuard<'_, JobExecutionState<R, T>> {
         self.inner.write().await
+    }
+
+    /// # Returns
+    ///
+    /// A writer guard of the underlying job execution state, whatever the job state, or [`None`] if
+    /// the lock is held.
+    fn try_write(&self) -> Option<RwLockWriteGuard<'_, JobExecutionState<R, T>>> {
+        self.inner.try_write().ok()
     }
 
     /// # Returns

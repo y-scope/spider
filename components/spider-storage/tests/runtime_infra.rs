@@ -488,29 +488,6 @@ impl TestEnv {
 
     /// # Returns
     ///
-    /// A future that reports the success of the instance `task_instance_id` of `job_id`'s cleanup
-    /// task. The future:
-    ///
-    /// * Resolves to [`ServiceState::succeed_cleanup_task_instance`]'s return values.
-    /// * Panics if the report isn't answered within [`RPC_TIMEOUT`].
-    pub fn cleanup_success(
-        &self,
-        job_id: JobId,
-        task_instance_id: TaskInstanceId,
-    ) -> impl Future<Output = JobResult> + Send + use<> {
-        let service = self.service.clone();
-        async move {
-            bounded_rpc(service.succeed_cleanup_task_instance(
-                service.session_id(),
-                job_id,
-                task_instance_id,
-            ))
-            .await
-        }
-    }
-
-    /// # Returns
-    ///
     /// A future that cancels `job_id`. The future:
     ///
     /// * Resolves to [`ServiceState::cancel_job`]'s return values.
@@ -834,17 +811,18 @@ impl TestEnv {
     ///
     /// # Panics
     ///
-    /// Panics if the assertion fails.
+    /// Panics if:
+    ///
+    /// * The assertion fails.
+    /// * The instance creation isn't answered within [`RPC_TIMEOUT`].
     pub async fn assert_not_cached(&self, job_id: JobId, what: &str) {
-        let instance = self
-            .service
-            .create_task_instance(
-                self.service.session_id(),
-                job_id,
-                TaskId::Index(0),
-                self.execution_manager_id,
-            )
-            .await;
+        let instance = bounded_rpc(self.service.create_task_instance(
+            self.service.session_id(),
+            job_id,
+            TaskId::Index(0),
+            self.execution_manager_id,
+        ))
+        .await;
         assert!(
             matches!(
                 instance,
@@ -989,13 +967,6 @@ impl TestEnv {
 
     /// # Returns
     ///
-    /// The states of the rows of the tree rooted at `root_id` in the database, by job.
-    pub async fn tree_rows(&self, root_id: JobId) -> HashMap<JobId, JobState> {
-        tree_rows(&self.pool, root_id).await
-    }
-
-    /// # Returns
-    ///
     /// The error messages of the rows of the tree rooted at `root_id` in the database, by job.
     ///
     /// # Panics
@@ -1111,6 +1082,36 @@ impl TestEnv {
         );
         assert_eq!(self.row_state(job_id).await, expected);
         assert!(!self.is_fatal());
+    }
+
+    /// # Returns
+    ///
+    /// A future that reports the success of the instance `task_instance_id` of `job_id`'s cleanup
+    /// task. The future:
+    ///
+    /// * Resolves to [`ServiceState::succeed_cleanup_task_instance`]'s return values.
+    /// * Panics if the report isn't answered within [`RPC_TIMEOUT`].
+    fn cleanup_success(
+        &self,
+        job_id: JobId,
+        task_instance_id: TaskInstanceId,
+    ) -> impl Future<Output = JobResult> + Send + use<> {
+        let service = self.service.clone();
+        async move {
+            bounded_rpc(service.succeed_cleanup_task_instance(
+                service.session_id(),
+                job_id,
+                task_instance_id,
+            ))
+            .await
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The states of the rows of the tree rooted at `root_id` in the database, by job.
+    async fn tree_rows(&self, root_id: JobId) -> HashMap<JobId, JobState> {
+        tree_rows(&self.pool, root_id).await
     }
 
     /// # Returns
