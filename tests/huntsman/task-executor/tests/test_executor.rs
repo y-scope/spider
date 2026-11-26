@@ -4,6 +4,7 @@
 //! requests and responses over the binary's stdin/stdout, and assert on the results.
 
 use spider_core::task::TaskContext;
+use spider_core::task::TaskContextFrame;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -431,18 +432,12 @@ async fn termination_tasks_reject_child_creation() -> anyhow::Result<()> {
         } else {
             None
         };
-        let context = TaskContext::new(
-            JobId::random(),
-            task_id,
-            1,
-            ResourceGroupId::random(),
-            outputs,
-        )?;
+        let context = TaskContext::new(JobId::random(), task_id, 1, ResourceGroupId::random());
         let mut request = execute_request("create_children", encode_single_input(&1_u64));
         let Request::Execute { raw_ctx, .. } = &mut request else {
             panic!("expected execute request");
         };
-        *raw_ctx = rmp_serde::to_vec(&context)?;
+        *raw_ctx = TaskContextFrame::new(context, outputs.as_deref())?.to_wire()?;
         handle.send(&request).await;
         let Response::Result { outcome, .. } = handle.recv().await;
         let ExecutorOutcome::Failure { error } = outcome else {
@@ -468,18 +463,12 @@ async fn termination_task_outputs_survive_the_subprocess_protocol() -> anyhow::R
         } else {
             None
         };
-        let context = TaskContext::new(
-            JobId::random(),
-            task_id,
-            1,
-            ResourceGroupId::random(),
-            outputs,
-        )?;
+        let context = TaskContext::new(JobId::random(), task_id, 1, ResourceGroupId::random());
         let mut request = execute_request("fibonacci", encode_single_input(&7_u64));
         let Request::Execute { raw_ctx, .. } = &mut request else {
             panic!("expected execute request");
         };
-        *raw_ctx = rmp_serde::to_vec(&context)?;
+        *raw_ctx = TaskContextFrame::new(context, outputs.as_deref())?.to_wire()?;
         handle.send(&request).await;
         let Response::Result { outcome, .. } = handle.recv().await;
         let ExecutorOutcome::Success { outputs, children } = outcome else {

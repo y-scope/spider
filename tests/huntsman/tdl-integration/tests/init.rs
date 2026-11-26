@@ -1,6 +1,7 @@
 //! End-to-end tests for the TDL package init hook against the `integration-test-tasks` cdylib.
 
 use spider_core::task::TaskContext;
+use spider_core::task::TaskContextFrame;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -30,10 +31,11 @@ fn encode_ctx() -> Vec<u8> {
         TaskId::Index(0),
         1,
         ResourceGroupId::random(),
-        None,
-    )
-    .expect("failed to build `TaskContext`");
-    rmp_serde::to_vec(&ctx).expect("failed to serialize `TaskContext`")
+    );
+    TaskContextFrame::new(ctx, None)
+        .expect("failed to build task context frame")
+        .to_wire()
+        .expect("failed to encode task context frame")
 }
 
 /// # Returns

@@ -21,6 +21,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use futures_util::SinkExt;
 use spider_core::task::TaskContext;
+use spider_core::task::TaskContextFrame;
 use spider_core::task::TdlContext;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -199,12 +200,11 @@ pub fn tdl_package_dir() -> PathBuf {
 
 /// # Returns
 ///
-/// A placeholder msgpack-encoded [`TaskContext`] suitable for a one-shot test invocation. The id
-/// fields are fresh per call but the executor doesn't inspect them.
+/// A wire-format task context for a regular task, with fresh job and resource-group IDs.
 ///
 /// # Panics
 ///
-/// Panics if constructing or msgpack-encoding the [`TaskContext`] fails.
+/// Panics if building or encoding the task context frame fails.
 #[must_use]
 pub fn build_ctx() -> Vec<u8> {
     let ctx = TaskContext::new(
@@ -212,10 +212,11 @@ pub fn build_ctx() -> Vec<u8> {
         TaskId::Index(0),
         1,
         ResourceGroupId::random(),
-        None,
-    )
-    .expect("build TaskContext");
-    rmp_serde::to_vec(&ctx).expect("serialize TaskContext")
+    );
+    TaskContextFrame::new(ctx, None)
+        .expect("build task context frame")
+        .to_wire()
+        .expect("encode task context frame")
 }
 
 /// Wraps `value` into a single-payload [`TaskInput`] list — the shape carried in
@@ -315,8 +316,7 @@ pub fn execute_request(task_func: &str, raw_inputs: Vec<u8>) -> Request {
     }
 }
 
-/// Builds a msgpack-encoded commit [`TaskContext`] carrying `outputs` as the job's task-graph
-/// outputs.
+/// Encodes a commit task context carrying the given task-graph outputs.
 ///
 /// Each value in `outputs` is msgpack-encoded into one task-graph output payload, mirroring the
 /// shape the execution manager ships to a commit task.
@@ -327,11 +327,11 @@ pub fn execute_request(task_func: &str, raw_inputs: Vec<u8>) -> Request {
 ///
 /// # Returns
 ///
-/// A msgpack-encoded commit [`TaskContext`] whose task-graph outputs decode back to `outputs`.
+/// A wire-format task context whose task-graph outputs decode back to `outputs`.
 ///
 /// # Panics
 ///
-/// Panics if msgpack encoding, output serialization, or [`TaskContext`] construction fails.
+/// Panics if output serialization or task context frame construction or encoding fails.
 #[must_use]
 pub fn build_commit_ctx<ValueType: serde::Serialize>(outputs: &[ValueType]) -> Vec<u8> {
     let task_outputs: Vec<TaskOutput> = outputs
@@ -346,10 +346,11 @@ pub fn build_commit_ctx<ValueType: serde::Serialize>(outputs: &[ValueType]) -> V
         TaskId::Commit,
         1,
         ResourceGroupId::random(),
-        Some(serialized_outputs),
-    )
-    .expect("build commit TaskContext");
-    rmp_serde::to_vec(&ctx).expect("serialize TaskContext")
+    );
+    TaskContextFrame::new(ctx, Some(&serialized_outputs))
+        .expect("build task context frame")
+        .to_wire()
+        .expect("encode task context frame")
 }
 
 /// # Type Parameters
@@ -358,8 +359,8 @@ pub fn build_commit_ctx<ValueType: serde::Serialize>(outputs: &[ValueType]) -> V
 ///
 /// # Returns
 ///
-/// A [`Request::Execute`] targeting `task_func` in the integration package, carrying a commit
-/// [`TaskContext`] whose task-graph outputs are `outputs` and no task inputs.
+/// A [`Request::Execute`] targeting `task_func` in the integration package with the given
+/// task-graph outputs and no task inputs.
 #[must_use]
 pub fn commit_execute_request<ValueType: serde::Serialize>(
     task_func: &str,
