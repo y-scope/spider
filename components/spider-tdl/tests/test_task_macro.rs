@@ -78,7 +78,11 @@ fn translate(_ctx: TaskContext, p: Point, dx: int32, dy: int32) -> Result<(Point
 
 /// # Returns
 ///
-/// A mocked encoded task context for testing.
+/// An encoded task context frame for a regular task.
+///
+/// # Panics
+///
+/// Panics if constructing or encoding the task context frame fails.
 fn make_encoded_ctx() -> Vec<u8> {
     let ctx = CoreTaskContext::new(
         JobId::random(),

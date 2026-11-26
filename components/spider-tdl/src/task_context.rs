@@ -97,7 +97,10 @@ impl TaskContext {
     ///
     /// # Returns
     ///
-    /// The runtime context and its child job submission receiver on success.
+    /// A tuple on success, containing:
+    ///
+    /// * The task runtime context.
+    /// * The receiver for its child job submissions.
     ///
     /// # Errors
     ///
