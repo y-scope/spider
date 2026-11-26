@@ -15,7 +15,6 @@ use crate::types::id::TaskId;
 /// # Type Parameters
 ///
 /// * `'outputs_lifetime` - The lifetime of the borrowed serialized task-graph outputs.
-#[derive(Debug)]
 pub struct TaskContextFrame<'outputs_lifetime> {
     task_context: TaskContext,
     serialized_task_graph_outputs: Option<&'outputs_lifetime [u8]>,
