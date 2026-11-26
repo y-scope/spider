@@ -18,7 +18,6 @@ bytes = { workspace = true }
 clap = { workspace = true }
 futures-util = { workspace = true }
 prost = { workspace = true }
-rmp-serde = { workspace = true }
 serde = { workspace = true }
 spider-core = { workspace = true }
 spider-proto-rust = { workspace = true }
