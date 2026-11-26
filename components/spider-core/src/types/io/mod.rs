@@ -176,14 +176,9 @@ impl SerializedTaskOutputs {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`decode_zstd_bytes`]'s return values on failure.
-    /// * Forwards [`wire::unframe`]'s return values on failure.
-    pub fn deserialize(self) -> Result<Vec<TaskOutput>, TaskOutputsError> {
-        let wire_bytes = match self.option {
-            TaskOutputsSerializeOption::Wire => self.payload,
-            TaskOutputsSerializeOption::ZstdWire => decode_zstd_bytes(&self.payload)?,
-        };
-        Ok(wire::unframe(&wire_bytes)?)
+    /// * Forwards [`Self::deserialize_payload`]'s return values on failure.
+    pub fn deserialize(&self) -> Result<Vec<TaskOutput>, TaskOutputsError> {
+        Self::deserialize_payload(self.option, &self.payload)
     }
 
     /// Unpacks a raw byte buffer produced by [`Self::to_raw`] and deserializes it back into
@@ -198,10 +193,28 @@ impl SerializedTaskOutputs {
     /// Returns an error if:
     ///
     /// * Forwards [`Self::split_raw`]'s return values on failure.
-    /// * Forwards [`decode_zstd_bytes`]'s return values on failure.
-    /// * Forwards [`wire::unframe`]'s return values on failure.
+    /// * Forwards [`Self::deserialize_payload`]'s return values on failure.
     pub fn deserialize_from_raw(raw_bytes: &[u8]) -> Result<Vec<TaskOutput>, TaskOutputsError> {
         let (option, payload_bytes) = Self::split_raw(raw_bytes)?;
+        Self::deserialize_payload(option, payload_bytes)
+    }
+
+    /// Deserializes the encoded payload using the supplied serialization option.
+    ///
+    /// # Returns
+    ///
+    /// A vector of output payloads on success, one per wire-format element.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`decode_zstd_bytes`]'s return values on failure.
+    /// * Forwards [`wire::unframe`]'s return values on failure.
+    fn deserialize_payload(
+        option: TaskOutputsSerializeOption,
+        payload_bytes: &[u8],
+    ) -> Result<Vec<TaskOutput>, TaskOutputsError> {
         let outputs = match option {
             // Unframe directly from the borrowed slice to avoid copying the payload.
             TaskOutputsSerializeOption::Wire => wire::unframe(payload_bytes)?,

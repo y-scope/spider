@@ -7,6 +7,7 @@ use spider_core::job::submission::CompressedJobSubmission;
 use spider_core::job::submission::MAX_CHILDREN_PER_JOB;
 use spider_core::job::submission::MAX_TASK_CHILDREN_SIZE;
 use spider_core::task::TaskContext as CoreTaskContext;
+use spider_core::task::TaskContextFrame;
 use spider_core::task::TaskGraph;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -15,14 +16,15 @@ use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::SerializedTaskOutputs;
 use spider_core::types::io::TaskGraphInput;
 use spider_core::types::io::TaskOutput;
+use spider_core::types::io::TaskOutputsError;
 
 use crate::error::TdlError;
 
-/// Runtime context for a task execution. Clones share child job submissions.
+/// Runtime context for a task execution. Clones share child job submissions and graph outputs.
 #[derive(Debug, Clone)]
 pub struct TaskContext {
     raw: CoreTaskContext,
-    serialized_task_graph_outputs: Option<Vec<u8>>,
+    serialized_task_graph_outputs: Option<Arc<SerializedTaskOutputs>>,
     child_job_submission_sender: ChildJobSubmissionSender,
 }
 
@@ -84,28 +86,32 @@ impl TaskContext {
     ///
     /// * [`TdlError::DeserializationError`] if the task-graph outputs cannot be deserialized.
     pub fn get_task_graph_outputs(&self) -> Result<Option<Vec<TaskOutput>>, TdlError> {
-        match self.serialized_task_graph_outputs.as_deref() {
-            Some(bytes) => {
-                let task_graph_outputs = SerializedTaskOutputs::deserialize_from_raw(bytes)
-                    .map_err(|e| TdlError::DeserializationError(e.to_string()))?;
-                Ok(Some(task_graph_outputs))
-            }
-            None => Ok(None),
-        }
+        self.serialized_task_graph_outputs
+            .as_deref()
+            .map(SerializedTaskOutputs::deserialize)
+            .transpose()
+            .map_err(|error| TdlError::DeserializationError(error.to_string()))
     }
 
-    /// Creates a runtime context with the given metadata and serialized task-graph outputs.
+    /// Creates a runtime context from a validated task context frame.
     ///
     /// # Returns
     ///
-    /// A tuple containing:
+    /// The runtime context and its child job submission receiver on success.
     ///
-    /// * The task context.
-    /// * The receiver for the context's child job submissions.
-    pub(crate) fn from_raw(
-        raw: CoreTaskContext,
-        serialized_task_graph_outputs: Option<Vec<u8>>,
-    ) -> (Self, ChildJobSubmissionReceiver) {
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`SerializedTaskOutputs::from_raw`]'s return values on failure.
+    pub(crate) fn from_frame(
+        frame: TaskContextFrame<'_>,
+    ) -> Result<(Self, ChildJobSubmissionReceiver), TaskOutputsError> {
+        let (raw, serialized_task_graph_outputs) = frame.into_parts();
+        let serialized_task_graph_outputs = serialized_task_graph_outputs
+            .map(SerializedTaskOutputs::from_raw)
+            .transpose()?
+            .map(Arc::new);
         let submissions = Arc::new(Mutex::new(ChildJobSubmissions::Collecting {
             children: Vec::new(),
             compressed_size: 0,
@@ -117,7 +123,7 @@ impl TaskContext {
                 submissions: Arc::clone(&submissions),
             },
         };
-        (context, ChildJobSubmissionReceiver { submissions })
+        Ok((context, ChildJobSubmissionReceiver { submissions }))
     }
 }
 
@@ -240,6 +246,7 @@ mod tests {
     use spider_core::job::submission::MAX_CHILDREN_PER_JOB;
     use spider_core::job::submission::MAX_TASK_CHILDREN_SIZE;
     use spider_core::task::TaskContext as CoreTaskContext;
+    use spider_core::task::TaskContextFrame;
     use spider_core::task::TaskGraph;
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
@@ -247,6 +254,9 @@ mod tests {
     use spider_core::types::io::SerializedTaskOutputs;
     use spider_core::types::io::TaskGraphInputBuilder;
     use spider_core::types::io::TaskOutput;
+    use spider_core::types::io::TaskOutputsError;
+    use spider_core::types::io::TaskOutputsSerializeOption;
+    use spider_utils::wire::WireError;
 
     use super::ChildJobSubmissionReceiver;
     use super::ChildJobSubmissions;
@@ -275,12 +285,16 @@ mod tests {
     ///
     /// * A context with valid metadata for the given task kind.
     /// * The receiver for its child job submissions.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the task context frame or runtime context cannot be constructed.
     fn create_context(task_id: TaskId) -> (TaskContext, ChildJobSubmissionReceiver) {
         let raw = CoreTaskContext::new(JobId::random(), task_id, 13, ResourceGroupId::random());
-        TaskContext::from_raw(
-            raw,
-            (task_id == TaskId::Commit).then(|| serialize_outputs(&[])),
-        )
+        let outputs = (task_id == TaskId::Commit).then(|| serialize_outputs(&[]));
+        let frame =
+            TaskContextFrame::new(raw, outputs.as_deref()).expect("build task context frame");
+        TaskContext::from_frame(frame).expect("build runtime context")
     }
 
     /// # Returns
@@ -439,14 +453,26 @@ mod tests {
     #[test]
     fn get_task_graph_outputs_returns_commit_outputs() -> anyhow::Result<()> {
         let outputs: Vec<TaskOutput> = vec![vec![1, 2, 3], vec![4, 5, 6]];
-        let raw = CoreTaskContext::new(
-            JobId::random(),
-            TaskId::Commit,
-            1,
-            ResourceGroupId::random(),
-        );
-        let (ctx, _receiver) = TaskContext::from_raw(raw, Some(serialize_outputs(&outputs)));
-        assert_eq!(ctx.get_task_graph_outputs()?, Some(outputs));
+        for option in [
+            TaskOutputsSerializeOption::Wire,
+            TaskOutputsSerializeOption::ZstdWire,
+        ] {
+            let (ctx, _receiver) = {
+                let raw = CoreTaskContext::new(
+                    JobId::random(),
+                    TaskId::Commit,
+                    1,
+                    ResourceGroupId::random(),
+                );
+                let bytes = SerializedTaskOutputs::serialize(&outputs, option)?.to_raw();
+                let frame = TaskContextFrame::new(raw, Some(&bytes))?;
+                TaskContext::from_frame(frame)?
+            };
+            assert_eq!(
+                ctx.get_task_graph_outputs()?.as_deref(),
+                Some(outputs.as_slice())
+            );
+        }
         Ok(())
     }
 
@@ -465,17 +491,24 @@ mod tests {
     }
 
     #[test]
-    fn get_task_graph_outputs_rejects_invalid_bytes() {
+    fn get_task_graph_outputs_rejects_truncated_body_on_access() -> anyhow::Result<()> {
+        let mut truncated_body = serialize_outputs(&[]);
+        truncated_body.truncate(1);
         let raw = CoreTaskContext::new(
             JobId::random(),
             TaskId::Commit,
             1,
             ResourceGroupId::random(),
         );
-        let (ctx, _receiver) = TaskContext::from_raw(raw, Some(vec![0xff, 0x00, 0x13, 0x37]));
-        assert!(matches!(
-            ctx.get_task_graph_outputs(),
-            Err(TdlError::DeserializationError(_))
+        let frame = TaskContextFrame::new(raw, Some(&truncated_body))?;
+        let (ctx, _receiver) = TaskContext::from_frame(frame)?;
+        let expected_error = TaskOutputsError::Wire(WireError::InvalidFormat(
+            "buffer too small for the payload count header",
         ));
+        assert_eq!(
+            ctx.get_task_graph_outputs(),
+            Err(TdlError::DeserializationError(expected_error.to_string()))
+        );
+        Ok(())
     }
 }

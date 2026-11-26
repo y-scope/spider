@@ -244,9 +244,11 @@ impl<TaskType: Task + Send + Sync> TaskHandler for TaskHandlerImpl<TaskType> {
         })?;
         let params: TaskType::Params = TaskInputsSerializer::deserialize(raw_args)
             .map_err(|e| serialize_error(&TdlError::DeserializationError(e.to_string())))?;
-        let (raw, serialized_task_graph_outputs) = frame.into_parts();
-        let (ctx, child_job_submission_receiver) =
-            TaskContext::from_raw(raw, serialized_task_graph_outputs.map(<[u8]>::to_vec));
+        let (ctx, child_job_submission_receiver) = TaskContext::from_frame(frame).map_err(|e| {
+            serialize_error(&TdlError::DeserializationError(format!(
+                "failed to deserialize task-graph outputs: {e}"
+            )))
+        })?;
         let result = TaskType::execute(ctx, params);
         let children = child_job_submission_receiver.take();
         let outputs = result
@@ -295,6 +297,7 @@ mod tests {
     use spider_core::types::io::TaskGraphInputBuilder;
     use spider_core::types::io::TaskInput;
     use spider_core::types::io::TaskInputsSerializer;
+    use spider_core::types::io::TaskOutputsError;
     use spider_core::types::io::TaskOutputsSerializer;
 
     use super::*;
@@ -558,6 +561,35 @@ mod tests {
         context.append_payload(&[0xc1])?;
         let result = handler.execute_raw(&context.release(), &raw_args);
         assert_deserialization_failure(result);
+        Ok(())
+    }
+
+    #[test]
+    fn handler_rejects_invalid_graph_output_tags() -> anyhow::Result<()> {
+        let handler = TaskHandlerImpl::<Add>::new();
+        let raw_args = Add::make_inputs(1, 2)?;
+
+        for (outputs, expected_error) in [
+            (&[][..], TaskOutputsError::Empty),
+            (&[0xff][..], TaskOutputsError::UnknownOption(0xff)),
+        ] {
+            let ctx = CoreTaskContext::new(
+                JobId::random(),
+                TaskId::Commit,
+                1,
+                ResourceGroupId::random(),
+            );
+            let raw_ctx = TaskContextFrame::new(ctx, Some(outputs))?.to_wire()?;
+            let error = handler
+                .execute_raw(&raw_ctx, &raw_args)
+                .expect_err("invalid graph output tag must prevent execution");
+            assert_eq!(
+                rmp_serde::from_slice::<TdlError>(&error)?,
+                TdlError::DeserializationError(format!(
+                    "failed to deserialize task-graph outputs: {expected_error}"
+                ))
+            );
+        }
         Ok(())
     }
 
