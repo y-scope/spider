@@ -751,7 +751,8 @@ impl<
     /// Cancels the tree rooted at the job, which must be its tree's root: submits the cancel to the
     /// tree and waits until the committer has applied it. The cancel:
     ///
-    /// * Moves the job and every other running or blocking job of the tree to its abort target.
+    /// * Moves the job and every other running, blocking or commit-ready job of the tree to its
+    ///   abort target.
     /// * Publishes the cleanup task of each job that moves to [`JobState::CleanupReady`].
     ///
     /// A cancel of a job other than the root is a broken invariant that shuts the service down

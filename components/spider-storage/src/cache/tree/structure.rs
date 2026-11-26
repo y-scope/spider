@@ -247,12 +247,12 @@ impl TreeNode {
     /// # Returns
     ///
     /// Whether a cancel of the tree moves the job to its abort target (see [`Self::abort_target`]):
-    /// whether it is [`JobState::Running`] or [`JobState::BlockingOnChildren`].
+    /// whether it is [`JobState::Running`], [`JobState::BlockingOnChildren`] or
+    /// [`JobState::CommitReady`].
     pub(super) const fn is_abortable(&self) -> bool {
         match self.state {
-            JobState::Running | JobState::BlockingOnChildren => true,
+            JobState::Running | JobState::BlockingOnChildren | JobState::CommitReady => true,
             JobState::Ready
-            | JobState::CommitReady
             | JobState::CleanupReady
             | JobState::Succeeded
             | JobState::Failed
@@ -973,6 +973,11 @@ mod tests {
                     JobState::BlockingOnChildren,
                     JobState::CleanupReady
                 ),
+                JobStateUpdate::new(
+                    JobId::from(3),
+                    JobState::CommitReady,
+                    JobState::CleanupReady
+                ),
                 JobStateUpdate::new(JobId::from(4), JobState::Running, JobState::CleanupReady),
                 JobStateUpdate::new(JobId::from(5), JobState::Running, JobState::Cancelled),
             ]
@@ -982,6 +987,7 @@ mod tests {
             [
                 Publication::Cleanup(ROOT_ID),
                 Publication::Cleanup(JobId::from(2)),
+                Publication::Cleanup(JobId::from(3)),
                 Publication::Cleanup(JobId::from(4)),
             ]
         );
@@ -990,7 +996,8 @@ mod tests {
     }
 
     #[test]
-    fn a_cancel_skips_a_commit_ready_non_root_job_which_then_finishes() -> anyhow::Result<()> {
+    fn a_cancel_aborts_a_commit_ready_non_root_job_whose_later_commit_is_stale()
+    -> anyhow::Result<()> {
         let structure = tree(
             BLOCKING_ROOT,
             [
@@ -1019,24 +1026,28 @@ mod tests {
                         ..
                     },
                     RoundOutcome::Planned {
-                        outcome: TreeEventOutcome::Applied(JobState::Succeeded),
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobNoLongerCommitReady),
                         ..
                     },
                 ]
             ),
-            "a cancel and a commit of a skipped job gave {:?}",
+            "a cancel and a commit of an aborted job gave {:?}",
             plan.outcomes
         );
         assert_eq!(
             plan.updates,
             [
                 JobStateUpdate::new(ROOT_ID, JobState::BlockingOnChildren, JobState::Cancelled),
+                JobStateUpdate::new(
+                    JobId::from(2),
+                    JobState::CommitReady,
+                    JobState::CleanupReady
+                ),
                 JobStateUpdate::new(JobId::from(3), JobState::Running, JobState::Cancelled),
-                JobStateUpdate::new(JobId::from(2), JobState::CommitReady, JobState::Succeeded),
             ]
         );
         assert_eq!(plan.num_active_children, HashMap::new());
-        assert_eq!(plan.publications, []);
+        assert_eq!(plan.publications, [Publication::Cleanup(JobId::from(2))]);
         Ok(())
     }
 
@@ -1639,6 +1650,21 @@ mod tests {
         cancelled_root_tree.apply_state(ROOT_ID, JobState::Cancelled);
         for (description, structure, expected) in [
             (
+                "a cleanup-ready root with a cleanup-ready child",
+                tree(
+                    CLEANUP_READY_ROOT,
+                    [(
+                        2,
+                        TreeNode {
+                            state: JobState::CleanupReady,
+                            has_cleanup: true,
+                            ..CHILD_NODE
+                        },
+                    )],
+                ),
+                Ok(()),
+            ),
+            (
                 "a cleanup-ready root with a commit-ready child",
                 tree(
                     CLEANUP_READY_ROOT,
@@ -1646,11 +1672,12 @@ mod tests {
                         2,
                         TreeNode {
                             state: JobState::CommitReady,
+                            has_commit: true,
                             ..CHILD_NODE
                         },
                     )],
                 ),
-                Ok(()),
+                Err(Violation::AbortableJobOfInactiveRoot(JobId::from(2))),
             ),
             (
                 "a cleanup-ready root with a running child",

@@ -361,15 +361,15 @@ impl TwoRegistrationTree {
 /// How the root's cancel and the commit of a `CommitReady` non-root job interleave.
 #[derive(Debug, Clone, Copy, EnumIter)]
 enum CommitRace {
-    /// The commit task's instance is registered, then the cancel is answered, then the commit
-    /// succeeds.
+    /// The commit task's instance is registered, then the cancel is answered, then the instance's
+    /// success is reported.
     CancelThenCommit,
 
-    /// The cancel is answered, then the commit task gets an instance, which succeeds.
-    CancelThenNewInstanceCommit,
+    /// The cancel is answered, then an instance of the commit task is registered.
+    CancelThenNewInstance,
 
-    /// The commit task's instance is registered, then the cancel is answered, then the commit fails
-    /// for good.
+    /// The commit task's instance is registered, then the cancel is answered, then the instance's
+    /// failure is reported.
     CancelThenCommitFailure,
 
     /// The commit's success and the cancel in one round; the commit arrives first.
@@ -417,9 +417,7 @@ impl CommitRace {
     const fn is_cancel_answered_first(self) -> bool {
         matches!(
             self,
-            Self::CancelThenCommit
-                | Self::CancelThenNewInstanceCommit
-                | Self::CancelThenCommitFailure
+            Self::CancelThenCommit | Self::CancelThenNewInstance | Self::CancelThenCommitFailure
         )
     }
 }
@@ -1385,38 +1383,25 @@ impl TestEnv {
     /// and with `Q` if `with_uncle`, with the commit of its `CommitReady` non-root job `P` as
     /// `race` says, and asserts the outcome:
     ///
-    /// * A cancel planned first skips `P`.
-    /// * `P` then finishes its commit without moving its cancelled parent.
+    /// * A cancel planned first deactivates `P`, and the commit is stale.
     /// * A commit planned first climbs as usual.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`ServiceState::succeed_commit_task_instance`]'s return values on failure.
-    /// * Forwards [`ServiceState::fail_task_instance`]'s return values on failure.
     ///
     /// # Panics
     ///
     /// Panics if the outcome is not the one asserted.
-    ///
-    /// [`ServiceState::succeed_commit_task_instance`]:
-    ///     spider_storage::state::ServiceState::succeed_commit_task_instance
-    /// [`ServiceState::fail_task_instance`]:
-    ///     spider_storage::state::ServiceState::fail_task_instance
-    async fn assert_cancel_skips_commit_ready_job(
+    async fn assert_cancel_races_non_root_commit(
         &self,
         has_cleanup: bool,
         with_uncle: bool,
         race: CommitRace,
-    ) -> anyhow::Result<()> {
+    ) {
         let what = format!("cleanup: {has_cleanup}, uncle: {with_uncle}, {race:?}");
         let tree = CommitTree::start(self, has_cleanup, with_uncle).await;
         let parent_id = tree.parent_id;
-        let parent_final_state = if race.is_commit_failure() {
-            JobState::Failed
-        } else {
+        let parent_final_state = if race.is_commit_first() {
             JobState::Succeeded
+        } else {
+            abort_target(has_cleanup)
         };
         let is_cancel_written = !race.is_commit_first() || with_uncle;
         let probes = TreeProbes::arm(self, tree.root_id, &tree.job_ids());
@@ -1425,8 +1410,16 @@ impl TestEnv {
 
         let (commit, cancelled) = self.race_commit(&tree, race, &what).await;
 
-        assert_job_result(&commit, parent_final_state, &format!("{what}: the commit"));
-        commit?;
+        if race.is_commit_first() {
+            assert_job_result(&commit, JobState::Succeeded, &format!("{what}: the commit"));
+        } else {
+            let expected_stale = if race.is_cancel_answered_first() || has_cleanup {
+                StaleStateError::JobNoLongerCommitReady
+            } else {
+                StaleStateError::JobAlreadyTerminated(JobState::Cancelled)
+            };
+            assert_stale(&commit, &expected_stale, &format!("{what}: the commit"));
+        }
         if is_cancel_written {
             assert_job_result(
                 &cancelled,
@@ -1441,72 +1434,59 @@ impl TestEnv {
             );
         }
 
-        let num_rounds = match race {
-            CommitRace::SameRoundCommitFirst
+        let (num_rounds, num_writes) = match race {
+            CommitRace::CancelThenCommit
+            | CommitRace::CancelThenNewInstance
+            | CommitRace::CancelThenCommitFailure
+            | CommitRace::SameRoundCommitFirst
             | CommitRace::SameRoundCancelFirst
-            | CommitRace::SameRoundCommitFailure => 1,
-            CommitRace::CommitInFlight | CommitRace::AfterCommitReply => {
-                if with_uncle {
-                    2
+            | CommitRace::SameRoundCommitFailure => (1, 1),
+            CommitRace::CancelInFlight => {
+                if has_cleanup {
+                    (2, 1)
                 } else {
-                    1
+                    (1, 1)
                 }
             }
-            CommitRace::CancelThenCommit
-            | CommitRace::CancelThenNewInstanceCommit
-            | CommitRace::CancelThenCommitFailure
-            | CommitRace::CancelInFlight => 2,
+            CommitRace::CommitInFlight | CommitRace::AfterCommitReply => {
+                if with_uncle {
+                    (2, 2)
+                } else {
+                    (1, 1)
+                }
+            }
         };
-        probes.assert_rounds(num_rounds, num_rounds, &what);
+        probes.assert_rounds(num_rounds, num_writes, &what);
         let mut transitions =
             HashMap::from([(tree.root_id, 1), (parent_id, 1), (tree.child_id, 0)]);
         transitions.extend(tree.uncle_id.map(|uncle_id| (uncle_id, 1)));
         probes.assert_transitions(&transitions, &what);
+        let final_states = tree.states(race, parent_final_state);
         if let Some(snapshot) = snapshot {
-            let parent_state_at_cancel = match race {
-                CommitRace::SameRoundCommitFirst
-                | CommitRace::SameRoundCancelFirst
-                | CommitRace::SameRoundCommitFailure => parent_final_state,
-                CommitRace::CommitInFlight | CommitRace::AfterCommitReply => JobState::Succeeded,
-                CommitRace::CancelThenCommit
-                | CommitRace::CancelThenNewInstanceCommit
-                | CommitRace::CancelThenCommitFailure
-                | CommitRace::CancelInFlight => JobState::CommitReady,
-            };
             assert_eq!(
                 snapshot.rows().await,
-                tree.states(race, parent_state_at_cancel),
+                final_states,
                 "{what}: the rows at the cancel's write"
             );
         }
-        let expected_errors = if race.is_commit_failure() {
-            HashMap::from([(parent_id, COMMIT_FAILURE.to_owned())])
-        } else {
-            HashMap::new()
-        };
-        self.finish_tree(
-            tree.root_id,
-            &tree.states(race, parent_final_state),
-            &expected_errors,
-            &what,
-        )
-        .await;
-        Ok(())
+        self.finish_tree(tree.root_id, &final_states, &HashMap::new(), &what)
+            .await;
     }
 
-    /// Cancels the root of `tree`, then commits its `CommitReady` non-root job `P`:
+    /// Cancels the root of `tree`, then reports the commit of its `CommitReady` non-root job `P`:
     ///
     /// 1. `P`'s commit task gets an instance, unless `race` registers it after the cancel.
     /// 2. The root is cancelled.
     /// 3. The tree's states after the cancel are asserted.
-    /// 4. `P`'s commit task gets its instance, if it has none yet.
-    /// 5. The commit succeeds or fails, as `race` says.
+    /// 4. If `P`'s commit task has no instance yet, its registration is requested, and its result
+    ///    is returned.
+    /// 5. Otherwise, the instance's success or failure is reported, as `race` says.
     ///
     /// # Returns
     ///
     /// A tuple containing:
     ///
-    /// * The result of the commit's report.
+    /// * The result of the commit's report, or of the instance's registration.
     /// * The result of the cancel.
     ///
     /// # Panics
@@ -1519,20 +1499,29 @@ impl TestEnv {
         what: &str,
     ) -> (JobResult, JobResult) {
         let parent_id = tree.parent_id;
-        let early_instance_id = if matches!(race, CommitRace::CancelThenNewInstanceCommit) {
+        let early_instance_id = if matches!(race, CommitRace::CancelThenNewInstance) {
             None
         } else {
             Some(self.create_instance(parent_id, TaskId::Commit).await)
         };
         let cancelled = self.cancel(tree.root_id).await;
         self.assert_states(
-            &tree.states(race, JobState::CommitReady),
+            &tree.states(race, abort_target(tree.has_cleanup)),
             &format!("{what}: after the cancel"),
         )
         .await;
-        let commit_instance_id = match early_instance_id {
-            Some(commit_instance_id) => commit_instance_id,
-            None => self.create_instance(parent_id, TaskId::Commit).await,
+        let Some(commit_instance_id) = early_instance_id else {
+            let registration = self
+                .service
+                .create_task_instance(
+                    self.service.session_id(),
+                    parent_id,
+                    TaskId::Commit,
+                    self.execution_manager_id,
+                )
+                .await
+                .map(|_| JobState::CommitReady);
+            return (registration, cancelled);
         };
         let commit = if race.is_commit_failure() {
             self.task_failure(
@@ -1555,7 +1544,8 @@ impl TestEnv {
     ///
     /// A tuple containing:
     ///
-    /// * The result of the commit's report.
+    /// * The result of the commit's report, or, for the race that says so, of the commit instance's
+    ///   registration.
     /// * The result of the cancel.
     async fn race_commit(
         &self,
@@ -1633,7 +1623,7 @@ impl TestEnv {
                 .await
             }
             CommitRace::CancelThenCommit
-            | CommitRace::CancelThenNewInstanceCommit
+            | CommitRace::CancelThenNewInstance
             | CommitRace::CancelThenCommitFailure
             | CommitRace::AfterCommitReply => {
                 let commit = commit.await;
@@ -1694,21 +1684,20 @@ async fn a_root_cancel_racing_two_registrations_never_leaves_a_live_child() -> a
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires MariaDB"]
-async fn a_cancel_skips_a_commit_ready_non_root_job_which_then_finishes() -> anyhow::Result<()> {
+async fn a_cancel_aborts_a_commit_ready_non_root_job_unless_its_commit_is_planned_first() {
     let env = TestEnv::start_keeping_task_instances().await;
     for has_cleanup in [false, true] {
         for race in CommitRace::iter() {
-            env.assert_cancel_skips_commit_ready_job(has_cleanup, true, race)
-                .await?;
+            env.assert_cancel_races_non_root_commit(has_cleanup, true, race)
+                .await;
             if race.is_commit_first() {
-                env.assert_cancel_skips_commit_ready_job(has_cleanup, false, race)
-                    .await?;
+                env.assert_cancel_races_non_root_commit(has_cleanup, false, race)
+                    .await;
             }
         }
     }
     env.assert_lanes_empty().await;
     env.finish().await;
-    Ok(())
 }
 
 /// # Returns
@@ -1723,7 +1712,7 @@ const fn shape_with_cleanup(has_cleanup: bool) -> JobShape {
 
 /// # Returns
 ///
-/// The state that a cancel moves a running or blocking job to.
+/// The state that a cancel moves a running, blocking or commit-ready job to.
 const fn abort_target(has_cleanup: bool) -> JobState {
     if has_cleanup {
         JobState::CleanupReady

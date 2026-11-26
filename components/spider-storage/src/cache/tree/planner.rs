@@ -593,8 +593,6 @@ impl EventPlan {
     /// * The root is deactivated (see [`Self::deactivate`]).
     /// * Every other abortable job of the tree (see [`TreeNode::is_abortable`]) is deactivated too,
     ///   in ascending ID order.
-    ///
-    /// A [`JobState::CommitReady`] job other than the root is left to finish its commit.
     fn abort_from_root(root_id: JobId, root: &TreeNode, overlay: &Overlay<'_>) -> Self {
         let mut event_plan = Self {
             outcome: TreeEventOutcome::Applied(root.abort_target()),
