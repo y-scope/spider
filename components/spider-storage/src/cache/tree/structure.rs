@@ -246,9 +246,9 @@ impl TreeNode {
 
     /// # Returns
     ///
-    /// Whether a cancel of the tree moves the job to its abort target (see [`Self::abort_target`]):
-    /// whether it is [`JobState::Running`], [`JobState::BlockingOnChildren`] or
-    /// [`JobState::CommitReady`].
+    /// Whether an abort of the tree, by a root's cancel or by a failure under a blocking parent,
+    /// moves the job to its abort target (see [`Self::abort_target`]): whether it is
+    /// [`JobState::Running`], [`JobState::BlockingOnChildren`] or [`JobState::CommitReady`].
     pub(super) const fn is_abortable(&self) -> bool {
         match self.state {
             JobState::Running | JobState::BlockingOnChildren | JobState::CommitReady => true,
@@ -262,7 +262,7 @@ impl TreeNode {
 
     /// # Returns
     ///
-    /// The state that a cancel moves the job to: [`JobState::Cancelled`] if the job is
+    /// The state that an abort moves the job to: [`JobState::Cancelled`] if the job is
     /// [`JobState::Ready`] or has no cleanup task, otherwise [`JobState::CleanupReady`]. A
     /// [`JobState::Ready`] job never moves to [`JobState::CleanupReady`]: none of its tasks ran,
     /// and the edge is not a valid job state transition.
@@ -339,6 +339,7 @@ mod tests {
     use crate::limits::MAX_ERROR_MESSAGE_CHARS;
     use crate::limits::MAX_EVENTS_PER_ROUND;
     use crate::limits::MAX_JOB_CHILDREN_SIZE;
+    use crate::limits::MAX_PROPAGATED_MESSAGE_CHARS;
     use crate::limits::MAX_ROUND_PAYLOAD;
     use crate::state::test_utils::create_test_prepared_child;
     use crate::state::test_utils::create_test_prepared_children;
@@ -757,25 +758,31 @@ mod tests {
 
         let children = create_test_prepared_children(1).await;
         let events = vec![
-            event(2, failure(Lane::Regular, "boom")),
             event(2, registration(create_test_prepared_children(1).await)),
             event(3, registration(children)),
         ];
-        let plan = tree_with_children(2..=3)
-            .plan_events(&events)
-            .expect("the round should change each job at most once");
+        let plan = tree(
+            BLOCKING_ROOT,
+            [
+                (
+                    2,
+                    TreeNode {
+                        state: JobState::CommitReady,
+                        has_commit: true,
+                        ..CHILD_NODE
+                    },
+                ),
+                (3, CHILD_NODE),
+            ],
+        )
+        .plan_events(&events)
+        .expect("the round should change each job at most once");
         assert!(
             matches!(
                 plan.outcomes.as_slice(),
                 [
                     RoundOutcome::Planned {
-                        outcome: TreeEventOutcome::Applied(JobState::Failed),
-                        has_child_registration: false,
-                    },
-                    RoundOutcome::Planned {
-                        outcome: TreeEventOutcome::Stale(StaleStateError::JobAlreadyTerminated(
-                            JobState::Failed
-                        )),
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobNoLongerRunning),
                         has_child_registration: false,
                     },
                     RoundOutcome::Planned {
@@ -1093,6 +1100,409 @@ mod tests {
                 "a cancel of {description} gave {result:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_failure_under_a_blocking_parent_fails_every_ancestor_and_aborts_the_rest_of_the_tree()
+    -> anyhow::Result<()> {
+        const CHILD_WITH_CLEANUP: TreeNode = TreeNode {
+            has_cleanup: true,
+            ..CHILD_NODE
+        };
+        let structure = tree(
+            TreeNode {
+                has_cleanup: true,
+                ..BLOCKING_ROOT
+            },
+            [
+                (
+                    2,
+                    TreeNode {
+                        state: JobState::BlockingOnChildren,
+                        ..CHILD_WITH_CLEANUP
+                    },
+                ),
+                (
+                    3,
+                    TreeNode {
+                        state: JobState::CommitReady,
+                        has_commit: true,
+                        ..CHILD_WITH_CLEANUP
+                    },
+                ),
+                (4, CHILD_NODE),
+                (
+                    5,
+                    TreeNode {
+                        parent: Some(JobId::from(2)),
+                        ..CHILD_WITH_CLEANUP
+                    },
+                ),
+                (
+                    6,
+                    TreeNode {
+                        parent: Some(JobId::from(2)),
+                        ..CHILD_WITH_CLEANUP
+                    },
+                ),
+            ],
+        );
+        let plan = structure.plan_events(&[
+            event(6, failure(Lane::Regular, "boom")),
+            event(3, TreeEventKind::CommitDone),
+        ])?;
+        assert!(
+            matches!(
+                plan.outcomes.as_slice(),
+                [
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::Failed),
+                        has_child_registration: false,
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobNoLongerCommitReady),
+                        has_child_registration: false,
+                    },
+                ]
+            ),
+            "a failure of a grandchild and a commit of an aborted job gave {:?}",
+            plan.outcomes
+        );
+        let propagated_failure = |job_id: JobId| JobStateUpdate {
+            error_message: Some("descendant job 6 failed: boom".to_owned()),
+            ..JobStateUpdate::new(job_id, JobState::BlockingOnChildren, JobState::Failed)
+        };
+        assert_eq!(
+            plan.updates,
+            [
+                JobStateUpdate {
+                    error_message: Some("boom".to_owned()),
+                    ..JobStateUpdate::new(JobId::from(6), JobState::Running, JobState::Failed)
+                },
+                propagated_failure(JobId::from(2)),
+                propagated_failure(ROOT_ID),
+                JobStateUpdate::new(
+                    JobId::from(3),
+                    JobState::CommitReady,
+                    JobState::CleanupReady
+                ),
+                JobStateUpdate::new(JobId::from(4), JobState::Running, JobState::Cancelled),
+                JobStateUpdate::new(JobId::from(5), JobState::Running, JobState::CleanupReady),
+            ]
+        );
+        assert_eq!(
+            plan.publications,
+            [
+                Publication::Cleanup(JobId::from(3)),
+                Publication::Cleanup(JobId::from(5)),
+            ]
+        );
+        assert_eq!(plan.num_active_children, HashMap::new());
+        Ok(())
+    }
+
+    #[test]
+    fn a_commit_failure_under_a_blocking_parent_fails_its_ancestors() -> anyhow::Result<()> {
+        let plan = tree(
+            BLOCKING_ROOT,
+            [(
+                2,
+                TreeNode {
+                    state: JobState::CommitReady,
+                    has_commit: true,
+                    ..CHILD_NODE
+                },
+            )],
+        )
+        .plan_events(&[event(2, failure(Lane::Commit, "boom"))])?;
+        assert_eq!(
+            plan.updates,
+            [
+                JobStateUpdate {
+                    error_message: Some("boom".to_owned()),
+                    ..JobStateUpdate::new(JobId::from(2), JobState::CommitReady, JobState::Failed)
+                },
+                JobStateUpdate {
+                    error_message: Some("descendant job 2 failed: boom".to_owned()),
+                    ..JobStateUpdate::new(ROOT_ID, JobState::BlockingOnChildren, JobState::Failed)
+                },
+            ]
+        );
+        assert_eq!(plan.publications, []);
+        Ok(())
+    }
+
+    #[test]
+    fn a_propagated_failure_message_is_cut_to_the_maximum_number_of_characters()
+    -> anyhow::Result<()> {
+        for (message_chars, propagated_chars) in [
+            (
+                MAX_PROPAGATED_MESSAGE_CHARS + 1,
+                MAX_PROPAGATED_MESSAGE_CHARS,
+            ),
+            (MAX_PROPAGATED_MESSAGE_CHARS, MAX_PROPAGATED_MESSAGE_CHARS),
+        ] {
+            let message = "é".repeat(message_chars);
+            let plan = tree_with_children([2])
+                .plan_events(&[event(2, failure(Lane::Regular, &message))])?;
+            let messages: Vec<Option<&str>> = plan
+                .updates
+                .iter()
+                .map(|update| update.error_message.as_deref())
+                .collect();
+            let expected_propagated_message =
+                format!("descendant job 2 failed: {}", "é".repeat(propagated_chars));
+            assert_eq!(
+                messages,
+                [
+                    Some(message.as_str()),
+                    Some(expected_propagated_message.as_str())
+                ],
+                "a message of {message_chars} characters"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_cleanup_failure_fails_only_its_job() -> anyhow::Result<()> {
+        let plan = tree(
+            TreeNode {
+                has_cleanup: true,
+                ..BLOCKING_ROOT
+            },
+            [
+                (
+                    2,
+                    TreeNode {
+                        state: JobState::CleanupReady,
+                        has_cleanup: true,
+                        ..CHILD_NODE
+                    },
+                ),
+                (3, CHILD_NODE),
+            ],
+        )
+        .plan_events(&[event(2, failure(Lane::Cleanup, "boom"))])?;
+        assert_eq!(
+            plan.updates,
+            [JobStateUpdate {
+                error_message: Some("boom".to_owned()),
+                ..JobStateUpdate::new(JobId::from(2), JobState::CleanupReady, JobState::Failed)
+            }]
+        );
+        assert_eq!(plan.publications, []);
+        Ok(())
+    }
+
+    #[test]
+    fn a_failure_under_a_deactivated_parent_fails_only_its_job() -> anyhow::Result<()> {
+        const COMMIT_READY_CHILD: TreeNode = TreeNode {
+            state: JobState::CommitReady,
+            has_commit: true,
+            ..CHILD_NODE
+        };
+        let mut cancelled_root_tree = tree(BLOCKING_ROOT, [(2, COMMIT_READY_CHILD)]);
+        cancelled_root_tree.apply_state(ROOT_ID, JobState::Cancelled);
+        for (description, structure) in [
+            (
+                "a cleanup-ready parent",
+                tree(
+                    TreeNode {
+                        state: JobState::CleanupReady,
+                        has_cleanup: true,
+                        ..PLAIN_NODE
+                    },
+                    [(2, COMMIT_READY_CHILD)],
+                ),
+            ),
+            ("a cancelled parent", cancelled_root_tree),
+        ] {
+            let plan = structure.plan_events(&[event(2, failure(Lane::Commit, "boom"))])?;
+            assert_eq!(
+                plan.updates,
+                [JobStateUpdate {
+                    error_message: Some("boom".to_owned()),
+                    ..JobStateUpdate::new(JobId::from(2), JobState::CommitReady, JobState::Failed)
+                }],
+                "{description}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn two_failures_in_one_round_fail_the_tree_once() -> anyhow::Result<()> {
+        let plan = tree_with_children([2, 3]).plan_events(&[
+            event(2, failure(Lane::Regular, "first")),
+            event(3, failure(Lane::Regular, "second")),
+        ])?;
+        assert!(
+            matches!(
+                plan.outcomes.as_slice(),
+                [
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::Failed),
+                        ..
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobAlreadyTerminated(
+                            JobState::Cancelled
+                        )),
+                        ..
+                    },
+                ]
+            ),
+            "two failures in one round gave {:?}",
+            plan.outcomes
+        );
+        assert_eq!(
+            plan.updates
+                .iter()
+                .map(|update| (update.job_id.get(), update.to))
+                .collect::<Vec<_>>(),
+            [
+                (2, JobState::Failed),
+                (ROOT_ID.get(), JobState::Failed),
+                (3, JobState::Cancelled),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_failure_after_a_siblings_success_in_one_round_fails_the_tree_without_a_conflict()
+    -> anyhow::Result<()> {
+        let plan = tree_with_children([2, 3]).plan_events(&[
+            event(2, registration(Vec::new())),
+            event(3, failure(Lane::Regular, "boom")),
+        ])?;
+        assert_eq!(
+            plan.updates
+                .iter()
+                .map(|update| (update.job_id.get(), update.to))
+                .collect::<Vec<_>>(),
+            [
+                (2, JobState::Succeeded),
+                (3, JobState::Failed),
+                (ROOT_ID.get(), JobState::Failed),
+            ]
+        );
+        assert_eq!(plan.num_active_children, HashMap::from([(ROOT_ID, 1)]));
+        Ok(())
+    }
+
+    #[test]
+    fn a_cancel_and_a_failure_in_one_round_apply_whichever_is_planned_first() -> anyhow::Result<()>
+    {
+        let plan = tree_with_children([2, 3]).plan_events(&[
+            root_event(TreeEventKind::CancelRoot),
+            event(2, failure(Lane::Regular, "boom")),
+        ])?;
+        assert!(
+            matches!(
+                plan.outcomes.as_slice(),
+                [
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::CleanupReady),
+                        ..
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobAlreadyTerminated(
+                            JobState::Cancelled
+                        )),
+                        ..
+                    },
+                ]
+            ),
+            "a cancel before a failure gave {:?}",
+            plan.outcomes
+        );
+        assert_eq!(
+            plan.updates
+                .iter()
+                .map(|update| (update.job_id.get(), update.to))
+                .collect::<Vec<_>>(),
+            [
+                (ROOT_ID.get(), JobState::CleanupReady),
+                (2, JobState::Cancelled),
+                (3, JobState::Cancelled),
+            ]
+        );
+
+        let plan = tree_with_children([2, 3]).plan_events(&[
+            event(2, failure(Lane::Regular, "boom")),
+            root_event(TreeEventKind::CancelRoot),
+        ])?;
+        assert!(
+            matches!(
+                plan.outcomes.as_slice(),
+                [
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Applied(JobState::Failed),
+                        ..
+                    },
+                    RoundOutcome::Planned {
+                        outcome: TreeEventOutcome::Stale(StaleStateError::JobAlreadyTerminated(
+                            JobState::Failed
+                        )),
+                        ..
+                    },
+                ]
+            ),
+            "a failure before a cancel gave {:?}",
+            plan.outcomes
+        );
+        assert_eq!(
+            plan.updates
+                .iter()
+                .map(|update| (update.job_id.get(), update.to))
+                .collect::<Vec<_>>(),
+            [
+                (2, JobState::Failed),
+                (ROOT_ID.get(), JobState::Failed),
+                (3, JobState::Cancelled),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_failure_under_an_ancestor_that_breaks_the_tree_invariants_is_an_internal_error() {
+        const BLOCKING_CHILD: TreeNode = TreeNode {
+            state: JobState::BlockingOnChildren,
+            ..CHILD_NODE
+        };
+        let running_root_tree = tree(
+            TreeNode {
+                state: JobState::Running,
+                ..PLAIN_NODE
+            },
+            [(2, BLOCKING_CHILD), (3, GRANDCHILD)],
+        );
+        let result = running_root_tree.plan_events(&[event(3, failure(Lane::Regular, "boom"))]);
+        assert!(
+            matches!(
+                result,
+                Err(InternalError::UnexpectedParentState {
+                    job_id,
+                    parent_id,
+                    state: JobState::Running,
+                }) if job_id == JobId::from(2) && parent_id == ROOT_ID
+            ),
+            "a failure under a blocking parent of a running root gave {result:?}"
+        );
+
+        let mut missing_root_tree = tree(BLOCKING_ROOT, [(2, BLOCKING_CHILD), (3, GRANDCHILD)]);
+        missing_root_tree.apply_state(ROOT_ID, JobState::Failed);
+        let result = missing_root_tree.plan_events(&[event(3, failure(Lane::Regular, "boom"))]);
+        assert!(
+            matches!(
+                result,
+                Err(InternalError::JobNotFound(job_id)) if job_id == ROOT_ID
+            ),
+            "a failure under a blocking parent of a root missing from the tree gave {result:?}"
+        );
     }
 
     #[test]

@@ -19,6 +19,7 @@ use crate::db::JobStateUpdate;
 use crate::limits::MAX_CHILDREN_PER_JOB;
 use crate::limits::MAX_ERROR_MESSAGE_CHARS;
 use crate::limits::MAX_JOB_CHILDREN_SIZE;
+use crate::limits::MAX_PROPAGATED_MESSAGE_CHARS;
 use crate::limits::MAX_ROUND_PAYLOAD;
 
 /// The plan of a round of events.
@@ -382,8 +383,8 @@ impl EventPlan {
     ///     * Without one, it moves to [`JobState::Succeeded`], and its success climbs (see
     ///       [`Self::climb_after_success`]).
     ///   * [`TreeEventKind::RegularTasksDone`] with children over the limits of one job (see
-    ///     [`ChildJobUsage::is_within_job_limits`]): the job moves from [`JobState::Running`] to
-    ///     [`JobState::Failed`].
+    ///     [`ChildJobUsage::is_within_job_limits`]): the job fails from [`JobState::Running`] with
+    ///     a message naming the limits (see [`Self::fail_and_abort`]).
     ///   * [`TreeEventKind::RegularTasksDone`] with other children: the job stores its outputs,
     ///     moves from [`JobState::Running`] to [`JobState::BlockingOnChildren`] and registers its
     ///     children.
@@ -391,9 +392,8 @@ impl EventPlan {
     ///     [`JobState::Succeeded`], and its success climbs (see [`Self::climb_after_success`]).
     ///   * [`TreeEventKind::CleanupDone`]: the job moves from [`JobState::CleanupReady`] to
     ///     [`JobState::Cancelled`].
-    ///   * [`TreeEventKind::TerminalFailure`]: the job moves from its lane's state to
-    ///     [`JobState::Failed`] and stores the failure's message, cut to
-    ///     [`MAX_ERROR_MESSAGE_CHARS`] characters.
+    ///   * [`TreeEventKind::TerminalFailure`]: the job fails from its lane's state with the
+    ///     failure's message (see [`Self::fail_and_abort`]).
     ///   * [`TreeEventKind::CancelRoot`]: the root's tree is cancelled (see
     ///     [`Self::abort_from_root`]).
     ///
@@ -404,6 +404,7 @@ impl EventPlan {
     /// * [`InternalError::NonRootCancelled`] if the event is a [`TreeEventKind::CancelRoot`] of a
     ///   job in the tree other than its root, whatever the job's state.
     /// * Forwards [`Self::climb_after_success`]'s return values on failure.
+    /// * Forwards [`Self::fail_and_abort`]'s return values on failure.
     fn of(event: &TreeEvent, overlay: &Overlay<'_>) -> Result<Self, InternalError> {
         let job_id = event.job_id;
         let Some(node) = overlay.node(job_id) else {
@@ -432,16 +433,17 @@ impl EventPlan {
                 if children.is_within_job_limits() {
                     Self::register_children(job_id, outputs.clone(), children)
                 } else {
-                    Self::fail_job(
+                    Self::fail_and_abort(
                         job_id,
-                        node.state,
+                        &node,
                         &format!(
                             "child jobs ({} of {} bytes) exceed the limits of \
                              {MAX_CHILDREN_PER_JOB} child jobs and {MAX_JOB_CHILDREN_SIZE} bytes \
                              per job",
                             children.count, children.size
                         ),
-                    )
+                        overlay,
+                    )?
                 }
             }
             TreeEventKind::CommitDone => {
@@ -451,7 +453,7 @@ impl EventPlan {
             }
             TreeEventKind::CleanupDone => Self::complete_cleanup(job_id),
             TreeEventKind::TerminalFailure { message, .. } => {
-                Self::fail_job(job_id, node.state, message)
+                Self::fail_and_abort(job_id, &node, message, overlay)?
             }
             TreeEventKind::CancelRoot => Self::abort_from_root(job_id, &node, overlay),
         };
@@ -546,8 +548,8 @@ impl EventPlan {
     ///
     /// # Returns
     ///
-    /// The plan of failing `job_id` from `from`: the job moves to [`JobState::Failed`] and stores
-    /// `message`, cut to [`MAX_ERROR_MESSAGE_CHARS`] characters.
+    /// The plan of failing `job_id` alone from `from`: the job moves to [`JobState::Failed`] and
+    /// stores `message`, cut to [`MAX_ERROR_MESSAGE_CHARS`] characters.
     fn fail_job(job_id: JobId, from: JobState, message: &str) -> Self {
         let stored_message = truncate_chars(message, MAX_ERROR_MESSAGE_CHARS);
         if stored_message.len() < message.len() {
@@ -568,12 +570,86 @@ impl EventPlan {
     ///
     /// # Returns
     ///
+    /// The plan of failing the tree's job `job_id`, whose node is `node`, with `message`, read
+    /// against `overlay`, on success:
+    ///
+    /// * The job fails from the node's state (see [`Self::fail_job`]).
+    /// * If the job is [`JobState::CleanupReady`], nothing else changes: a cleanup failure fails
+    ///   only its job.
+    /// * If the job has no parent that blocks on its children, because it is the root or a cancel
+    ///   or a failure has already deactivated its parent (see [`Overlay::blocking_parent`]),
+    ///   nothing else changes either.
+    /// * Otherwise, every ancestor moves from [`JobState::BlockingOnChildren`] to
+    ///   [`JobState::Failed`] with the message `descendant job {job_id} failed: {message}`, where
+    ///   `message` is cut to [`MAX_PROPAGATED_MESSAGE_CHARS`] characters.
+    /// * Then, every other abortable job of the tree is deactivated (see
+    ///   [`Self::deactivate_rest`]).
+    ///
+    /// No cleanup task of a failed job is published.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::JobNotFound`] if an ancestor above the job's parent is not in the tree.
+    /// * [`InternalError::UnexpectedParentState`] if an ancestor above the job's parent does not
+    ///   block on its children.
+    /// * Forwards [`Overlay::blocking_parent`]'s return values on failure.
+    fn fail_and_abort(
+        job_id: JobId,
+        node: &TreeNode,
+        message: &str,
+        overlay: &Overlay<'_>,
+    ) -> Result<Self, InternalError> {
+        let mut event_plan = Self::fail_job(job_id, node.state, message);
+        if node.state == JobState::CleanupReady {
+            return Ok(event_plan);
+        }
+        let Some(BlockingParent {
+            id: mut ancestor_id,
+            node: mut ancestor,
+        }) = overlay.blocking_parent(job_id)?
+        else {
+            return Ok(event_plan);
+        };
+        let propagated_message = format!(
+            "descendant job {job_id} failed: {}",
+            truncate_chars(message, MAX_PROPAGATED_MESSAGE_CHARS)
+        );
+        loop {
+            event_plan.updates.push(JobStateUpdate {
+                error_message: Some(propagated_message.clone()),
+                ..JobStateUpdate::new(ancestor_id, JobState::BlockingOnChildren, JobState::Failed)
+            });
+            let Some(parent_id) = ancestor.parent else {
+                break;
+            };
+            let parent = overlay
+                .node(parent_id)
+                .ok_or(InternalError::JobNotFound(parent_id))?;
+            if parent.state != JobState::BlockingOnChildren {
+                return Err(InternalError::UnexpectedParentState {
+                    job_id: ancestor_id,
+                    parent_id,
+                    state: parent.state,
+                });
+            }
+            ancestor_id = parent_id;
+            ancestor = parent;
+        }
+        event_plan.deactivate_rest(overlay);
+        Ok(event_plan)
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
     /// The plan of aborting the tree from its root `root_id`, whose node is `root`, read against
     /// `overlay`:
     ///
     /// * The root is deactivated (see [`Self::deactivate`]).
-    /// * Every other abortable job of the tree (see [`TreeNode::is_abortable`]) is deactivated too,
-    ///   in ascending ID order.
+    /// * Every other abortable job of the tree is deactivated too (see [`Self::deactivate_rest`]).
     fn abort_from_root(root_id: JobId, root: &TreeNode, overlay: &Overlay<'_>) -> Self {
         let mut event_plan = Self {
             outcome: TreeEventOutcome::Applied(root.abort_target()),
@@ -583,12 +659,28 @@ impl EventPlan {
             registration: None,
         };
         event_plan.deactivate(root_id, root);
+        event_plan.deactivate_rest(overlay);
+        event_plan
+    }
+
+    /// Adds to this plan the deactivation (see [`Self::deactivate`]) of every abortable job of the
+    /// tree (see [`TreeNode::is_abortable`]) that the plan does not change yet, in ascending ID
+    /// order, reading the jobs from `overlay`.
+    fn deactivate_rest(&mut self, overlay: &Overlay<'_>) {
+        // The walk meets each job once, so only the updates planned before it can name a job that
+        // it meets.
+        let num_changed_jobs = self.updates.len();
         for (job_id, node) in overlay.nodes() {
-            if job_id != root_id && node.is_abortable() {
-                event_plan.deactivate(job_id, &node);
+            if node.is_abortable()
+                && !self
+                    .updates
+                    .iter()
+                    .take(num_changed_jobs)
+                    .any(|update| update.job_id == job_id)
+            {
+                self.deactivate(job_id, &node);
             }
         }
-        event_plan
     }
 
     /// Adds to this plan the move of `job_id`, whose node is `node`, from the node's state to its

@@ -635,6 +635,9 @@ impl<
 
     /// Marks a task instance as failed.
     ///
+    /// A failure with no retry left fails the job, and the job's tree if the job's parent blocks on
+    /// its children (see [`SharedJobControlBlock::fail_task_instance`]).
+    ///
     /// # Returns
     ///
     /// The current job state after the operation on success.
