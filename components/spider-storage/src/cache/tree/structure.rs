@@ -42,10 +42,13 @@ impl TreeStructure {
     }
 
     /// Plans a round of `events` against the tree's structure, in their order, each against the
-    /// result of the round's earlier events. An event is deferred to a later round if its outputs
-    /// and children would push the round's payload over
-    /// [`MAX_ROUND_PAYLOAD`](crate::limits::MAX_ROUND_PAYLOAD) after the payload of the round's
-    /// earlier events.
+    /// result of the round's earlier events. An event is deferred to a later round if:
+    ///
+    /// * Its outputs and children would push the round's payload over
+    ///   [`MAX_ROUND_PAYLOAD`](crate::limits::MAX_ROUND_PAYLOAD) after the payload of the round's
+    ///   earlier events.
+    /// * It reports children over the limits of one job, and the failure of its job would abort a
+    ///   job that an earlier event of the round changes.
     ///
     /// # Type Parameters
     ///
@@ -653,6 +656,59 @@ mod tests {
                 ..JobStateUpdate::new(ROOT_ID, JobState::Running, JobState::Failed)
             }]
         );
+    }
+
+    #[tokio::test]
+    async fn a_child_set_over_the_job_limits_whose_abort_changes_a_changed_job_is_deferred()
+    -> anyhow::Result<()> {
+        let sibling_registration = JobStateUpdate {
+            outputs: Some(vec![REGISTRATION_OUTPUT.to_vec()]),
+            ..JobStateUpdate::new(
+                JobId::from(2),
+                JobState::Running,
+                JobState::BlockingOnChildren,
+            )
+        };
+        let sibling_commit_ready = JobStateUpdate {
+            outputs: Some(vec![REGISTRATION_OUTPUT.to_vec()]),
+            ..JobStateUpdate::new(JobId::from(2), JobState::Running, JobState::CommitReady)
+        };
+        for (description, sibling, sibling_children, expected_sibling_update) in [
+            (
+                "a sibling's registration",
+                CHILD_NODE,
+                create_test_prepared_children(1).await,
+                sibling_registration,
+            ),
+            (
+                "a sibling's success that makes it commit-ready",
+                TreeNode {
+                    has_commit: true,
+                    ..CHILD_NODE
+                },
+                Vec::new(),
+                sibling_commit_ready,
+            ),
+        ] {
+            let mut over_limit_children = Vec::with_capacity(MAX_CHILDREN_PER_JOB + 1);
+            for _ in 0..=MAX_CHILDREN_PER_JOB {
+                over_limit_children.push(create_test_prepared_child(0).await);
+            }
+            let plan = tree(BLOCKING_ROOT, [(2, sibling), (3, CHILD_NODE)]).plan_events(&[
+                event(2, registration(sibling_children)),
+                event(3, registration(over_limit_children)),
+            ])?;
+            assert!(
+                matches!(
+                    plan.outcomes.as_slice(),
+                    [RoundOutcome::Planned { .. }, RoundOutcome::Deferred]
+                ),
+                "{description} and a child set over the job limits gave {:?}",
+                plan.outcomes
+            );
+            assert_eq!(plan.updates, [expected_sibling_update], "{description}");
+        }
+        Ok(())
     }
 
     #[tokio::test]

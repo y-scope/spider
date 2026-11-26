@@ -157,6 +157,10 @@ pub(super) enum Admission {
     /// The event is deferred to a later round: its outputs and children would push the round's
     /// payload over [`MAX_ROUND_PAYLOAD`].
     PayloadBudgetExceeded,
+
+    /// The event is deferred to a later round: it reports children over the limits of one job, and
+    /// the failure of its job aborts a job that the round's plan already changes.
+    AbortOfChangedJob,
 }
 
 /// Plans a round's events one at a time, each against the result of the earlier ones, and builds
@@ -184,9 +188,13 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
         }
     }
 
-    /// Plans `event` against the overlay, then applies its admission: an admitted event's plan is
-    /// merged into the round's plan and the overlay; an event over the payload budget is deferred;
-    /// a job conflict applies nothing.
+    /// Plans `event` against the overlay, then applies its admission:
+    ///
+    /// * An admitted event's plan is merged into the round's plan and the overlay.
+    /// * An event over the payload budget is deferred.
+    /// * An event that reports children over the limits of one job, and whose failure aborts a job
+    ///   that the round's plan already changes, is deferred.
+    /// * Any other job conflict applies nothing.
     ///
     /// # Returns
     ///
@@ -199,14 +207,27 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
     /// * Forwards [`EventPlan::of`]'s return values on failure.
     pub(super) fn plan_event(&mut self, event: &TreeEvent) -> Result<Admission, InternalError> {
         let event_plan = EventPlan::of(event, &self.overlay)?;
-        let admission = self.plan.admission(&event_plan);
+        let admission = match self.plan.admission(&event_plan) {
+            Admission::JobConflict(_)
+                if matches!(
+                    (&event.kind, &event_plan.outcome),
+                    (
+                        TreeEventKind::RegularTasksDone { .. },
+                        TreeEventOutcome::Applied(JobState::Failed)
+                    )
+                ) =>
+            {
+                Admission::AbortOfChangedJob
+            }
+            admission => admission,
+        };
         match admission {
             Admission::Admitted => {
                 self.overlay.merge(&event_plan);
                 self.plan.merge(event_plan);
             }
             Admission::JobConflict(_) => {}
-            Admission::PayloadBudgetExceeded => {
+            Admission::PayloadBudgetExceeded | Admission::AbortOfChangedJob => {
                 self.plan.defer();
             }
         }
