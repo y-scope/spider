@@ -394,19 +394,25 @@ impl EventPlan {
     ///   * [`TreeEventKind::TerminalFailure`]: the job moves from its lane's state to
     ///     [`JobState::Failed`] and stores the failure's message, cut to
     ///     [`MAX_ERROR_MESSAGE_CHARS`] characters.
-    ///   * [`TreeEventKind::CancelRoot`]: the root's tree is cancelled (see [`Self::cancel_root`]).
+    ///   * [`TreeEventKind::CancelRoot`]: the root's tree is cancelled (see
+    ///     [`Self::abort_from_root`]).
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
+    /// * [`InternalError::NonRootCancelled`] if the event is a [`TreeEventKind::CancelRoot`] of a
+    ///   job in the tree other than its root, whatever the job's state.
     /// * Forwards [`Self::climb_after_success`]'s return values on failure.
-    /// * Forwards [`Self::cancel_root`]'s return values on failure.
     fn of(event: &TreeEvent, overlay: &Overlay<'_>) -> Result<Self, InternalError> {
         let job_id = event.job_id;
         let Some(node) = overlay.node(job_id) else {
             return Ok(Self::untracked());
         };
+        if matches!(event.kind, TreeEventKind::CancelRoot) && job_id != overlay.structure.root_id()
+        {
+            return Err(InternalError::NonRootCancelled(job_id));
+        }
         if let Err(error) = event.kind.ensure_accepts(node.state) {
             return Ok(Self::stale(error));
         }
@@ -447,7 +453,7 @@ impl EventPlan {
             TreeEventKind::TerminalFailure { message, .. } => {
                 Self::fail_job(job_id, node.state, message)
             }
-            TreeEventKind::CancelRoot => Self::cancel_root(job_id, &node, overlay)?,
+            TreeEventKind::CancelRoot => Self::abort_from_root(job_id, &node, overlay),
         };
         Ok(event_plan)
     }
@@ -556,31 +562,6 @@ impl EventPlan {
             error_message: Some(stored_message.to_owned()),
             ..JobStateUpdate::new(job_id, from, JobState::Failed)
         })
-    }
-
-    /// Factory function.
-    ///
-    /// Plans the cancel of the tree whose root is `root_id`, whose node is `root`, against
-    /// `overlay` (see [`Self::abort_from_root`]).
-    ///
-    /// # Returns
-    ///
-    /// The plan of the cancel on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError::NonRootCancelled`] if `root_id` is not the tree's root.
-    fn cancel_root(
-        root_id: JobId,
-        root: &TreeNode,
-        overlay: &Overlay<'_>,
-    ) -> Result<Self, InternalError> {
-        if root_id != overlay.structure.root_id() {
-            return Err(InternalError::NonRootCancelled(root_id));
-        }
-        Ok(Self::abort_from_root(root_id, root, overlay))
     }
 
     /// Factory function.

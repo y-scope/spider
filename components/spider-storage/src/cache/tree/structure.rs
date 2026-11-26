@@ -1053,14 +1053,46 @@ mod tests {
 
     #[test]
     fn a_cancel_of_a_job_other_than_the_root_is_an_internal_error() {
-        let result = tree_with_children([2]).plan_events(&[event(2, TreeEventKind::CancelRoot)]);
-        assert!(
-            matches!(
-                result,
-                Err(InternalError::NonRootCancelled(job_id)) if job_id == JobId::from(2)
-            ),
-            "a cancel of a child gave {result:?}"
+        let cleanup_ready_child_tree = tree(
+            BLOCKING_ROOT,
+            [(
+                2,
+                TreeNode {
+                    state: JobState::CleanupReady,
+                    has_cleanup: true,
+                    ..CHILD_NODE
+                },
+            )],
         );
+        for (description, structure, events) in [
+            (
+                "a running child",
+                tree_with_children([2]),
+                vec![event(2, TreeEventKind::CancelRoot)],
+            ),
+            (
+                "a cleanup-ready child",
+                cleanup_ready_child_tree,
+                vec![event(2, TreeEventKind::CancelRoot)],
+            ),
+            (
+                "a child that an earlier event of the round fails",
+                tree_with_children([2]),
+                vec![
+                    event(2, failure(Lane::Regular, "boom")),
+                    event(2, TreeEventKind::CancelRoot),
+                ],
+            ),
+        ] {
+            let result = structure.plan_events(&events);
+            assert!(
+                matches!(
+                    result,
+                    Err(InternalError::NonRootCancelled(job_id)) if job_id == JobId::from(2)
+                ),
+                "a cancel of {description} gave {result:?}"
+            );
+        }
     }
 
     #[test]
