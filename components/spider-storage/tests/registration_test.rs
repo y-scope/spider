@@ -218,7 +218,10 @@ async fn a_report_with_children_blocks_its_job_and_inserts_them_once() -> anyhow
     .await??;
     env.assert_job_state(parent_id, JobState::BlockingOnChildren)
         .await;
-    assert!(env.has_outputs(parent_id).await);
+    let parent_outputs = env
+        .row_outputs(parent_id)
+        .await
+        .expect("the parent should have stored outputs");
 
     let rows = env.child_rows(parent_id).await;
     assert_eq!(rows.len(), task_graphs.len());
@@ -249,6 +252,9 @@ async fn a_report_with_children_blocks_its_job_and_inserts_them_once() -> anyhow
         .await?
         .expect_err("replaying the accepted report should be stale");
     assert_eq!(replay.code(), Code::FailedPrecondition);
+    env.assert_job_state(parent_id, JobState::BlockingOnChildren)
+        .await;
+    assert_eq!(env.row_outputs(parent_id).await, Some(parent_outputs));
     assert_eq!(env.child_rows(parent_id).await, rows);
 
     for child_id in &child_ids {
