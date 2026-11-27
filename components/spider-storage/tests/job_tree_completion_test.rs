@@ -294,12 +294,21 @@ enum SecondFailure {
     AfterReply,
 }
 
+/// The shape of a tree whose two-task job fails.
+#[derive(Clone, Copy)]
+enum TwoFailureShape {
+    /// The failing job is the root.
+    Root,
+
+    /// The failing job is a leaf `J` in the tree `R → A → {J, S}`.
+    Leaf { middle_id: JobId, sibling_id: JobId },
+}
+
 /// A tree whose two-task job fails.
 struct TwoFailureTree {
     root_id: JobId,
     job_id: JobId,
-    ancestor_ids: Vec<JobId>,
-    sibling_id: Option<JobId>,
+    shape: TwoFailureShape,
 }
 
 impl TwoFailureTree {
@@ -323,8 +332,7 @@ impl TwoFailureTree {
                 Self {
                     root_id: job_id,
                     job_id,
-                    ancestor_ids: Vec::new(),
-                    sibling_id: None,
+                    shape: TwoFailureShape::Root,
                 }
             }
             FailingJob::Leaf => {
@@ -354,8 +362,10 @@ impl TwoFailureTree {
                 Self {
                     root_id,
                     job_id,
-                    ancestor_ids: vec![root_id, middle_id],
-                    sibling_id: Some(sibling_id),
+                    shape: TwoFailureShape::Leaf {
+                        middle_id,
+                        sibling_id,
+                    },
                 }
             }
         }
@@ -365,10 +375,13 @@ impl TwoFailureTree {
     ///
     /// Every job of the tree.
     fn job_ids(&self) -> Vec<JobId> {
-        let mut job_ids = self.ancestor_ids.clone();
-        job_ids.push(self.job_id);
-        job_ids.extend(self.sibling_id);
-        job_ids
+        match self.shape {
+            TwoFailureShape::Root => vec![self.job_id],
+            TwoFailureShape::Leaf {
+                middle_id,
+                sibling_id,
+            } => vec![self.root_id, middle_id, self.job_id, sibling_id],
+        }
     }
 }
 
@@ -409,12 +422,43 @@ enum StragglerWindow {
     AfterReply,
 }
 
+/// The tree of a straggler job, as [`StragglerJob`] shapes it.
+#[derive(Clone, Copy)]
+enum StragglerTree {
+    /// A one-task root.
+    Root { job_id: JobId },
+
+    /// A one-task leaf with a one-task sibling.
+    Leaf {
+        root_id: JobId,
+        job_id: JobId,
+        sibling_id: JobId,
+    },
+
+    /// A two-task root.
+    TwoTaskRoot { job_id: JobId },
+}
+
+impl StragglerTree {
+    const fn root_id(&self) -> JobId {
+        match *self {
+            Self::Root { job_id } | Self::TwoTaskRoot { job_id } => job_id,
+            Self::Leaf { root_id, .. } => root_id,
+        }
+    }
+
+    const fn job_id(&self) -> JobId {
+        match *self {
+            Self::Root { job_id } | Self::Leaf { job_id, .. } | Self::TwoTaskRoot { job_id } => {
+                job_id
+            }
+        }
+    }
+}
+
 /// A straggler job, with the instance that succeeds its task 0 and the instance that fails it.
 struct StragglerCase {
-    job: StragglerJob,
-    root_id: JobId,
-    job_id: JobId,
-    sibling_id: Option<JobId>,
+    tree: StragglerTree,
     winner_instance_id: TaskInstanceId,
     straggler_instance_id: TaskInstanceId,
 }
@@ -449,11 +493,13 @@ impl StragglerCase {
             }),
             ..JobShape::ONE_TASK
         };
-        let (root_id, job_id, sibling_id) = match job {
-            StragglerJob::Root | StragglerJob::TwoTaskRoot => {
-                let job_id = env.start_root(&shape).await;
-                (job_id, job_id, None)
-            }
+        let tree = match job {
+            StragglerJob::Root => StragglerTree::Root {
+                job_id: env.start_root(&shape).await,
+            },
+            StragglerJob::TwoTaskRoot => StragglerTree::TwoTaskRoot {
+                job_id: env.start_root(&shape).await,
+            },
             StragglerJob::Leaf => {
                 let root_id = env.start_root(&JobShape::ONE_TASK).await;
                 let [job_id, sibling_id] = env
@@ -462,19 +508,21 @@ impl StragglerCase {
                 else {
                     panic!("the root should have two children");
                 };
-                (root_id, job_id, Some(sibling_id))
+                StragglerTree::Leaf {
+                    root_id,
+                    job_id,
+                    sibling_id,
+                }
             }
         };
+        let job_id = tree.job_id();
         let winner_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
         let straggler_instance_id = match straggler {
             Straggler::SameInstance => winner_instance_id,
             Straggler::OtherInstance => env.create_instance(job_id, TaskId::Index(0)).await,
         };
         Self {
-            job,
-            root_id,
-            job_id,
-            sibling_id,
+            tree,
             winner_instance_id,
             straggler_instance_id,
         }
@@ -484,7 +532,7 @@ impl StragglerCase {
     ///
     /// The state of the job after its task 0 succeeded.
     const fn state_after_success(&self) -> JobState {
-        if matches!(self.job, StragglerJob::TwoTaskRoot) {
+        if matches!(self.tree, StragglerTree::TwoTaskRoot { .. }) {
             JobState::Running
         } else {
             JobState::Succeeded
@@ -1172,37 +1220,42 @@ impl TestEnv {
             num_submissions,
             "{what}: the submitted failures"
         );
-        let num_rounds =
-            if matches!(second_failure, SecondFailure::InFlight) && tree.sibling_id.is_some() {
-                2
-            } else {
-                1
-            };
+        let num_rounds = if matches!(
+            (second_failure, tree.shape),
+            (SecondFailure::InFlight, TwoFailureShape::Leaf { .. })
+        ) {
+            2
+        } else {
+            1
+        };
         probes.assert_rounds(num_rounds, 1, &what);
         probes.assert_transitions(&job_ids.iter().map(|job_id| (*job_id, 1)).collect(), &what);
 
         let mut expected_errors = HashMap::from([(job_id, FIRST_FAILURE.to_owned())]);
         let mut expected_states = HashMap::from([(job_id, JobState::Failed)]);
-        for ancestor_id in &tree.ancestor_ids {
-            expected_errors.insert(
-                *ancestor_id,
-                format!("descendant job {job_id} failed: {FIRST_FAILURE}"),
-            );
-            expected_states.insert(*ancestor_id, JobState::Failed);
+        if let TwoFailureShape::Leaf {
+            middle_id,
+            sibling_id,
+        } = tree.shape
+        {
+            for ancestor_id in [tree.root_id, middle_id] {
+                expected_errors.insert(
+                    ancestor_id,
+                    format!("descendant job {job_id} failed: {FIRST_FAILURE}"),
+                );
+                expected_states.insert(ancestor_id, JobState::Failed);
+            }
+            expected_states.insert(sibling_id, JobState::CleanupReady);
         }
         assert_eq!(
             self.tree_errors(tree.root_id).await,
             expected_errors,
             "{what}: the error messages of the tree"
         );
-        expected_states.extend(
-            tree.sibling_id
-                .map(|sibling_id| (sibling_id, JobState::CleanupReady)),
-        );
         self.assert_states(&expected_states, &what).await;
         self.assert_tree_rows(tree.root_id, &expected_states, &what)
             .await;
-        if let Some(sibling_id) = tree.sibling_id {
+        if let TwoFailureShape::Leaf { sibling_id, .. } = tree.shape {
             self.run_cleanups(&[sibling_id]).await;
             self.assert_states(&HashMap::from([(sibling_id, JobState::Cancelled)]), &what)
                 .await;
@@ -1263,8 +1316,10 @@ impl TestEnv {
         window: StragglerWindow,
         what: &str,
     ) {
-        let submit_hook =
-            self.observe(HookPoint::JobEventAfterSubmit, HookFilter::job(case.job_id));
+        let submit_hook = self.observe(
+            HookPoint::JobEventAfterSubmit,
+            HookFilter::job(case.tree.job_id()),
+        );
         let winner_value = value(0xe1, 0);
 
         let (success, failure) = self
@@ -1276,10 +1331,12 @@ impl TestEnv {
             case.state_after_success(),
             &format!("{what}: the success"),
         );
-        let expected_stale = match (window, case.job, straggler) {
-            (StragglerWindow::AfterReply, StragglerJob::Root | StragglerJob::Leaf, _) => {
-                StaleStateError::JobNoLongerRunning
-            }
+        let expected_stale = match (window, case.tree, straggler) {
+            (
+                StragglerWindow::AfterReply,
+                StragglerTree::Root { .. } | StragglerTree::Leaf { .. },
+                _,
+            ) => StaleStateError::JobNoLongerRunning,
             (_, _, Straggler::SameInstance) => StaleStateError::InvalidTaskInstanceId,
             (_, _, Straggler::OtherInstance) => {
                 StaleStateError::TaskAlreadyTerminated(TaskState::Succeeded)
@@ -1288,21 +1345,27 @@ impl TestEnv {
         assert_stale(&failure, &expected_stale, &format!("{what}: the straggler"));
         assert_eq!(
             submit_hook.hits(),
-            usize::from(!matches!(case.job, StragglerJob::TwoTaskRoot)),
+            usize::from(!matches!(case.tree, StragglerTree::TwoTaskRoot { .. })),
             "{what}: the submitted events, of the success only"
         );
         assert_eq!(
-            self.tree_errors(case.root_id).await,
+            self.tree_errors(case.tree.root_id()).await,
             HashMap::new(),
             "{what}: the error messages of the tree"
         );
-        let mut expected = HashMap::from([(case.job_id, case.state_after_success())]);
-        if let Some(sibling_id) = case.sibling_id {
-            expected.insert(case.root_id, JobState::BlockingOnChildren);
+        let mut expected = HashMap::from([(case.tree.job_id(), case.state_after_success())]);
+        if let StragglerTree::Leaf {
+            root_id,
+            sibling_id,
+            ..
+        } = case.tree
+        {
+            expected.insert(root_id, JobState::BlockingOnChildren);
             expected.insert(sibling_id, JobState::Running);
         }
         self.assert_states(&expected, what).await;
-        self.assert_tree_rows(case.root_id, &expected, what).await;
+        self.assert_tree_rows(case.tree.root_id(), &expected, what)
+            .await;
         self.finish_straggler_job(case, &winner_value, what).await;
     }
 
@@ -1330,14 +1393,14 @@ impl TestEnv {
         what: &str,
     ) -> (JobResult, JobResult) {
         let success = self.task_success(
-            case.job_id,
+            case.tree.job_id(),
             0,
             case.winner_instance_id,
             winner_value,
             Vec::new(),
         );
         let failure = self.task_failure(
-            case.job_id,
+            case.tree.job_id(),
             TaskId::Index(0),
             case.straggler_instance_id,
             STRAGGLER_FAILURE,
@@ -1350,19 +1413,19 @@ impl TestEnv {
                 return (success, failure.await);
             }
         };
-        let pause_hook = self.pause(point, HookFilter::job(case.job_id));
+        let pause_hook = self.pause(point, HookFilter::job(case.tree.job_id()));
         let success_join_handle = tokio::spawn(success);
         reached(&pause_hook, 1).await;
         if matches!(window, StragglerWindow::InFlight) {
             assert_eq!(
-                self.row_state(case.job_id).await,
+                self.row_state(case.tree.job_id()).await,
                 JobState::Succeeded,
                 "{what}: the row while the success is written but not applied"
             );
-            if case.job_id == case.root_id {
+            if case.tree.job_id() == case.tree.root_id() {
                 assert_eq!(
                     self.service
-                        .get_job_state(case.job_id)
+                        .get_job_state(case.tree.job_id())
                         .await
                         .expect("the root's state should be readable"),
                     JobState::Running,
@@ -1385,10 +1448,13 @@ impl TestEnv {
     /// Panics if a report or a root's outputs read fails, or if an assertion fails.
     async fn finish_straggler_job(&self, case: &StragglerCase, winner_value: &[u8], what: &str) {
         let mut expected_outputs = task_outputs([winner_value]);
-        match case.job {
-            StragglerJob::Root => {}
-            StragglerJob::Leaf => {
-                let sibling_id = case.sibling_id.expect("a leaf should have a sibling");
+        match case.tree {
+            StragglerTree::Root { .. } => {}
+            StragglerTree::Leaf {
+                root_id,
+                sibling_id,
+                ..
+            } => {
                 assert_eq!(
                     self.run_task(sibling_id, 0, &value(0xe2, 0)).await,
                     JobState::Succeeded,
@@ -1396,41 +1462,41 @@ impl TestEnv {
                 );
                 self.assert_states(
                     &HashMap::from([
-                        (case.root_id, JobState::Succeeded),
+                        (root_id, JobState::Succeeded),
                         (sibling_id, JobState::Succeeded),
                     ]),
                     what,
                 )
                 .await;
             }
-            StragglerJob::TwoTaskRoot => {
+            StragglerTree::TwoTaskRoot { job_id } => {
                 let last_value = value(0xe1, 1);
                 assert_eq!(
-                    self.run_task(case.job_id, 1, &last_value).await,
+                    self.run_task(job_id, 1, &last_value).await,
                     JobState::Succeeded,
                     "{what}: task 1"
                 );
                 expected_outputs.extend(task_outputs([&last_value]));
-                self.assert_states(&HashMap::from([(case.job_id, JobState::Succeeded)]), what)
+                self.assert_states(&HashMap::from([(job_id, JobState::Succeeded)]), what)
                     .await;
             }
         }
         assert_eq!(
-            self.row_outputs(case.job_id).await,
+            self.row_outputs(case.tree.job_id()).await,
             Some(expected_outputs.clone()),
             "{what}: the job's outputs"
         );
-        if case.job_id == case.root_id {
+        if case.tree.job_id() == case.tree.root_id() {
             assert_eq!(
                 self.service
-                    .get_job_outputs(case.job_id)
+                    .get_job_outputs(case.tree.job_id())
                     .await
                     .expect("the root's outputs should be readable"),
                 expected_outputs,
                 "{what}: the root's outputs"
             );
         }
-        self.assert_quiescent(case.root_id).await;
+        self.assert_quiescent(case.tree.root_id()).await;
     }
 }
 
