@@ -641,12 +641,18 @@ async fn commit_success_reports_no_outputs_or_children() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
-async fn non_success_outcome_keeps_loop_serving() -> anyhow::Result<()> {
+async fn reports_children_only_after_successful_execution() -> anyhow::Result<()> {
+    use spider_core::task::TaskGraph;
+    use spider_core::types::io::TaskGraphInput;
+    use spider_core::types::io::TaskGraphInputBuilder;
+
     const SESSION_ID: SessionId = 5;
+    const CHILD_COUNT: u64 = 2;
 
     let scheduler = MockScheduler::new();
     let storage = MockStorage::new();
     let liveness = MockLiveness::with_initial_session(SESSION_ID);
+    let em_id = liveness.em_id();
 
     let (runtime, token) = Runtime::create(
         scheduler.clone(),
@@ -656,28 +662,76 @@ async fn non_success_outcome_keeps_loop_serving() -> anyhow::Result<()> {
     )
     .await?;
 
-    // First bundle: always_fail. Second bundle: fibonacci. If the loop bails after a failure
-    // outcome, the second bundle never reaches register / report.
-    scheduler.push(Ok(assignment_with_session(SESSION_ID)));
-    storage.push_register_response(Ok(execution_context("always_fail", vec![])));
-    scheduler.push(Ok(assignment_with_session(SESSION_ID)));
-    storage.push_register_response(Ok(execution_context("fibonacci", single_input(&10_u64))));
+    let failed_assignment = assignment_with_session(SESSION_ID);
+    storage.push_register_response(Ok(execution_context("create_children_then_fail", vec![])));
+    scheduler.push(Ok(failed_assignment));
     let join = tokio::spawn(runtime.run());
 
+    assert!(storage.wait_for_any_report(BOUNDED_WAIT).await);
+    assert!(storage.success_reports().is_empty());
+
+    let successful_assignment = assignment_with_session(SESSION_ID);
+    let mut context = execution_context("create_children", single_input(&CHILD_COUNT));
+    context.task_instance_id = 2;
+    storage.push_register_response(Ok(context));
+    scheduler.push(Ok(successful_assignment));
     assert!(
-        wait_until(
-            || !storage.failure_reports().is_empty() && !storage.success_reports().is_empty(),
-            BOUNDED_WAIT,
-        )
-        .await,
-        "expected one failure (always_fail) and one success (fibonacci) report; got success={} \
-         failure={}",
-        storage.success_reports().len(),
-        storage.failure_reports().len()
+        wait_until(|| !storage.success_reports().is_empty(), BOUNDED_WAIT).await,
+        "runtime must report the next task's successful execution"
     );
 
     token.cancel();
     join.await??;
+
+    let failures = storage.failure_reports();
+    assert_eq!(failures.len(), 1);
+    let failure = &failures[0];
+    assert_eq!(failure.job_id, failed_assignment.task_assignment.job_id);
+    assert_eq!(failure.task_id, failed_assignment.task_assignment.task_id);
+    assert_eq!(failure.task_instance_id, 1);
+    assert_eq!(failure.em_id, em_id);
+    assert_eq!(failure.session_id, SESSION_ID);
+    assert!(
+        failure
+            .error_message
+            .contains("intentional failure after child creation"),
+        "{}",
+        failure.error_message
+    );
+
+    let successes = storage.success_reports();
+    assert_eq!(successes.len(), 1);
+    let success = &successes[0];
+    assert_eq!(success.job_id, successful_assignment.task_assignment.job_id);
+    assert_eq!(
+        success.task_id,
+        successful_assignment.task_assignment.task_id
+    );
+    assert_eq!(success.task_instance_id, 2);
+    assert_eq!(success.em_id, em_id);
+    assert_eq!(success.session_id, SESSION_ID);
+    let outputs = success
+        .serialized_outputs
+        .as_deref()
+        .context("success report should carry outputs")?;
+    assert_eq!(decode_single_output::<u64>(outputs), CHILD_COUNT);
+    assert_eq!(u64::try_from(success.children.len())?, CHILD_COUNT);
+    for (index, child) in (0..CHILD_COUNT).zip(&success.children) {
+        let graph = TaskGraph::from_zstd_compressed_json(&child.compressed_serialized_task_graph)?;
+        assert_eq!(graph.get_num_tasks(), 1);
+        let task = graph
+            .get_task(0)
+            .context("child graph should contain a task")?;
+        assert_eq!(task.get_tdl_context().package, PACKAGE_NAME);
+        assert_eq!(task.get_tdl_context().task_func, "fibonacci");
+
+        let inputs =
+            TaskGraphInput::from_zstd_compressed_bytes(&child.compressed_serialized_job_inputs)?;
+        let mut expected_inputs = TaskGraphInputBuilder::new();
+        expected_inputs.append_task_input(&index)?;
+        assert_eq!(inputs, expected_inputs.build());
+    }
+
     assert_eq!(scheduler.outstanding(), &[]);
     Ok(())
 }

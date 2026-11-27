@@ -6,11 +6,16 @@ use std::iter;
 use spider_core::job::JobState;
 use spider_core::task::ExecutionPolicy;
 use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
 use spider_core::types::io::TaskGraphInputBuilder;
+use spider_core::types::io::TaskOutputsSerializer;
+use spider_proto_rust::storage::ReportTaskSuccessRequest;
+use spider_proto_rust::storage::TaskInstanceManagementService;
 use spider_storage::cache::error::CacheError;
 use spider_storage::cache::error::StaleStateError;
 use spider_storage::db::DbError;
+use spider_storage::grpc::GrpcServiceState;
 use spider_storage::job_submission::CompressedJobSubmission;
 use spider_storage::limits::MAX_CHILDREN_PER_JOB;
 use spider_storage::limits::MAX_DEPTH;
@@ -23,6 +28,9 @@ use spider_storage::test_hooks::HookAction;
 use spider_storage::test_hooks::HookCount;
 use spider_storage::test_hooks::HookFilter;
 use spider_storage::test_hooks::HookPoint;
+use tokio::time::timeout;
+use tonic::Code;
+use tonic::Request;
 
 use crate::runtime_infra::ChildRow;
 use crate::runtime_infra::HOOK_TIMEOUT;
@@ -182,7 +190,7 @@ impl TestEnv {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn a_report_with_children_blocks_its_job_and_inserts_them() -> anyhow::Result<()> {
+async fn a_report_with_children_blocks_its_job_and_inserts_them_once() -> anyhow::Result<()> {
     let env = TestEnv::start().await;
     let parent_id = env.start_chain_job(1, 1).await;
     let children: Vec<_> = (1..=3).map(chain_child).collect();
@@ -191,12 +199,23 @@ async fn a_report_with_children_blocks_its_job_and_inserts_them() -> anyhow::Res
         .map(|child| child.compressed_serialized_task_graph.clone())
         .collect();
 
-    let task_instance_id = env.create_instance(parent_id, TaskId::Index(0)).await;
-    assert_eq!(
-        env.task_success(parent_id, 0, task_instance_id, &[1u8; 4], children)
-            .await?,
-        JobState::BlockingOnChildren
-    );
+    let task_id = TaskId::Index(0);
+    let task_instance_id = env.create_instance(parent_id, task_id).await;
+    let grpc = GrpcServiceState::new(env.service.clone(), env.runtime.get_shutdown_handle());
+    let report = ReportTaskSuccessRequest {
+        job_id: parent_id.get(),
+        task_id: Some(task_id.into()),
+        task_instance_id,
+        execution_manager_id: env.execution_manager_id.get(),
+        session_id: env.service.session_id(),
+        serialized_outputs: TaskOutputsSerializer::from_tuple(&(&[1u8; 4][..],))?,
+        children: children.into_iter().map(Into::into).collect(),
+    };
+    timeout(
+        HOOK_TIMEOUT,
+        grpc.report_task_success(Request::new(report.clone())),
+    )
+    .await??;
     env.assert_job_state(parent_id, JobState::BlockingOnChildren)
         .await;
     assert!(env.has_outputs(parent_id).await);
@@ -218,6 +237,20 @@ async fn a_report_with_children_blocks_its_job_and_inserts_them() -> anyhow::Res
             })
             .collect::<Vec<_>>()
     );
+    let resource_groups = sqlx::query_scalar::<_, ResourceGroupId>(
+        "SELECT `resource_group_id` FROM `jobs` WHERE `parent_id` = ?;",
+    )
+    .bind(parent_id)
+    .fetch_all(&env.pool)
+    .await?;
+    assert_eq!(resource_groups, vec![env.resource_group_id; rows.len()]);
+
+    let replay = timeout(HOOK_TIMEOUT, grpc.report_task_success(Request::new(report)))
+        .await?
+        .expect_err("replaying the accepted report should be stale");
+    assert_eq!(replay.code(), Code::FailedPrecondition);
+    assert_eq!(env.child_rows(parent_id).await, rows);
+
     for child_id in &child_ids {
         env.assert_job_state(*child_id, JobState::Running).await;
     }

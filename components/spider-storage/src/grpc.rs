@@ -692,11 +692,6 @@ impl<
                     children,
                 },
             ) => {
-                if !children.is_empty() {
-                    return Err(Status::invalid_argument(
-                        "child job submission is not enabled",
-                    ));
-                }
                 self.inner
                     .succeed_task_instance(
                         session_id,
@@ -1054,8 +1049,8 @@ mod tests {
     type ErrorHandler = fn(&TestGrpcServiceState, StorageServerError, &'static str) -> Status;
 
     #[tokio::test]
-    async fn invalid_success_reports_do_not_complete_any_task_kind() -> anyhow::Result<()> {
-        for task_id in [TaskId::Index(0), TaskId::Commit, TaskId::Cleanup] {
+    async fn invalid_success_reports_do_not_complete_termination_tasks() -> anyhow::Result<()> {
+        for task_id in [TaskId::Commit, TaskId::Cleanup] {
             let grpc = create_test_grpc_service(ShutdownHandle::new());
             let termination_task = TerminationTaskDescriptor {
                 tdl_context: TdlContext {
@@ -1079,29 +1074,25 @@ mod tests {
             grpc.inner.start_job(job_id).await?;
             let em_id = ExecutionManagerId::random();
             let outputs = TaskOutputsSerializer::from_tuple(&(1,))?;
-            let expected_state = match task_id {
-                TaskId::Commit => {
-                    let instance = grpc
-                        .inner
-                        .create_task_instance(0, job_id, TaskId::Index(0), em_id)
-                        .await?;
-                    grpc.inner
-                        .succeed_task_instance(
-                            0,
-                            job_id,
-                            instance.task_instance_id,
-                            0,
-                            outputs.clone(),
-                            Vec::new(),
-                        )
-                        .await?;
-                    JobState::CommitReady
-                }
-                TaskId::Cleanup => {
-                    grpc.inner.cancel_job(job_id).await?;
-                    JobState::CleanupReady
-                }
-                TaskId::Index(_) => JobState::Running,
+            let expected_state = if task_id == TaskId::Commit {
+                let instance = grpc
+                    .inner
+                    .create_task_instance(0, job_id, TaskId::Index(0), em_id)
+                    .await?;
+                grpc.inner
+                    .succeed_task_instance(
+                        0,
+                        job_id,
+                        instance.task_instance_id,
+                        0,
+                        outputs.clone(),
+                        Vec::new(),
+                    )
+                    .await?;
+                JobState::CommitReady
+            } else {
+                grpc.inner.cancel_job(job_id).await?;
+                JobState::CleanupReady
             };
             let instance = grpc
                 .inner
@@ -1121,21 +1112,20 @@ mod tests {
                     ),
                 }],
             };
-            if !matches!(task_id, TaskId::Index(_)) {
-                let mut outputs_only = request.clone();
-                outputs_only.children.clear();
-                let status = grpc
-                    .report_task_success(Request::new(outputs_only))
-                    .await
-                    .expect_err("termination task outputs must be rejected");
-                assert_eq!(status.code(), Code::InvalidArgument);
-                assert_eq!(grpc.inner.get_job_state(job_id).await?, expected_state);
-                request.serialized_outputs.clear();
-            }
+            let mut outputs_only = request.clone();
+            outputs_only.children.clear();
+            let status = grpc
+                .report_task_success(Request::new(outputs_only))
+                .await
+                .expect_err("termination task outputs must be rejected");
+            assert_eq!(status.code(), Code::InvalidArgument);
+            assert_eq!(grpc.inner.get_job_state(job_id).await?, expected_state);
+
+            request.serialized_outputs.clear();
             let status = grpc
                 .report_task_success(Request::new(request.clone()))
                 .await
-                .expect_err("child submissions must be rejected");
+                .expect_err("termination task child submissions must be rejected");
             assert_eq!(status.code(), Code::InvalidArgument);
             assert_eq!(grpc.inner.get_job_state(job_id).await?, expected_state);
 
