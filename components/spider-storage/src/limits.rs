@@ -19,16 +19,16 @@ pub const MAX_ROUND_PAYLOAD: u64 = 16 * 1024 * 1024;
 /// longer message is cut to this many characters.
 pub const MAX_ERROR_MESSAGE_CHARS: usize = 64 * 1024;
 
-/// The maximum number of characters of a failed job's message that is repeated in the failure
-/// message of each ancestor that the failure fails. A longer message is cut to this many
-/// characters.
-pub const MAX_PROPAGATED_MESSAGE_CHARS: usize = 1024;
-
 /// The maximum number of compressed bytes of the child jobs of one job.
 pub const MAX_JOB_CHILDREN_SIZE: u64 = 16 * 1024 * 1024;
 
 /// The maximum depth of a job in its tree. A root is at depth 0.
 pub const MAX_DEPTH: u32 = 8;
+
+/// The maximum number of characters of a failed job's message that is repeated in the failure
+/// message of each ancestor that the failure fails. A longer message is cut to this many
+/// characters.
+pub(crate) const MAX_PROPAGATED_MESSAGE_CHARS: usize = 1024;
 
 /// Space reserved for a success report's framing and metadata.
 const TASK_INSTANCE_MESSAGE_MARGIN: u64 = 1024 * 1024;

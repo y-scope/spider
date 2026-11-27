@@ -552,14 +552,17 @@ mod tests {
             .create_task_instance(TaskId::Index(0), ExecutionManagerId::random())
             .await?;
 
-        let state = failing_child
-            .succeed_task_instance(
+        let state = tokio::time::timeout(
+            TIMEOUT,
+            failing_child.succeed_task_instance(
                 execution_context.task_instance_id,
                 0,
                 vec![vec![0; usize::try_from(MOCK_MAX_OUTPUTS_SIZE)? + 1]],
                 Vec::new(),
-            )
-            .await?;
+            ),
+        )
+        .await
+        .expect("the report should be answered within 5 seconds")?;
         assert_eq!(state, JobState::Failed);
         let expected_message = DbError::OutputsTooLarge {
             job_id: failing_child_id,

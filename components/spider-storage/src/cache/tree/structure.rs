@@ -62,8 +62,8 @@ impl TreeStructure {
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError::JobChangedTwiceInRound`] if an event would change a job that an earlier
-    ///   event of the round changes.
+    /// * [`InternalError::JobChangedTwiceInRound`] if an event that is not deferred would change a
+    ///   job that an earlier event of the round changes.
     /// * Forwards [`RoundPlanner::plan_event`]'s return values on failure.
     pub fn plan_events<'event_lifetime>(
         &self,
