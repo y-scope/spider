@@ -1322,24 +1322,34 @@ mod tests {
 
     #[test]
     fn a_cleanup_failure_fails_only_its_job() -> anyhow::Result<()> {
-        let plan = tree(
+        const CHILD_WITH_CLEANUP: TreeNode = TreeNode {
+            has_cleanup: true,
+            ..CHILD_NODE
+        };
+        let mut structure = tree(
             TreeNode {
                 has_cleanup: true,
                 ..BLOCKING_ROOT
             },
+            [(2, CHILD_WITH_CLEANUP), (3, CHILD_WITH_CLEANUP)],
+        );
+        let cancel_plan = structure.plan_events(&[root_event(TreeEventKind::CancelRoot)])?;
+        for update in cancel_plan.updates {
+            structure.apply_state(update.job_id, update.to);
+        }
+        structure.check_invariants()?;
+        assert_eq!(
+            structure
+                .nodes()
+                .map(|(job_id, node)| (job_id, node.state))
+                .collect::<Vec<_>>(),
             [
-                (
-                    2,
-                    TreeNode {
-                        state: JobState::CleanupReady,
-                        has_cleanup: true,
-                        ..CHILD_NODE
-                    },
-                ),
-                (3, CHILD_NODE),
-            ],
-        )
-        .plan_events(&[event(2, failure(Lane::Cleanup, "boom"))])?;
+                (ROOT_ID, JobState::CleanupReady),
+                (JobId::from(2), JobState::CleanupReady),
+                (JobId::from(3), JobState::CleanupReady),
+            ]
+        );
+        let plan = structure.plan_events(&[event(2, failure(Lane::Cleanup, "boom"))])?;
         assert_eq!(
             plan.updates,
             [JobStateUpdate {

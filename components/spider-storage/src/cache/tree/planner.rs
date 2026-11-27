@@ -595,11 +595,12 @@ impl EventPlan {
     /// against `overlay`, on success:
     ///
     /// * The job fails from the node's state (see [`Self::fail_job`]).
-    /// * If the job is [`JobState::CleanupReady`], nothing else changes: a cleanup failure fails
-    ///   only its job.
-    /// * If the job has no parent that blocks on its children, because it is the root or a cancel
-    ///   or a failure has already deactivated its parent (see [`Overlay::blocking_parent`]),
-    ///   nothing else changes either.
+    /// * If the job has no parent that blocks on its children, nothing else changes. That is the
+    ///   case if:
+    ///   * The job is the root.
+    ///   * A cancel or a failure has already deactivated its parent (see
+    ///     [`Overlay::blocking_parent`]), as it has for every non-root [`JobState::CleanupReady`]
+    ///     job.
     /// * Otherwise, every ancestor moves from [`JobState::BlockingOnChildren`] to
     ///   [`JobState::Failed`] with the message `descendant job {job_id} failed: {message}`, where
     ///   `message` is cut to [`MAX_PROPAGATED_MESSAGE_CHARS`] characters.
@@ -623,9 +624,6 @@ impl EventPlan {
         overlay: &Overlay<'_>,
     ) -> Result<Self, InternalError> {
         let mut event_plan = Self::fail_job(job_id, node.state, message);
-        if node.state == JobState::CleanupReady {
-            return Ok(event_plan);
-        }
         let Some(BlockingParent {
             id: mut ancestor_id,
             node: mut ancestor,
