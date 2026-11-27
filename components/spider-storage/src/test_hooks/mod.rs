@@ -94,6 +94,10 @@ pub enum HookPoint {
 
     /// In a round of a tree's committer, after the round's database write, before its apply.
     CommitterRoundAfterDbWrite,
+
+    /// In the apply of a tree's transition to a cached job, after the job's write lock is found
+    /// held, before the apply waits for it.
+    TreeStateApplyLockContended,
 }
 
 /// What a hit of a hook point is about. A filter matches the fields that it sets.

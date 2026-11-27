@@ -458,6 +458,45 @@ impl TestEnv {
         }
     }
 
+    /// # Returns
+    ///
+    /// A future that reports the failure of the task instance `task_instance_id` of `task_id` of
+    /// `job_id` with `message`. The future:
+    ///
+    /// * Resolves to [`ServiceState::fail_task_instance`]'s return values.
+    /// * Panics if the report isn't answered within [`RPC_TIMEOUT`].
+    pub fn task_failure(
+        &self,
+        job_id: JobId,
+        task_id: TaskId,
+        task_instance_id: TaskInstanceId,
+        message: &str,
+    ) -> impl Future<Output = JobResult> + Send + use<> {
+        let service = self.service.clone();
+        let message = message.to_owned();
+        async move {
+            bounded_rpc(service.fail_task_instance(
+                service.session_id(),
+                job_id,
+                task_instance_id,
+                task_id,
+                message,
+            ))
+            .await
+        }
+    }
+
+    /// # Returns
+    ///
+    /// A future that cancels `job_id`. The future:
+    ///
+    /// * Resolves to [`ServiceState::cancel_job`]'s return values.
+    /// * Panics if the cancel isn't answered within [`RPC_TIMEOUT`].
+    pub fn cancel(&self, job_id: JobId) -> impl Future<Output = JobResult> + Send + use<> {
+        let service = self.service.clone();
+        async move { bounded_rpc(service.cancel_job(job_id)).await }
+    }
+
     /// Registers and starts a root job of `shape`, and drains its ready tasks.
     ///
     /// # Returns
@@ -506,12 +545,7 @@ impl TestEnv {
                 .expect("the registering report should succeed"),
             JobState::BlockingOnChildren
         );
-        let child_ids: Vec<JobId> = self
-            .child_rows(parent_id)
-            .await
-            .into_iter()
-            .map(|row| row.id)
-            .collect();
+        let child_ids = self.children_of(parent_id).await;
         assert_eq!(child_ids.len(), shapes.len());
         let children: Vec<_> = child_ids.iter().copied().zip(shapes).collect();
         self.drain_ready_tasks(&children).await;
@@ -543,6 +577,30 @@ impl TestEnv {
         self.task_success(job_id, task_index, task_instance_id, value, Vec::new())
             .await
             .expect("the report should succeed")
+    }
+
+    /// Drains the published cleanup tasks of exactly `job_ids`, then runs a new instance of each to
+    /// success.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a report fails or doesn't cancel its job.
+    pub async fn run_cleanups(&self, job_ids: &[JobId]) {
+        let cleanup_tasks: Vec<_> = job_ids
+            .iter()
+            .map(|job_id| (*job_id, TaskId::Cleanup))
+            .collect();
+        self.drain_lane(Lane::Cleanup, &cleanup_tasks).await;
+        for job_id in job_ids {
+            let task_instance_id = self.create_instance(*job_id, TaskId::Cleanup).await;
+            assert_eq!(
+                self.cleanup_success(*job_id, task_instance_id)
+                    .await
+                    .expect("the cleanup report should succeed"),
+                JobState::Cancelled,
+                "the cleanup of job {job_id}"
+            );
+        }
     }
 
     /// Drains the published commit task of `job_id` and registers an instance of it.
@@ -715,6 +773,65 @@ impl TestEnv {
         }
     }
 
+    /// Polls `lane` until it has returned exactly the entries of `expected`, in any order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    ///
+    /// * The lane returns an entry that `expected` doesn't hold.
+    /// * The lane returns an entry more times than `expected` holds it.
+    /// * The entries don't arrive within [`PUBLICATION_TIMEOUT`].
+    pub async fn drain_lane(&self, lane: Lane, expected: &[(JobId, TaskId)]) {
+        let mut remaining: HashMap<(JobId, TaskId), usize> = HashMap::new();
+        for entry in expected {
+            *remaining.entry(*entry).or_default() += 1;
+        }
+        let mut num_remaining = expected.len();
+        tokio::time::timeout(PUBLICATION_TIMEOUT, async {
+            while num_remaining > 0 {
+                for entry in self
+                    .poll_lane(lane, num_remaining, Duration::from_secs(1))
+                    .await
+                {
+                    let Some(count) = remaining.get_mut(&entry).filter(|count| **count > 0) else {
+                        panic!("unexpected entry {entry:?} in the {lane:?} lane");
+                    };
+                    *count -= 1;
+                    num_remaining -= 1;
+                }
+            }
+        })
+        .await
+        .expect("the expected lane entries should be published");
+    }
+
+    /// Asserts that `job_id` is not in the job cache: an instance creation for its task 0 finds no
+    /// job.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    ///
+    /// * The assertion fails.
+    /// * The instance creation isn't answered within [`RPC_TIMEOUT`].
+    pub async fn assert_not_cached(&self, job_id: JobId, what: &str) {
+        let instance = bounded_rpc(self.service.create_task_instance(
+            self.service.session_id(),
+            job_id,
+            TaskId::Index(0),
+            self.execution_manager_id,
+        ))
+        .await;
+        assert!(
+            matches!(
+                instance,
+                Err(StorageServerError::JobNotFound(not_found_id)) if not_found_id == job_id
+            ),
+            "{what}: job {job_id} should not be cached, got {instance:?}"
+        );
+    }
+
     /// # Returns
     ///
     /// A hook that observes every hit of `point` that `filter` matches.
@@ -818,6 +935,17 @@ impl TestEnv {
 
     /// # Returns
     ///
+    /// The IDs of the children of `parent_id` in the database, by ascending ID.
+    pub async fn children_of(&self, parent_id: JobId) -> Vec<JobId> {
+        self.child_rows(parent_id)
+            .await
+            .into_iter()
+            .map(|row| row.id)
+            .collect()
+    }
+
+    /// # Returns
+    ///
     /// The outputs of `job_id`'s row in the database, or [`None`] if it has none.
     ///
     /// # Panics
@@ -904,6 +1032,44 @@ impl TestEnv {
         );
     }
 
+    /// Asserts that the rows of the tree rooted at `root_id` are exactly the jobs of `expected`, in
+    /// their states.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the assertion fails.
+    pub async fn assert_tree_rows(
+        &self,
+        root_id: JobId,
+        expected: &HashMap<JobId, JobState>,
+        what: &str,
+    ) {
+        assert_eq!(
+            self.tree_rows(root_id).await,
+            *expected,
+            "{what}: the rows of the tree"
+        );
+    }
+
+    /// Asserts that the tree rooted at `root_id` has no non-terminal row.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a row is not terminal.
+    pub async fn assert_quiescent(&self, root_id: JobId) {
+        let non_terminal_rows: HashMap<JobId, JobState> = self
+            .tree_rows(root_id)
+            .await
+            .into_iter()
+            .filter(|(_, state)| !state.is_terminal())
+            .collect();
+        assert_eq!(
+            non_terminal_rows,
+            HashMap::new(),
+            "the tree of {root_id} should be quiescent"
+        );
+    }
+
     /// Asserts that the job's cached and persisted states are both `expected`, and that the service
     /// has not shut down fatally.
     pub async fn assert_job_state(&self, job_id: JobId, expected: JobState) {
@@ -916,6 +1082,36 @@ impl TestEnv {
         );
         assert_eq!(self.row_state(job_id).await, expected);
         assert!(!self.is_fatal());
+    }
+
+    /// # Returns
+    ///
+    /// A future that reports the success of the instance `task_instance_id` of `job_id`'s cleanup
+    /// task. The future:
+    ///
+    /// * Resolves to [`ServiceState::succeed_cleanup_task_instance`]'s return values.
+    /// * Panics if the report isn't answered within [`RPC_TIMEOUT`].
+    fn cleanup_success(
+        &self,
+        job_id: JobId,
+        task_instance_id: TaskInstanceId,
+    ) -> impl Future<Output = JobResult> + Send + use<> {
+        let service = self.service.clone();
+        async move {
+            bounded_rpc(service.succeed_cleanup_task_instance(
+                service.session_id(),
+                job_id,
+                task_instance_id,
+            ))
+            .await
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The states of the rows of the tree rooted at `root_id` in the database, by job.
+    async fn tree_rows(&self, root_id: JobId) -> HashMap<JobId, JobState> {
+        tree_rows(&self.pool, root_id).await
     }
 
     /// # Returns
@@ -957,39 +1153,6 @@ impl TestEnv {
                 .map(|entry| (entry.job_id, TaskId::Cleanup))
                 .collect(),
         }
-    }
-
-    /// Polls `lane` until it has returned exactly the entries of `expected`, in any order.
-    ///
-    /// # Panics
-    ///
-    /// Panics if:
-    ///
-    /// * The lane returns an entry that `expected` doesn't hold.
-    /// * The lane returns an entry more times than `expected` holds it.
-    /// * The entries don't arrive within [`PUBLICATION_TIMEOUT`].
-    async fn drain_lane(&self, lane: Lane, expected: &[(JobId, TaskId)]) {
-        let mut remaining: HashMap<(JobId, TaskId), usize> = HashMap::new();
-        for entry in expected {
-            *remaining.entry(*entry).or_default() += 1;
-        }
-        let mut num_remaining = expected.len();
-        tokio::time::timeout(PUBLICATION_TIMEOUT, async {
-            while num_remaining > 0 {
-                for entry in self
-                    .poll_lane(lane, num_remaining, Duration::from_secs(1))
-                    .await
-                {
-                    let Some(count) = remaining.get_mut(&entry).filter(|count| **count > 0) else {
-                        panic!("unexpected entry {entry:?} in the {lane:?} lane");
-                    };
-                    *count -= 1;
-                    num_remaining -= 1;
-                }
-            }
-        })
-        .await
-        .expect("the expected lane entries should be published");
     }
 
     /// Starts a runtime with `hooks` under `config`, then resends the ready tasks.
@@ -1141,6 +1304,14 @@ impl JobShape {
             .map(|task_index| (job_id, TaskId::Index(task_index)))
             .collect()
     }
+}
+
+/// A lane of the inbound queue.
+#[derive(Clone, Copy, Debug)]
+pub enum Lane {
+    Task,
+    Commit,
+    Cleanup,
 }
 
 /// Observers of committer rounds: the rounds of one tree, the rounds that write a transition of
@@ -1300,6 +1471,51 @@ impl<FirstType: Send + 'static, SecondType: Send + 'static> Race<FirstType, Seco
     }
 }
 
+/// The rows of a tree at the database write of one of its rounds, read while the round is paused
+/// after its write.
+pub struct CommitSnapshot {
+    reader_join_handle: JoinHandle<HashMap<JobId, JobState>>,
+}
+
+impl CommitSnapshot {
+    /// Arms a snapshot of the rows of the tree rooted at `root_id` at the `nth` round, counted from
+    /// now, that writes a transition of `job_id`.
+    ///
+    /// # Returns
+    ///
+    /// The armed snapshot.
+    #[must_use]
+    pub fn arm(env: &TestEnv, root_id: JobId, job_id: JobId, nth: usize) -> Self {
+        let pause_hook = env.hooks.arm(
+            HookPoint::CommitterRoundAfterDbWrite,
+            HookFilter::job(job_id),
+            HookAction::Pause,
+            HookCount::Times(nth),
+        );
+        for _ in 1..nth {
+            pause_hook.release();
+        }
+        let pool = env.pool.clone();
+        let reader_join_handle = tokio::spawn(async move {
+            pause_hook
+                .reached(nth, SNAPSHOT_TIMEOUT)
+                .await
+                .expect("the snapshot's round should write within the timeout");
+            let rows = tree_rows(&pool, root_id).await;
+            pause_hook.release();
+            rows
+        });
+        Self { reader_join_handle }
+    }
+
+    /// # Returns
+    ///
+    /// The states of the rows of the tree at the write, by job.
+    pub async fn rows(self) -> HashMap<JobId, JobState> {
+        join(self.reader_join_handle).await
+    }
+}
+
 /// Builds a graph of `num_tasks` tasks under `execution_policy`, where every task but the first
 /// consumes the previous task's output, with one byte-typed input for the first task.
 ///
@@ -1409,6 +1625,18 @@ pub async fn join<OutputType>(mut join_handle: JoinHandle<OutputType>) -> Output
         .expect("the spawned task should not panic")
 }
 
+/// Asserts that `result` is the job state `expected`.
+///
+/// # Panics
+///
+/// Panics if the assertion fails.
+pub fn assert_job_result(result: &JobResult, expected: JobState, what: &str) {
+    assert!(
+        matches!(result, Ok(state) if *state == expected),
+        "{what}: expected `Ok({expected:?})`, got {result:?}"
+    );
+}
+
 /// Asserts that `result` is the stale state error `expected`.
 ///
 /// # Type Parameters
@@ -1440,13 +1668,9 @@ const PUBLICATION_TIMEOUT: Duration = Duration::from_secs(10);
 /// paused over several of its steps, so this is well above [`HOOK_TIMEOUT`].
 const RPC_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// A lane of the inbound queue.
-#[derive(Clone, Copy, Debug)]
-enum Lane {
-    Task,
-    Commit,
-    Cleanup,
-}
+/// How long a commit snapshot waits for its round's database write. A test arms the snapshot before
+/// the steps that lead to the write, so this is well above [`HOOK_TIMEOUT`].
+const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The state of a job's row, whether the row has an end time, and whether the job is a root.
 #[derive(sqlx::FromRow)]
@@ -1473,6 +1697,26 @@ async fn bounded_rpc<OutputType>(rpc: impl Future<Output = OutputType>) -> Outpu
     tokio::time::timeout(RPC_TIMEOUT, rpc)
         .await
         .expect("the RPC should be answered within the timeout")
+}
+
+/// # Returns
+///
+/// The states of the rows of the tree rooted at `root_id` in the database behind `pool`, by job.
+///
+/// # Panics
+///
+/// Panics if the query fails.
+async fn tree_rows(pool: &MySqlPool, root_id: JobId) -> HashMap<JobId, JobState> {
+    sqlx::query_as::<_, (JobId, JobState)>(
+        "SELECT `id`, `state` FROM `jobs` WHERE `id` = ? OR `root_id` = ?;",
+    )
+    .bind(root_id)
+    .bind(root_id)
+    .fetch_all(pool)
+    .await
+    .expect("the tree row query should succeed")
+    .into_iter()
+    .collect()
 }
 
 /// # Returns
