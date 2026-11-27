@@ -668,7 +668,11 @@ async fn reports_children_only_after_successful_execution() -> anyhow::Result<()
     let join = tokio::spawn(runtime.run());
 
     assert!(storage.wait_for_any_report(BOUNDED_WAIT).await);
-    assert!(storage.success_reports().is_empty());
+    let reports = storage.success_reports();
+    assert!(
+        reports.is_empty(),
+        "unexpected success reports: {reports:?}"
+    );
 
     let successful_assignment = assignment_with_session(SESSION_ID);
     let mut context = execution_context("create_children", single_input(&CHILD_COUNT));
