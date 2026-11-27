@@ -440,6 +440,9 @@ enum StragglerTree {
 }
 
 impl StragglerTree {
+    /// # Returns
+    ///
+    /// The root of the tree.
     const fn root_id(&self) -> JobId {
         match *self {
             Self::Root { job_id } | Self::TwoTaskRoot { job_id } => job_id,
@@ -447,6 +450,9 @@ impl StragglerTree {
         }
     }
 
+    /// # Returns
+    ///
+    /// The straggler job.
     const fn job_id(&self) -> JobId {
         match *self {
             Self::Root { job_id } | Self::Leaf { job_id, .. } | Self::TwoTaskRoot { job_id } => {
