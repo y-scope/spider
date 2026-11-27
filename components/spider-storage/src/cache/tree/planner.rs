@@ -629,6 +629,8 @@ impl EventPlan {
             node: mut ancestor,
         }) = overlay.blocking_parent(job_id)?
         else {
+            // The job is the root, or a cancel or a failure has already deactivated its tree, as it
+            // has for every cleanup failure.
             return Ok(event_plan);
         };
         let propagated_message = format!(
