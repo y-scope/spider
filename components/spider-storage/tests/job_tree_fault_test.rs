@@ -158,6 +158,10 @@ impl TestTree {
     }
 
     /// Runs the sibling's task to success, if the tree has a sibling.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the sibling's task report doesn't move the sibling to [`JobState::Succeeded`].
     async fn finish_sibling(&self, env: &TestEnv) {
         if let Some(sibling_id) = self.sibling() {
             assert_eq!(
@@ -410,6 +414,10 @@ impl DropRun<'_> {
     /// Asserts that the tree ended as `outcome` says, with `J`'s registered children succeeded,
     /// with exactly the submissions of `J` and the rounds writing `J` that `case` calls for, no
     /// lane entry left, and no fatal shutdown.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the assertion fails.
     async fn assert_outcome(&self, case: DropCase, placement: Placement, outcome: &DropOutcome) {
         let (env, what, root_id, job_id) = (
             self.env,
@@ -451,6 +459,10 @@ impl DropRun<'_> {
     }
 
     /// Drops the last task's success report at `point`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `J` submits an event while the report is paused.
     async fn drop_last_report(&self, point: HookPoint) -> DropOutcome {
         let (env, job_id) = (self.env, self.tree.job());
         let paused = env.pause(point, HookFilter::job(job_id));
@@ -473,6 +485,14 @@ impl DropRun<'_> {
     }
 
     /// Drops a registering last report after its task's success.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    ///
+    /// * `J`'s children are registered while the report is paused.
+    /// * `J` doesn't get [`NUM_CHILDREN`] children.
+    /// * A child doesn't succeed.
     async fn drop_registering_report(&self) -> DropOutcome {
         let (env, job_id) = (self.env, self.tree.job());
         let paused = env.pause(HookPoint::TaskSuccessAfterTcbFlip, HookFilter::job(job_id));
@@ -512,6 +532,10 @@ impl DropRun<'_> {
 
     /// Drops the report of task 0 of a two-task job after its task's success, and reports task 1 in
     /// full meanwhile.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `J` submits an event while task 0's report is paused.
     async fn drop_report_while_sibling_task_reports(&self) -> DropOutcome {
         let (env, job_id) = (self.env, self.tree.job());
         let paused = env.pause(HookPoint::TaskSuccessAfterTcbFlip, HookFilter::job(job_id));
@@ -541,6 +565,10 @@ impl DropRun<'_> {
     }
 
     /// Drops the reports of both tasks of a two-task job after their tasks' successes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a dropped report's task doesn't end within [`HOOK_TIMEOUT`] as cancelled.
     async fn drop_both_reports(&self) -> DropOutcome {
         let (env, job_id) = (self.env, self.tree.job());
         let paused = env.hooks.arm(
@@ -587,6 +615,10 @@ impl DropRun<'_> {
 
     /// Drops the last report after its task's success, holding the job's guard, while a cancel of
     /// the root is written and waits to apply.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the cancel finishes before the paused report releases the job's guard.
     async fn drop_report_racing_cancel(&self) -> DropOutcome {
         let (env, root_id, job_id) = (self.env, self.tree.root(), self.tree.job());
         let paused = env.pause(HookPoint::TaskSuccessAfterTcbFlip, HookFilter::job(job_id));
@@ -627,6 +659,10 @@ impl DropRun<'_> {
     }
 
     /// Drops the report of the first task of a two-task chain before its successor is locked.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `J` doesn't succeed after task 1 runs.
     async fn drop_report_before_successor_lock(&self) -> DropOutcome {
         let (env, job_id) = (self.env, self.tree.job());
         let paused = env.pause(
@@ -687,6 +723,10 @@ impl DropRun<'_> {
     }
 
     /// Drops a commit success while its round is between its database write and its apply.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `J` isn't [`JobState::CommitReady`] after its task runs.
     async fn drop_commit_in_committer(&self) -> DropOutcome {
         let (env, job_id) = (self.env, self.tree.job());
         assert_eq!(
@@ -741,6 +781,10 @@ impl DropRun<'_> {
     }
 
     /// Drops a root start while its round is between its database write and its apply.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `J` doesn't succeed after its task runs.
     async fn drop_start_in_committer(&self) -> DropOutcome {
         let (env, job_id) = (self.env, self.tree.job());
         let paused = self.pause_write_of_job();
@@ -760,6 +804,10 @@ impl DropRun<'_> {
     /// task instance pool. If `is_dead`, the pool finds the execution manager dead, which proves
     /// that the dropped creation still sent the instance: the pool removes it and republishes its
     /// task.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the hook context doesn't carry the dropped instance's ID.
     async fn drop_instance_creation(
         &self,
         execution_manager_id: ExecutionManagerId,
@@ -1176,6 +1224,10 @@ async fn a_report_beyond_the_maximum_depth_fails_the_whole_chain() -> anyhow::Re
 /// Asserts that a report over a limit failed the job `J` of `tree` with `error`, failed the root
 /// with the propagated message and aborted the sibling, whose cleanup then runs; that nothing of
 /// the report is stored; and that the bystander tree `bystander_id` still runs.
+///
+/// # Panics
+///
+/// Panics if the assertion fails.
 async fn assert_failed_for_limit(
     env: &TestEnv,
     tree: &TestTree,
@@ -1229,6 +1281,10 @@ async fn assert_failed_for_limit(
 /// Races two reports of the two tasks of one root job as `race` says, each with [`NUM_CHILDREN`]
 /// children of `large`, whose union exceeds [`MAX_JOB_CHILDREN_SIZE`], and asserts that exactly one
 /// task fails for it.
+///
+/// # Panics
+///
+/// Panics if the assertion fails.
 async fn assert_reservation_race(
     env: &TestEnv,
     large: &CompressedJobSubmission,
@@ -1302,6 +1358,17 @@ async fn assert_reservation_race(
 ///
 /// * The index of the task whose children were reserved.
 /// * The results of the reports of task 0 and task 1.
+///
+/// # Panics
+///
+/// Panics if:
+///
+/// * A [`ReservationRace::Free`] race without retries doesn't have exactly one loser, or one with
+///   retries doesn't retry exactly one task of `job_id`.
+/// * A [`ReservationRace::FirstHeldAfterTcbFlip`] race without retries finishes the second report
+///   before the job's guard applies, or doesn't fail the job by then.
+/// * A [`ReservationRace::FirstHeldAfterTcbFlip`] race doesn't write a failure of `job_id` exactly
+///   when it has no retry.
 async fn race_reports(
     env: &TestEnv,
     job_id: JobId,
@@ -1398,6 +1465,10 @@ async fn race_reports(
 
 /// Reruns the rejected task `loser` of `job_id` without children, and asserts that the job then
 /// registers exactly the other task's children and succeeds with both tasks' outputs.
+///
+/// # Panics
+///
+/// Panics if the assertion fails.
 async fn finish_after_rejected_report(env: &TestEnv, job_id: JobId, loser: usize, what: &str) {
     let task_instance_id = env.create_instance(job_id, TaskId::Index(loser)).await;
     assert_job_result(
