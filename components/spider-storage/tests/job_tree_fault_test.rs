@@ -111,7 +111,7 @@ impl TestTree {
     /// # Returns
     ///
     /// The tree.
-    async fn register_alone(env: &TestEnv, shape: JobShape) -> Self {
+    async fn register_alone(env: &TestEnv, shape: &JobShape) -> Self {
         let (graph, inputs) = shape.build();
         let job_id = env.register_job(&graph, &inputs).await;
         Self::Alone { job: job_id }
@@ -411,7 +411,7 @@ impl DropRun<'_> {
     /// Asserts that the tree ended as `outcome` says, with `J`'s registered children succeeded,
     /// with exactly the submissions of `J` and the rounds writing `J` that `case` calls for, no
     /// lane entry left, and no fatal shutdown.
-    async fn assert_outcome(&self, case: DropCase, placement: Placement, outcome: DropOutcome) {
+    async fn assert_outcome(&self, case: DropCase, placement: Placement, outcome: &DropOutcome) {
         let (env, what, root_id, job_id) = (
             self.env,
             self.what.as_str(),
@@ -977,7 +977,7 @@ async fn a_dropped_rpc_never_strands_its_job() -> anyhow::Result<()> {
         for placement in Placement::iter() {
             let tree = match (case, placement) {
                 (DropCase::StartInCommitter, Placement::Alone) => {
-                    TestTree::register_alone(&env, case.shape()).await
+                    TestTree::register_alone(&env, &case.shape()).await
                 }
                 (DropCase::StartInCommitter, Placement::Leaf) => continue,
                 (
@@ -1011,7 +1011,7 @@ async fn a_dropped_rpc_never_strands_its_job() -> anyhow::Result<()> {
                 what: format!("{case:?}, {placement:?}"),
             };
             let outcome = run.drop_rpc(case, dead_execution_manager_id).await;
-            run.assert_outcome(case, placement, outcome).await;
+            run.assert_outcome(case, placement, &outcome).await;
         }
     }
     env.finish().await;
