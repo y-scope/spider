@@ -497,17 +497,25 @@ async fn publish_filler_cleanups(env: &TestEnv) -> usize {
 /// # Returns
 ///
 /// The number of entries polled.
+///
+/// # Panics
+///
+/// Panics if the lane doesn't drain within [`STALL_TIMEOUT`].
 async fn drain_cleanup_lane(env: &TestEnv) -> usize {
-    let mut num_entries = 0;
-    loop {
-        let entries = env
-            .poll_lane(Lane::Cleanup, 4096, Duration::from_millis(500))
-            .await;
-        if entries.is_empty() {
-            return num_entries;
+    tokio::time::timeout(STALL_TIMEOUT, async {
+        let mut num_entries = 0;
+        loop {
+            let entries = env
+                .poll_lane(Lane::Cleanup, 4096, Duration::from_millis(500))
+                .await;
+            if entries.is_empty() {
+                return num_entries;
+            }
+            num_entries += entries.len();
         }
-        num_entries += entries.len();
-    }
+    })
+    .await
+    .expect("the cleanup lane should drain within the timeout")
 }
 
 /// Awaits `future`, which must not wait for anybody to poll an inbound-queue lane.
