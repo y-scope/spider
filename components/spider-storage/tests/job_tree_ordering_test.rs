@@ -62,6 +62,10 @@ impl BacklogTree {
     /// # Returns
     ///
     /// The started tree.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the bystander, the failing child or the held child isn't registered.
     async fn start(env: &TestEnv, num_queued: usize) -> Self {
         let root_id = env.start_root(&JobShape::ONE_TASK_WITH_CLEANUP).await;
         let mut shapes = vec![JobShape::ONE_TASK; num_queued + 2];
@@ -282,6 +286,16 @@ async fn a_scheduler_that_never_polls_the_lanes_stalls_no_tree() -> anyhow::Resu
 /// [`MAX_EVENTS_PER_ROUND`] completions of the root's children behind it, then submits
 /// `fast_forwarded`, and checks that the round after the held one plans `fast_forwarded` first and
 /// enough of the completions to fill it up, and that the round after that plans the rest of them.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`wait_until_answered`]'s return values on failure.
+///
+/// # Panics
+///
+/// Panics if an assertion fails.
 async fn assert_fast_forwarded_past_a_full_backlog(
     fast_forwarded: FastForwarded,
 ) -> anyhow::Result<()> {
@@ -379,6 +393,10 @@ async fn assert_fast_forwarded_past_a_full_backlog(
 
 /// Asserts the rows and the errors of `tree` once `fast_forwarded` and the backlog are planned,
 /// then runs the published cleanups and asserts that the tree is quiescent.
+///
+/// # Panics
+///
+/// Panics if an assertion fails.
 async fn assert_backlog_tree_finishes(
     env: &TestEnv,
     tree: &BacklogTree,
