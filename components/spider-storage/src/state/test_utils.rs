@@ -628,6 +628,51 @@ pub async fn create_test_prepared_child(input_byte: u8) -> PreparedChild {
 
 /// # Returns
 ///
+/// A prepared child of [`create_test_child_submission`]'s submission for `input_byte` whose payload
+/// is exactly `size` bytes: its compressed job inputs end with a zstd skippable frame of zeros,
+/// which decompresses to nothing.
+///
+/// # Panics
+///
+/// Panics if:
+///
+/// * `size` is below the submission's payload plus the skippable frame's 8-byte header.
+/// * The skippable frame's content does not fit in a `u32`.
+/// * The child preparation fails.
+pub async fn create_test_prepared_child_of_size(input_byte: u8, size: u64) -> PreparedChild {
+    const SKIPPABLE_FRAME_MAGIC: u32 = 0x184d_2a50;
+    const SKIPPABLE_FRAME_HEADER_SIZE: usize = 8;
+
+    let CompressedJobSubmission {
+        compressed_serialized_task_graph,
+        compressed_serialized_job_inputs,
+    } = create_test_child_submission(input_byte);
+    let inputs_size = usize::try_from(size)
+        .ok()
+        .and_then(|size| size.checked_sub(compressed_serialized_task_graph.len()))
+        .expect("the size should leave room for the child's task graph");
+    let frame_content_size = inputs_size
+        .checked_sub(compressed_serialized_job_inputs.len() + SKIPPABLE_FRAME_HEADER_SIZE)
+        .expect("the size should leave room for the child's inputs and the skippable frame");
+    let mut padded_inputs = vec![0u8; inputs_size];
+    let (inputs, frame) = padded_inputs.split_at_mut(compressed_serialized_job_inputs.len());
+    inputs.copy_from_slice(&compressed_serialized_job_inputs);
+    frame[..4].copy_from_slice(&SKIPPABLE_FRAME_MAGIC.to_le_bytes());
+    frame[4..SKIPPABLE_FRAME_HEADER_SIZE].copy_from_slice(
+        &u32::try_from(frame_content_size)
+            .expect("the skippable frame's content should fit in a `u32`")
+            .to_le_bytes(),
+    );
+    PreparedChild::create(CompressedJobSubmission {
+        compressed_serialized_task_graph,
+        compressed_serialized_job_inputs: padded_inputs,
+    })
+    .await
+    .expect("child preparation should succeed")
+}
+
+/// # Returns
+///
 /// A prepared child with [`create_test_task_graph`]'s task graph whose only positional input is
 /// `input_size` pseudo-random bytes, so that its payload exceeds `input_size`.
 ///

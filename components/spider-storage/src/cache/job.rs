@@ -485,7 +485,8 @@ impl<
     /// * [`JobState::BlockingOnChildren`] if the job's tasks prepared children.
     /// * [`JobState::CommitReady`]
     /// * [`JobState::Succeeded`]
-    /// * [`JobState::Failed`] if the database rejected the job's outputs or children.
+    /// * [`JobState::Failed`] if the database rejected the job's outputs or children, which fails
+    ///   the job's tree as a failed regular task does (see [`Self::fail_task_instance`]).
     ///
     /// # Errors
     ///
@@ -639,8 +640,15 @@ impl<
     /// Marks a task instance as failed.
     ///
     /// If the task has remaining retries, it is re-enqueued to the inbound queue. Otherwise,
-    /// submits the job's failure to the job's tree and waits for the committer; the job moves to
-    /// [`JobState::Failed`] unless it has left the task's lane.
+    /// submits the job's failure to the job's tree and waits for the committer. Unless the job has
+    /// left the task's lane, the failure:
+    ///
+    /// * Moves the job to [`JobState::Failed`].
+    /// * If the task isn't the cleanup task and the job's parent blocks on its children, moves
+    ///   every ancestor of the job to [`JobState::Failed`] too.
+    /// * In that case, also moves every other running, blocking or commit-ready job of the tree to
+    ///   its abort target, and publishes the cleanup task of each job that moves to
+    ///   [`JobState::CleanupReady`].
     ///
     /// # Returns
     ///

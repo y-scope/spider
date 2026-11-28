@@ -405,6 +405,33 @@ impl TestEnv {
             .task_instance_id
     }
 
+    /// Registers an execution manager and marks it dead in the database, so that the task instance
+    /// pool removes every instance created for it and republishes the instance's task.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the dead execution manager.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the registration or the update fails.
+    pub async fn register_dead_execution_manager(&self) -> ExecutionManagerId {
+        let execution_manager_id = self
+            .service
+            .register_execution_manager(IpAddr::from([127, 0, 0, 2]), None)
+            .await
+            .expect("execution manager registration should succeed")
+            .0;
+        let result = sqlx::query("UPDATE `execution_managers` SET `state` = ? WHERE `id` = ?;")
+            .bind("Dead")
+            .bind(execution_manager_id)
+            .execute(&self.pool)
+            .await
+            .expect("the execution manager update should succeed");
+        assert_eq!(result.rows_affected(), 1);
+        execution_manager_id
+    }
+
     /// # Returns
     ///
     /// A future that reports the success of the task instance `task_instance_id` of the task
@@ -450,6 +477,29 @@ impl TestEnv {
         let service = self.service.clone();
         async move {
             bounded_rpc(service.succeed_commit_task_instance(
+                service.session_id(),
+                job_id,
+                task_instance_id,
+            ))
+            .await
+        }
+    }
+
+    /// # Returns
+    ///
+    /// A future that reports the success of the instance `task_instance_id` of `job_id`'s cleanup
+    /// task. The future:
+    ///
+    /// * Resolves to [`ServiceState::succeed_cleanup_task_instance`]'s return values.
+    /// * Panics if the report isn't answered within [`RPC_TIMEOUT`].
+    pub fn cleanup_success(
+        &self,
+        job_id: JobId,
+        task_instance_id: TaskInstanceId,
+    ) -> impl Future<Output = JobResult> + Send + use<> {
+        let service = self.service.clone();
+        async move {
+            bounded_rpc(service.succeed_cleanup_task_instance(
                 service.session_id(),
                 job_id,
                 task_instance_id,
@@ -507,13 +557,27 @@ impl TestEnv {
     ///
     /// Panics if the start fails.
     pub async fn start_root(&self, shape: &JobShape) -> JobId {
+        let job_id = self.start_root_without_draining(shape).await;
+        self.drain_lane(Lane::Task, &shape.ready_tasks(job_id))
+            .await;
+        job_id
+    }
+
+    /// Registers and starts a root job of `shape`, leaving its ready tasks in the task lane.
+    ///
+    /// # Returns
+    ///
+    /// The job ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the start fails or isn't answered within [`RPC_TIMEOUT`].
+    pub async fn start_root_without_draining(&self, shape: &JobShape) -> JobId {
         let (graph, inputs) = shape.build();
         let job_id = self.register_job(&graph, &inputs).await;
         bounded_rpc(self.service.start_job(job_id))
             .await
             .expect("the job should start");
-        self.drain_lane(Lane::Task, &shape.ready_tasks(job_id))
-            .await;
         job_id
     }
 
@@ -537,6 +601,33 @@ impl TestEnv {
         value: &[u8],
         shapes: &[JobShape],
     ) -> Vec<JobId> {
+        let child_ids = self
+            .register_children_without_draining(parent_id, value, shapes)
+            .await;
+        let children: Vec<_> = child_ids.iter().copied().zip(shapes).collect();
+        self.drain_ready_tasks(&children).await;
+        child_ids
+    }
+
+    /// Like [`Self::register_children`], leaving the children's ready tasks in the task lane.
+    ///
+    /// # Returns
+    ///
+    /// The IDs of the registered children, by ascending ID, which is the order of `shapes`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    ///
+    /// * The report fails.
+    /// * The report doesn't block the parent on its children.
+    /// * The parent doesn't have one child per shape.
+    pub async fn register_children_without_draining(
+        &self,
+        parent_id: JobId,
+        value: &[u8],
+        shapes: &[JobShape],
+    ) -> Vec<JobId> {
         let task_instance_id = self.create_instance(parent_id, TaskId::Index(0)).await;
         let children = shapes.iter().map(JobShape::child).collect();
         assert_eq!(
@@ -547,8 +638,6 @@ impl TestEnv {
         );
         let child_ids = self.children_of(parent_id).await;
         assert_eq!(child_ids.len(), shapes.len());
-        let children: Vec<_> = child_ids.iter().copied().zip(shapes).collect();
-        self.drain_ready_tasks(&children).await;
         child_ids
     }
 
@@ -592,15 +681,25 @@ impl TestEnv {
             .collect();
         self.drain_lane(Lane::Cleanup, &cleanup_tasks).await;
         for job_id in job_ids {
-            let task_instance_id = self.create_instance(*job_id, TaskId::Cleanup).await;
-            assert_eq!(
-                self.cleanup_success(*job_id, task_instance_id)
-                    .await
-                    .expect("the cleanup report should succeed"),
-                JobState::Cancelled,
-                "the cleanup of job {job_id}"
-            );
+            self.run_cleanup(*job_id).await;
         }
+    }
+
+    /// Runs a new instance of the cleanup task of `job_id` to success, without draining the cleanup
+    /// lane.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the report fails or doesn't cancel the job.
+    pub async fn run_cleanup(&self, job_id: JobId) {
+        let task_instance_id = self.create_instance(job_id, TaskId::Cleanup).await;
+        assert_eq!(
+            self.cleanup_success(job_id, task_instance_id)
+                .await
+                .expect("the cleanup report should succeed"),
+            JobState::Cancelled,
+            "the cleanup of job {job_id}"
+        );
     }
 
     /// Drains the published commit task of `job_id` and registers an instance of it.
@@ -804,6 +903,47 @@ impl TestEnv {
         })
         .await
         .expect("the expected lane entries should be published");
+    }
+
+    /// # Returns
+    ///
+    /// The entries that one poll of `lane` returns, at most `max_entries` within `wait`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the poll fails.
+    pub async fn poll_lane(
+        &self,
+        lane: Lane,
+        max_entries: usize,
+        wait: Duration,
+    ) -> Vec<(JobId, TaskId)> {
+        match lane {
+            Lane::Task => self
+                .service
+                .poll_ready_tasks(max_entries, wait)
+                .await
+                .expect("the task lane poll should succeed")
+                .into_iter()
+                .map(|entry| (entry.job_id, TaskId::Index(entry.task_kind)))
+                .collect(),
+            Lane::Commit => self
+                .service
+                .poll_commit_ready_tasks(max_entries, wait)
+                .await
+                .expect("the commit lane poll should succeed")
+                .into_iter()
+                .map(|entry| (entry.job_id, TaskId::Commit))
+                .collect(),
+            Lane::Cleanup => self
+                .service
+                .poll_cleanup_ready_tasks(max_entries, wait)
+                .await
+                .expect("the cleanup lane poll should succeed")
+                .into_iter()
+                .map(|entry| (entry.job_id, TaskId::Cleanup))
+                .collect(),
+        }
     }
 
     /// Asserts that `job_id` is not in the job cache: an instance creation for its task 0 finds no
@@ -1086,73 +1226,9 @@ impl TestEnv {
 
     /// # Returns
     ///
-    /// A future that reports the success of the instance `task_instance_id` of `job_id`'s cleanup
-    /// task. The future:
-    ///
-    /// * Resolves to [`ServiceState::succeed_cleanup_task_instance`]'s return values.
-    /// * Panics if the report isn't answered within [`RPC_TIMEOUT`].
-    fn cleanup_success(
-        &self,
-        job_id: JobId,
-        task_instance_id: TaskInstanceId,
-    ) -> impl Future<Output = JobResult> + Send + use<> {
-        let service = self.service.clone();
-        async move {
-            bounded_rpc(service.succeed_cleanup_task_instance(
-                service.session_id(),
-                job_id,
-                task_instance_id,
-            ))
-            .await
-        }
-    }
-
-    /// # Returns
-    ///
     /// The states of the rows of the tree rooted at `root_id` in the database, by job.
     async fn tree_rows(&self, root_id: JobId) -> HashMap<JobId, JobState> {
         tree_rows(&self.pool, root_id).await
-    }
-
-    /// # Returns
-    ///
-    /// The entries that one poll of `lane` returns, at most `max_entries` within `wait`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the poll fails.
-    async fn poll_lane(
-        &self,
-        lane: Lane,
-        max_entries: usize,
-        wait: Duration,
-    ) -> Vec<(JobId, TaskId)> {
-        match lane {
-            Lane::Task => self
-                .service
-                .poll_ready_tasks(max_entries, wait)
-                .await
-                .expect("the task lane poll should succeed")
-                .into_iter()
-                .map(|entry| (entry.job_id, TaskId::Index(entry.task_kind)))
-                .collect(),
-            Lane::Commit => self
-                .service
-                .poll_commit_ready_tasks(max_entries, wait)
-                .await
-                .expect("the commit lane poll should succeed")
-                .into_iter()
-                .map(|entry| (entry.job_id, TaskId::Commit))
-                .collect(),
-            Lane::Cleanup => self
-                .service
-                .poll_cleanup_ready_tasks(max_entries, wait)
-                .await
-                .expect("the cleanup lane poll should succeed")
-                .into_iter()
-                .map(|entry| (entry.job_id, TaskId::Cleanup))
-                .collect(),
-        }
     }
 
     /// Starts a runtime with `hooks` under `config`, then resends the ready tasks.
@@ -1216,6 +1292,11 @@ impl JobShape {
         with_commit: false,
         with_cleanup: false,
         execution_policy: None,
+    };
+    /// A job like [`Self::ONE_TASK`], with a cleanup task.
+    pub const ONE_TASK_WITH_CLEANUP: Self = Self {
+        with_cleanup: true,
+        ..Self::ONE_TASK
     };
 
     /// Builds a job of this shape.
@@ -1450,6 +1531,35 @@ impl<FirstType: Send + 'static, SecondType: Send + 'static> Race<FirstType, Seco
         }
     }
 
+    /// Like [`Self::start`], for two RPCs whose events are both submitted by `job_id`: waits until
+    /// `first` has submitted its event before running `second`, so that `first`'s submission is
+    /// never taken for `second`'s.
+    ///
+    /// # Returns
+    ///
+    /// The race, with `first`'s round still paused.
+    pub async fn start_on_one_job(
+        env: &TestEnv,
+        point: HookPoint,
+        filter: HookFilter,
+        first: impl Future<Output = FirstType> + Send + 'static,
+        second: impl Future<Output = SecondType> + Send + 'static,
+        job_id: JobId,
+    ) -> Self {
+        let submit_hook = env.observe(HookPoint::JobEventAfterSubmit, HookFilter::job(job_id));
+        let pause_hook = env.pause(point, filter);
+        let first_join_handle = tokio::spawn(first);
+        reached(&pause_hook, 1).await;
+        reached(&submit_hook, 1).await;
+        let second_join_handle = tokio::spawn(second);
+        reached(&submit_hook, 2).await;
+        Self {
+            pause_hook,
+            first_join_handle,
+            second_join_handle,
+        }
+    }
+
     /// Releases the first RPC's round.
     ///
     /// # Returns
@@ -1573,6 +1683,39 @@ pub fn value(tag: u8, index: usize) -> Vec<u8> {
     let index = u16::try_from(index).expect("test indices should fit in 16 bits");
     let [low, high] = index.to_le_bytes();
     vec![tag, low, high, 0x5a]
+}
+
+/// # Returns
+///
+/// A valid one-task child job whose only input is `input_size` incompressible bytes.
+///
+/// # Panics
+///
+/// Panics if the job fails to build or to compress.
+#[must_use]
+pub fn large_child(input_size: usize) -> CompressedJobSubmission {
+    let (graph, _) = build_chain_task_graph(1, ExecutionPolicy::default());
+    let mut inputs = TaskGraphInputBuilder::new();
+    inputs
+        .append_task_input(&incompressible(input_size))
+        .expect("task input appending should succeed");
+    CompressedJobSubmission {
+        compressed_serialized_task_graph: compress_task_graph(&graph)
+            .expect("task graph compression should succeed"),
+        compressed_serialized_job_inputs: compress_job_inputs(&inputs.build())
+            .expect("input compression should succeed"),
+    }
+}
+
+/// # Returns
+///
+/// A child job of `size` bytes that fails to decode.
+#[must_use]
+pub fn undecodable_child(size: usize) -> CompressedJobSubmission {
+    CompressedJobSubmission {
+        compressed_serialized_task_graph: vec![0u8; size],
+        compressed_serialized_job_inputs: Vec::new(),
+    }
 }
 
 /// # Returns
@@ -1728,4 +1871,19 @@ async fn tree_rows(pool: &MySqlPool, root_id: JobId) -> HashMap<JobId, JobState>
 /// Panics if the outputs fail to serialize.
 fn serialized_output(value: &[u8]) -> Vec<u8> {
     TaskOutputsSerializer::from_tuple(&(value,)).expect("output serialization should succeed")
+}
+
+/// # Returns
+///
+/// `size` pseudo-random bytes.
+fn incompressible(size: usize) -> Vec<u8> {
+    let mut xorshift_state = 0x9e37_79b9_7f4a_7c15_u64;
+    (0..size)
+        .map(|_| {
+            xorshift_state ^= xorshift_state << 13;
+            xorshift_state ^= xorshift_state >> 7;
+            xorshift_state ^= xorshift_state << 17;
+            xorshift_state.to_le_bytes()[0]
+        })
+        .collect()
 }
