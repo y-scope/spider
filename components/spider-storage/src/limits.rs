@@ -1,4 +1,23 @@
 //! Limits that the storage service enforces.
+//!
+//! Each layer enforces the child job limits as follows:
+//!
+//! * [`ServiceState::succeed_task_instance`] checks every child job limit before it stores a
+//!   report's children. A report that breaks one fails its task instance. It checks:
+//!   * The children's depth against [`MAX_DEPTH`].
+//!   * Each child's size against the database's statement payload.
+//!   * The report's children against [`MAX_REPORT_CHILDREN_SIZE`].
+//!   * The job's children against [`MAX_CHILDREN_PER_JOB`] and [`MAX_JOB_CHILDREN_SIZE`].
+//! * A task's [`TaskContext`](spider_tdl::TaskContext) checks its own children early. The service
+//!   doesn't rely on it.
+//! * The tree planner treats a job's children over the per-job limits as a broken invariant
+//!   ([`InternalError::ChildrenOverJobLimits`]).
+//! * The database layer rejects a child too large for one row
+//!   ([`DbError::ChildTooLarge`](crate::db::DbError::ChildTooLarge)) as a backstop.
+//!
+//! [`ServiceState::succeed_task_instance`]: crate::state::ServiceState::succeed_task_instance
+//! [`InternalError::ChildrenOverJobLimits`]:
+//!     crate::cache::error::InternalError::ChildrenOverJobLimits
 
 pub use spider_core::job::submission::MAX_CHILDREN_PER_JOB;
 pub use spider_core::job::submission::MAX_TASK_CHILDREN_SIZE as MAX_REPORT_CHILDREN_SIZE;
