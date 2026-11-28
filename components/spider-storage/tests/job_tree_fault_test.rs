@@ -56,10 +56,16 @@ enum Placement {
 }
 
 /// The tree of a test job `J`, placed as a [`Placement`] says.
-struct TestTree {
-    root: JobId,
-    job: JobId,
-    sibling: Option<JobId>,
+enum TestTree {
+    /// `J` is a root job alone.
+    Alone { job: JobId },
+
+    /// `J` is a leaf of `R → {J, S}`, where `S` has a cleanup task.
+    Leaf {
+        root: JobId,
+        job: JobId,
+        sibling: JobId,
+    },
 }
 
 impl TestTree {
@@ -77,11 +83,7 @@ impl TestTree {
         match placement {
             Placement::Alone => {
                 let job_id = env.start_root(&shape).await;
-                Self {
-                    root: job_id,
-                    job: job_id,
-                    sibling: None,
-                }
+                Self::Alone { job: job_id }
             }
             Placement::Leaf => {
                 let root_id = env.start_root(&JobShape::ONE_TASK).await;
@@ -95,10 +97,10 @@ impl TestTree {
                 else {
                     panic!("the root should have two children");
                 };
-                Self {
+                Self::Leaf {
                     root: root_id,
                     job: job_id,
-                    sibling: Some(sibling_id),
+                    sibling: sibling_id,
                 }
             }
         }
@@ -112,10 +114,35 @@ impl TestTree {
     async fn register_alone(env: &TestEnv, shape: JobShape) -> Self {
         let (graph, inputs) = shape.build();
         let job_id = env.register_job(&graph, &inputs).await;
-        Self {
-            root: job_id,
-            job: job_id,
-            sibling: None,
+        Self::Alone { job: job_id }
+    }
+
+    /// # Returns
+    ///
+    /// The ID of the tree's root.
+    const fn root(&self) -> JobId {
+        match self {
+            Self::Alone { job } => *job,
+            Self::Leaf { root, .. } => *root,
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The ID of `J`.
+    const fn job(&self) -> JobId {
+        match self {
+            Self::Alone { job } | Self::Leaf { job, .. } => *job,
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The ID of the sibling `S` if the tree has one, or [`None`] otherwise.
+    const fn sibling(&self) -> Option<JobId> {
+        match self {
+            Self::Alone { .. } => None,
+            Self::Leaf { sibling, .. } => Some(*sibling),
         }
     }
 
@@ -124,8 +151,8 @@ impl TestTree {
     /// The states of the tree's jobs once `J` is `job_state` and the root and the sibling are
     /// `rest_state`.
     fn states(&self, job_state: JobState, rest_state: JobState) -> HashMap<JobId, JobState> {
-        let mut states = HashMap::from([(self.root, rest_state), (self.job, job_state)]);
-        if let Some(sibling_id) = self.sibling {
+        let mut states = HashMap::from([(self.root(), rest_state), (self.job(), job_state)]);
+        if let Some(sibling_id) = self.sibling() {
             states.insert(sibling_id, rest_state);
         }
         states
@@ -133,7 +160,7 @@ impl TestTree {
 
     /// Runs the sibling's task to success, if the tree has a sibling.
     async fn finish_sibling(&self, env: &TestEnv) {
-        if let Some(sibling_id) = self.sibling {
+        if let Some(sibling_id) = self.sibling() {
             assert_eq!(
                 env.run_task(sibling_id, 0, &value(0x7f, 0)).await,
                 JobState::Succeeded,
@@ -147,10 +174,9 @@ impl TestTree {
     /// The state that a cancel moves the root to: [`JobState::Cancelled`] for the root of a leaf,
     /// which has no cleanup task, else `root_target`.
     const fn cancelled_root_state(&self, root_target: JobState) -> JobState {
-        if self.sibling.is_some() {
-            JobState::Cancelled
-        } else {
-            root_target
+        match self {
+            Self::Leaf { .. } => JobState::Cancelled,
+            Self::Alone { .. } => root_target,
         }
     }
 }
@@ -358,7 +384,7 @@ impl DropRun<'_> {
             DropCase::InCommitterBeforeReceive => {
                 self.drop_report_in_committer(self.env.pause(
                     HookPoint::CommitterBeforeReceive,
-                    HookFilter::job(self.tree.root),
+                    HookFilter::job(self.tree.root()),
                 ))
                 .await
             }
@@ -386,14 +412,18 @@ impl DropRun<'_> {
     /// with exactly the submissions of `J` and the rounds writing `J` that `case` calls for, no
     /// lane entry left, and no fatal shutdown.
     async fn assert_outcome(&self, case: DropCase, placement: Placement, outcome: DropOutcome) {
-        let (env, what, root_id, job_id) =
-            (self.env, self.what.as_str(), self.tree.root, self.tree.job);
+        let (env, what, root_id, job_id) = (
+            self.env,
+            self.what.as_str(),
+            self.tree.root(),
+            self.tree.job(),
+        );
         env.wait_for_job_state(root_id, outcome.rest_state).await;
         let mut states = self.tree.states(outcome.job_state, outcome.rest_state);
         let mut errors = HashMap::new();
         if case == DropCase::FailureInCommitter {
             errors.insert(job_id, DROPPED_FAILURE.to_owned());
-            if let Some(sibling_id) = self.tree.sibling {
+            if let Some(sibling_id) = self.tree.sibling() {
                 states.insert(sibling_id, JobState::Cancelled);
                 errors.insert(
                     root_id,
@@ -423,7 +453,7 @@ impl DropRun<'_> {
 
     /// Drops the last task's success report at `point`.
     async fn drop_last_report(&self, point: HookPoint) -> DropOutcome {
-        let (env, job_id) = (self.env, self.tree.job);
+        let (env, job_id) = (self.env, self.tree.job());
         let paused = env.pause(point, HookFilter::job(job_id));
         let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
         drop_rpc_at(
@@ -445,7 +475,7 @@ impl DropRun<'_> {
 
     /// Drops a registering last report after its task's success.
     async fn drop_registering_report(&self) -> DropOutcome {
-        let (env, job_id) = (self.env, self.tree.job);
+        let (env, job_id) = (self.env, self.tree.job());
         let paused = env.pause(HookPoint::TaskSuccessAfterTcbFlip, HookFilter::job(job_id));
         let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
         drop_rpc_at(
@@ -484,7 +514,7 @@ impl DropRun<'_> {
     /// Drops the report of task 0 of a two-task job after its task's success, and reports task 1 in
     /// full meanwhile.
     async fn drop_report_while_sibling_task_reports(&self) -> DropOutcome {
-        let (env, job_id) = (self.env, self.tree.job);
+        let (env, job_id) = (self.env, self.tree.job());
         let paused = env.pause(HookPoint::TaskSuccessAfterTcbFlip, HookFilter::job(job_id));
         let first_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
         let second_instance_id = env.create_instance(job_id, TaskId::Index(1)).await;
@@ -513,7 +543,7 @@ impl DropRun<'_> {
 
     /// Drops the reports of both tasks of a two-task job after their tasks' successes.
     async fn drop_both_reports(&self) -> DropOutcome {
-        let (env, job_id) = (self.env, self.tree.job);
+        let (env, job_id) = (self.env, self.tree.job());
         let paused = env.hooks.arm(
             HookPoint::TaskSuccessAfterTcbFlip,
             HookFilter::job(job_id),
@@ -559,7 +589,7 @@ impl DropRun<'_> {
     /// Drops the last report after its task's success, holding the job's guard, while a cancel of
     /// the root is written and waits to apply.
     async fn drop_report_racing_cancel(&self) -> DropOutcome {
-        let (env, root_id, job_id) = (self.env, self.tree.root, self.tree.job);
+        let (env, root_id, job_id) = (self.env, self.tree.root(), self.tree.job());
         let paused = env.pause(HookPoint::TaskSuccessAfterTcbFlip, HookFilter::job(job_id));
         let cancel_written = env.observe(
             HookPoint::CommitterRoundAfterDbWrite,
@@ -575,7 +605,7 @@ impl DropRun<'_> {
             env.task_success(job_id, 0, task_instance_id, &value(0x76, 0), Vec::new()),
         )
         .await;
-        let num_cancel_submissions = usize::from(root_id == job_id);
+        let num_cancel_submissions = usize::from(matches!(self.tree, TestTree::Alone { .. }));
         let cancel_join_handle = tokio::spawn(env.cancel(root_id));
         reached(&cancel_written, 1).await;
         reached(&apply_contended, 1).await;
@@ -592,14 +622,14 @@ impl DropRun<'_> {
         );
         reached(&self.submissions, num_cancel_submissions + 1).await;
         let mut cleanup_ids = vec![job_id];
-        cleanup_ids.extend(self.tree.sibling);
+        cleanup_ids.extend(self.tree.sibling());
         env.run_cleanups(&cleanup_ids).await;
         DropOutcome::cancelled()
     }
 
     /// Drops the report of the first task of a two-task chain before its successor is locked.
     async fn drop_report_before_successor_lock(&self) -> DropOutcome {
-        let (env, job_id) = (self.env, self.tree.job);
+        let (env, job_id) = (self.env, self.tree.job());
         let paused = env.pause(
             HookPoint::TaskSuccessBeforeSuccessorLock,
             HookFilter::job(job_id),
@@ -623,7 +653,7 @@ impl DropRun<'_> {
 
     /// Drops the last report while its event is held in the committer by `paused`.
     async fn drop_report_in_committer(&self, paused: ArmedHook) -> DropOutcome {
-        let (env, job_id) = (self.env, self.tree.job);
+        let (env, job_id) = (self.env, self.tree.job());
         let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
         drop_rpc_at(
             &paused,
@@ -638,7 +668,7 @@ impl DropRun<'_> {
 
     /// Drops a terminal failure while its round is between its database write and its apply.
     async fn drop_failure_in_committer(&self) -> DropOutcome {
-        let (env, job_id) = (self.env, self.tree.job);
+        let (env, job_id) = (self.env, self.tree.job());
         let paused = self.pause_write_of_job();
         let task_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
         drop_rpc_at(
@@ -647,7 +677,7 @@ impl DropRun<'_> {
         )
         .await;
         paused.release();
-        if let Some(sibling_id) = self.tree.sibling {
+        if let Some(sibling_id) = self.tree.sibling() {
             env.run_cleanups(&[sibling_id]).await;
         }
         DropOutcome {
@@ -659,7 +689,7 @@ impl DropRun<'_> {
 
     /// Drops a commit success while its round is between its database write and its apply.
     async fn drop_commit_in_committer(&self) -> DropOutcome {
-        let (env, job_id) = (self.env, self.tree.job);
+        let (env, job_id) = (self.env, self.tree.job());
         assert_eq!(
             env.run_task(job_id, 0, &value(0x79, 0)).await,
             JobState::CommitReady
@@ -675,7 +705,7 @@ impl DropRun<'_> {
 
     /// Drops a cleanup success while its round is between its database write and its apply.
     async fn drop_cleanup_in_committer(&self) -> DropOutcome {
-        let (env, root_id, job_id) = (self.env, self.tree.root, self.tree.job);
+        let (env, root_id, job_id) = (self.env, self.tree.root(), self.tree.job());
         assert_job_result(
             &env.cancel(root_id).await,
             self.tree.cancelled_root_state(JobState::CleanupReady),
@@ -684,7 +714,7 @@ impl DropRun<'_> {
         let mut cleanups = vec![(job_id, TaskId::Cleanup)];
         cleanups.extend(
             self.tree
-                .sibling
+                .sibling()
                 .map(|sibling_id| (sibling_id, TaskId::Cleanup)),
         );
         env.drain_lane(Lane::Cleanup, &cleanups).await;
@@ -693,7 +723,7 @@ impl DropRun<'_> {
         drop_rpc_at(&paused, env.cleanup_success(job_id, task_instance_id)).await;
         paused.release();
         reached(&self.writes, 2).await;
-        if let Some(sibling_id) = self.tree.sibling {
+        if let Some(sibling_id) = self.tree.sibling() {
             env.run_cleanup(sibling_id).await;
         }
         DropOutcome::cancelled()
@@ -703,9 +733,9 @@ impl DropRun<'_> {
     async fn drop_cancel_in_committer(&self) -> DropOutcome {
         let env = self.env;
         let paused = self.pause_write_of_job();
-        drop_rpc_at(&paused, env.cancel(self.tree.root)).await;
+        drop_rpc_at(&paused, env.cancel(self.tree.root())).await;
         paused.release();
-        if let Some(sibling_id) = self.tree.sibling {
+        if let Some(sibling_id) = self.tree.sibling() {
             env.run_cleanups(&[sibling_id]).await;
         }
         DropOutcome::cancelled()
@@ -713,7 +743,7 @@ impl DropRun<'_> {
 
     /// Drops a root start while its round is between its database write and its apply.
     async fn drop_start_in_committer(&self) -> DropOutcome {
-        let (env, job_id) = (self.env, self.tree.job);
+        let (env, job_id) = (self.env, self.tree.job());
         let paused = self.pause_write_of_job();
         let service = env.service.clone();
         drop_rpc_at(&paused, async move { service.start_job(job_id).await }).await;
@@ -736,7 +766,7 @@ impl DropRun<'_> {
         execution_manager_id: ExecutionManagerId,
         is_dead: bool,
     ) -> DropOutcome {
-        let (env, job_id) = (self.env, self.tree.job);
+        let (env, job_id) = (self.env, self.tree.job());
         let paused = env.pause(
             HookPoint::CreateInstanceBeforePoolSend,
             HookFilter::job(job_id),
@@ -789,7 +819,7 @@ impl DropRun<'_> {
     fn pause_write_of_job(&self) -> ArmedHook {
         self.env.pause(
             HookPoint::CommitterRoundAfterDbWrite,
-            HookFilter::job(self.tree.job),
+            HookFilter::job(self.tree.job()),
         )
     }
 }
@@ -971,10 +1001,11 @@ async fn a_dropped_rpc_never_strands_its_job() -> anyhow::Result<()> {
             };
             let run = DropRun {
                 env: &env,
-                submissions: env.observe(HookPoint::JobEventAfterSubmit, HookFilter::job(tree.job)),
+                submissions: env
+                    .observe(HookPoint::JobEventAfterSubmit, HookFilter::job(tree.job())),
                 writes: env.observe(
                     HookPoint::CommitterRoundAfterDbWrite,
-                    HookFilter::job(tree.job),
+                    HookFilter::job(tree.job()),
                 ),
                 tree,
                 what: format!("{case:?}, {placement:?}"),
@@ -1009,7 +1040,7 @@ async fn a_report_over_a_limit_fails_its_job_and_tree_but_not_the_service() -> a
                 )
                 .await;
                 let bystander_id = env.start_root(&JobShape::ONE_TASK).await;
-                let job_id = tree.job;
+                let job_id = tree.job();
                 for attempt in 0..=max_num_retry {
                     if attempt > 0 {
                         env.drain_lane(Lane::Task, &[(job_id, TaskId::Index(0))])
@@ -1150,7 +1181,7 @@ async fn assert_failed_for_limit(
     bystander_id: JobId,
     what: &str,
 ) {
-    let (root_id, job_id) = (tree.root, tree.job);
+    let (root_id, job_id) = (tree.root(), tree.job());
     let errors = env.tree_errors(root_id).await;
     let job_error = errors
         .get(&job_id)
@@ -1165,7 +1196,7 @@ async fn assert_failed_for_limit(
     }
     let mut expected_errors = HashMap::from([(job_id, job_error.clone())]);
     let mut states = tree.states(JobState::Failed, JobState::Failed);
-    if let Some(sibling_id) = tree.sibling {
+    if let Some(sibling_id) = tree.sibling() {
         expected_errors.insert(
             root_id,
             format!("descendant job {job_id} failed: {job_error}"),
