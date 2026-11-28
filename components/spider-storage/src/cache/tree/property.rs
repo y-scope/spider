@@ -1677,7 +1677,7 @@ fn expected_admission(
     };
     let payload_size = outputs_size(outputs)
         + if *state == JobState::BlockingOnChildren {
-            child_usage(children).size
+            ChildJobUsage::of(children).size
         } else {
             0
         };
@@ -1689,16 +1689,6 @@ fn expected_admission(
         Admission::PayloadBudgetExceeded
     } else {
         Admission::Admitted
-    }
-}
-
-/// # Returns
-///
-/// The number of `children` and the sum of the sizes of their submissions.
-fn child_usage(children: &[PreparedChild]) -> ChildJobUsage {
-    ChildJobUsage {
-        count: children.len(),
-        size: children.iter().map(|child| child.submission().size()).sum(),
     }
 }
 
@@ -1735,7 +1725,7 @@ fn registered_child_sets<'event_lifetime>(
         .filter(|(_, outcome)| outcome.has_child_registration())
         .filter_map(|(event, _)| match &event.kind {
             TreeEventKind::RegularTasksDone { children, .. } => {
-                Some((event.job_id, child_usage(children)))
+                Some((event.job_id, ChildJobUsage::of(children)))
             }
             TreeEventKind::Start { .. }
             | TreeEventKind::CommitDone
