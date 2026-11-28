@@ -81,6 +81,16 @@ enum Arrivals {
     Closed,
 }
 
+/// How [`Simulation::run`] ended.
+#[derive(Debug, Clone, Copy)]
+enum RunOutcome {
+    /// The tree became quiescent after `num_rounds` rounds.
+    Quiescent { num_rounds: usize },
+
+    /// [`MAX_ROUNDS_PER_TREE`] rounds ran and the tree is not quiescent.
+    RoundLimitReached,
+}
+
 /// An event that a job of the model raises, before the committer collects the event's outputs and
 /// children.
 #[derive(Debug, Clone)]
@@ -1253,10 +1263,7 @@ impl Simulation {
     ///
     /// # Returns
     ///
-    /// A tuple containing, on success:
-    ///
-    /// * The number of rounds run.
-    /// * Whether the tree became quiescent.
+    /// How the run ended on success.
     ///
     /// # Errors
     ///
@@ -1267,14 +1274,16 @@ impl Simulation {
         &mut self,
         rng: &mut StdRng,
         coverage: &mut Coverage,
-    ) -> anyhow::Result<(usize, bool)> {
+    ) -> anyhow::Result<RunOutcome> {
         for round in 0..MAX_ROUNDS_PER_TREE {
             self.round(rng, coverage, Arrivals::All).await?;
             if self.model.structure.is_quiescent() {
-                return Ok((round + 1, true));
+                return Ok(RunOutcome::Quiescent {
+                    num_rounds: round + 1,
+                });
             }
         }
-        Ok((MAX_ROUNDS_PER_TREE, false))
+        Ok(RunOutcome::RoundLimitReached)
     }
 
     /// Runs rounds until the tree is quiescent:
@@ -1302,10 +1311,10 @@ impl Simulation {
         rng: &mut StdRng,
         coverage: &mut Coverage,
     ) -> anyhow::Result<usize> {
-        let (mut rounds, is_quiescent) = self.run(rng, coverage).await?;
-        if is_quiescent {
-            return Ok(rounds);
+        if let RunOutcome::Quiescent { num_rounds } = self.run(rng, coverage).await? {
+            return Ok(num_rounds);
         }
+        let mut rounds = MAX_ROUNDS_PER_TREE;
         coverage.backlogged_trees += 1;
         let max_rounds = rounds + self.num_buffered() + MAX_ROUNDS_PER_TREE;
         while !self.model.structure.is_quiescent() {
@@ -1980,9 +1989,13 @@ async fn run_tree(seed: u64, raising: Raising, coverage: &mut Coverage) -> anyho
         simulation.drain(&mut rng, coverage).await?;
         return Ok(rounds);
     }
-    let (rounds, is_quiescent) = simulation.run(&mut rng, coverage).await?;
-    coverage.unfinished_trees += usize::from(!is_quiescent);
-    Ok(rounds)
+    match simulation.run(&mut rng, coverage).await? {
+        RunOutcome::Quiescent { num_rounds } => Ok(num_rounds),
+        RunOutcome::RoundLimitReached => {
+            coverage.unfinished_trees += 1;
+            Ok(MAX_ROUNDS_PER_TREE)
+        }
+    }
 }
 
 /// Runs random trees with `raising`, or only the tree of the seed `JOB_TREE_PROPERTY_SEED` if it is
