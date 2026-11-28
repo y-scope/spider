@@ -1450,6 +1450,35 @@ impl<FirstType: Send + 'static, SecondType: Send + 'static> Race<FirstType, Seco
         }
     }
 
+    /// Like [`Self::start`], for two RPCs whose events are both submitted by `job_id`: waits until
+    /// `first` has submitted its event before running `second`, so that `first`'s submission is
+    /// never taken for `second`'s.
+    ///
+    /// # Returns
+    ///
+    /// The race, with `first`'s round still paused.
+    pub async fn start_on_one_job(
+        env: &TestEnv,
+        point: HookPoint,
+        filter: HookFilter,
+        first: impl Future<Output = FirstType> + Send + 'static,
+        second: impl Future<Output = SecondType> + Send + 'static,
+        job_id: JobId,
+    ) -> Self {
+        let submit_hook = env.observe(HookPoint::JobEventAfterSubmit, HookFilter::job(job_id));
+        let pause_hook = env.pause(point, filter);
+        let first_join_handle = tokio::spawn(first);
+        reached(&pause_hook, 1).await;
+        reached(&submit_hook, 1).await;
+        let second_join_handle = tokio::spawn(second);
+        reached(&submit_hook, 2).await;
+        Self {
+            pause_hook,
+            first_join_handle,
+            second_join_handle,
+        }
+    }
+
     /// Releases the first RPC's round.
     ///
     /// # Returns

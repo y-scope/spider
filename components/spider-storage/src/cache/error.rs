@@ -5,6 +5,8 @@ use spider_utils::wire::WireError;
 
 use crate::db::DbError;
 use crate::job_submission::JobSubmissionError;
+use crate::limits::MAX_CHILDREN_PER_JOB;
+use crate::limits::MAX_JOB_CHILDREN_SIZE;
 
 /// Enums for all possible errors that can occur in a cache operation.
 #[derive(thiserror::Error, Debug)]
@@ -92,6 +94,26 @@ pub enum InternalError {
 
     #[error("job {0:?} is cancelled, but it is not the root of its tree")]
     NonRootCancelled(JobId),
+
+    /// A broken invariant: [`ServiceState::succeed_task_instance`] reserves every report's children
+    /// against the limits of one job (see [`SharedJobControlBlock::reserve_children_usage`]) before
+    /// it stores them.
+    ///
+    /// [`ServiceState::succeed_task_instance`]:
+    ///     crate::state::ServiceState::succeed_task_instance
+    /// [`SharedJobControlBlock::reserve_children_usage`]:
+    ///     crate::cache::job::SharedJobControlBlock::reserve_children_usage
+    #[error(
+        "job {job_id:?} registers {count} child jobs of {size} bytes, over the limits of \
+         {count_limit} child jobs and {size_limit} bytes per job",
+        count_limit = MAX_CHILDREN_PER_JOB,
+        size_limit = MAX_JOB_CHILDREN_SIZE
+    )]
+    ChildrenOverJobLimits {
+        job_id: JobId,
+        count: usize,
+        size: u64,
+    },
 
     #[error("task index out of bound")]
     TaskIndexOutOfBound,
