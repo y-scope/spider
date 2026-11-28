@@ -7,6 +7,7 @@
 use serde::Deserialize;
 use serde::Serialize;
 use spider_core::task::TaskContext as CoreTaskContext;
+use spider_core::task::TaskContextFrame;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -77,17 +78,22 @@ fn translate(_ctx: TaskContext, p: Point, dx: int32, dy: int32) -> Result<(Point
 
 /// # Returns
 ///
-/// A mocked encoded task context for testing.
+/// An encoded task context frame for a regular task.
+///
+/// # Panics
+///
+/// Panics if constructing or encoding the task context frame fails.
 fn make_encoded_ctx() -> Vec<u8> {
     let ctx = CoreTaskContext::new(
         JobId::random(),
         TaskId::Index(0),
         1,
         ResourceGroupId::random(),
-        None,
-    )
-    .expect("failed to build task metadata");
-    rmp_serde::to_vec(&ctx).expect("failed to serialize task metadata")
+    );
+    TaskContextFrame::new(ctx, None)
+        .expect("failed to build task context frame")
+        .to_wire()
+        .expect("failed to encode task context frame")
 }
 
 /// Appends the given value to the input serializer.

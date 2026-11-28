@@ -3,6 +3,7 @@
 use huntsman_complex_types::Complex;
 use huntsman_complex_types::ComplexVec;
 use spider_core::task::TaskContext;
+use spider_core::task::TaskContextFrame;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -31,17 +32,22 @@ fn lib_path() -> std::path::PathBuf {
 
 /// # Returns
 ///
-/// An encoded task context for testing.
+/// An encoded task context frame for a regular task.
+///
+/// # Panics
+///
+/// Panics if constructing or encoding the task context frame fails.
 fn encode_ctx() -> Vec<u8> {
     let ctx = TaskContext::new(
         JobId::random(),
         TaskId::Index(0),
         1,
         ResourceGroupId::random(),
-        None,
-    )
-    .expect("failed to build `TaskContext`");
-    rmp_serde::to_vec(&ctx).expect("failed to serialize `TaskContext`")
+    );
+    TaskContextFrame::new(ctx, None)
+        .expect("failed to build task context frame")
+        .to_wire()
+        .expect("failed to encode task context frame")
 }
 
 /// # Returns

@@ -2006,7 +2006,6 @@ dependencies = [
  "clap",
  "futures-util",
  "prost",
- "rmp-serde",
  "serde",
  "spider-core",
  "spider-proto-rust",

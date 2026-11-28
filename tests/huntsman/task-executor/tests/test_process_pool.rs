@@ -20,6 +20,7 @@ use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
 use spider_core::types::io::ExecutionContext;
+use spider_core::types::io::SerializedTaskOutputs;
 use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskInputsSerializer;
 use spider_execution_manager::executor_log_collection::{self};
@@ -106,6 +107,24 @@ fn make_request(task_func: &str, inputs: Vec<TaskInput>) -> ExecuteRequest {
             serialized_task_io: serializer.release(),
         },
     }
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn commit_task_receives_graph_outputs_from_the_process_pool() -> anyhow::Result<()> {
+    let pool = build_pool();
+    let outputs = [3_i64, -1, -2]
+        .iter()
+        .map(rmp_serde::to_vec)
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut request = make_request("assert_outputs_sum_zero", Vec::new());
+    request.task_id = TaskId::Commit;
+    request.ctx.serialized_task_io =
+        SerializedTaskOutputs::serialize_with_size_hint(&outputs)?.to_raw();
+
+    let outcome = pool.execute(request, NORMAL_TIMEOUT).await?;
+    assert!(matches!(outcome, Outcome::Success { .. }), "{outcome:?}");
+    Ok(())
 }
 
 /// Runs an invalid first response followed by a real executor in a replacement process.

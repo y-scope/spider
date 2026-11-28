@@ -1,8 +1,10 @@
 mod task_context;
+mod task_context_frame;
 mod task_graph;
 mod type_descriptor;
 
 pub use task_context::TaskContext;
+pub use task_context_frame::TaskContextFrame;
 pub use task_graph::*;
 use thiserror::Error;
 pub use type_descriptor::*;
@@ -29,6 +31,9 @@ pub enum Error {
 
     #[error("invalid task context: {0}")]
     InvalidTaskContext(String),
+
+    #[error("task context wire framing failed: {0}")]
+    TaskContextWireError(#[from] spider_utils::wire::WireError),
 
     #[error("invalid execution policy: {0}")]
     InvalidExecutionPolicy(String),

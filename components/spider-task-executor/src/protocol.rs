@@ -23,7 +23,7 @@ pub enum Request {
         /// TDL information for identifying which task to execute.
         tdl_context: TdlContext,
 
-        /// Serialized task context.
+        /// The encoded [`TaskContextFrame`](spider_core::task::TaskContextFrame).
         raw_ctx: Vec<u8>,
 
         /// Serialized task inputs.
