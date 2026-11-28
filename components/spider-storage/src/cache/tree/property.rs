@@ -940,9 +940,9 @@ struct Coverage {
 }
 
 impl Coverage {
-    /// Counts what the round of `events`, raised as `raised`, covered with `plan`, before the plan
-    /// is applied to `model`.
-    fn count(&mut self, model: &Model, events: &[TreeEvent], raised: &[RaisedEvent], plan: &Plan) {
+    /// Counts what the round of `events` covered with `plan`, before the plan is applied to
+    /// `model`.
+    fn count(&mut self, model: &Model, events: &[TreeEvent], plan: &Plan) {
         self.max_rows = self.max_rows.max(model.rows.len());
         let planned: Vec<(usize, &TreeEventOutcome)> = plan
             .outcomes
@@ -961,7 +961,7 @@ impl Coverage {
         self.full_rounds += usize::from(events.len() == MAX_EVENTS_PER_ROUND);
         let mut has_applied_cancel = false;
         for (index, outcome) in &planned {
-            let kind = &raised[*index].kind;
+            let kind = &RaisedKind::from(&events[*index].kind);
             *self
                 .outcomes
                 .entry((kind.covered_kind(), OutcomeKind::from(*outcome)))
@@ -1446,7 +1446,7 @@ impl Simulation {
 
         self.check_plan(&events, &raised, &plan)?;
         let failures = self.check_outcomes(&events, &plan, coverage)?;
-        coverage.count(&self.model, &events, &raised, &plan);
+        coverage.count(&self.model, &events, &plan);
         self.model.apply(&events, &plan, rng)?;
         self.check_applied(&events, &plan)?;
         for failure in &failures {
