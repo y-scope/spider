@@ -295,6 +295,19 @@ impl Row {
             JobState::Cancelled
         }
     }
+
+    /// # Returns
+    ///
+    /// The state that a job of this row moves to once its regular tasks and its children succeed,
+    /// per the design's event table: [`JobState::CommitReady`] if the job has a commit task,
+    /// otherwise [`JobState::Succeeded`].
+    const fn completion_target(&self) -> JobState {
+        if self.has_commit {
+            JobState::CommitReady
+        } else {
+            JobState::Succeeded
+        }
+    }
 }
 
 /// An in-memory model of one tree's rows, plus the structure that the committer keeps for it.
@@ -904,12 +917,10 @@ impl Model {
         match &event.kind {
             TreeEventKind::Start { .. } => JobState::Running,
             TreeEventKind::RegularTasksDone { children, .. } => {
-                if !children.is_empty() {
-                    JobState::BlockingOnChildren
-                } else if row.has_commit {
-                    JobState::CommitReady
+                if children.is_empty() {
+                    row.completion_target()
                 } else {
-                    JobState::Succeeded
+                    JobState::BlockingOnChildren
                 }
             }
             TreeEventKind::CommitDone => JobState::Succeeded,
@@ -1487,6 +1498,7 @@ impl Simulation {
     /// * The plan writes exactly when an event applies.
     /// * An event is untracked exactly when its job left the tree.
     /// * Every aborted job moves to its abort target.
+    /// * Every unblocked job moves to its completion target.
     /// * The registrations are those of the applied registering events.
     /// * The payload stays within its budget unless one job carries it.
     /// * The publications follow from the updates.
@@ -1497,6 +1509,7 @@ impl Simulation {
     ///
     /// * [`anyhow::Error`] naming the first property that the round breaks.
     /// * Forwards [`Self::check_aborts`]'s return values on failure.
+    /// * Forwards [`Self::check_unblocked_jobs`]'s return values on failure.
     /// * Forwards [`check_registrations_and_payload`]'s return values on failure.
     /// * Forwards [`check_publications`]'s return values on failure.
     fn check_plan(
@@ -1552,6 +1565,7 @@ impl Simulation {
         }
 
         self.check_aborts(plan)?;
+        self.check_unblocked_jobs(plan)?;
         check_registrations_and_payload(events, plan)?;
         check_publications(plan)
     }
@@ -1585,6 +1599,34 @@ impl Simulation {
                 update.job_id,
                 update.to,
                 row.abort_target()
+            );
+        }
+        Ok(())
+    }
+
+    /// Checks that every update of `plan` that unblocks a job, moving it from
+    /// [`JobState::BlockingOnChildren`] to [`JobState::CommitReady`] or [`JobState::Succeeded`],
+    /// moves it to its row's completion target (see [`Row::completion_target`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`anyhow::Error`] if an unblocked job moves to another state than its completion target.
+    fn check_unblocked_jobs(&self, plan: &Plan) -> anyhow::Result<()> {
+        for update in &plan.updates {
+            let is_unblock = update.from == JobState::BlockingOnChildren
+                && matches!(update.to, JobState::CommitReady | JobState::Succeeded);
+            if !is_unblock {
+                continue;
+            }
+            let row = self.model.row(update.job_id);
+            ensure!(
+                update.to == row.completion_target(),
+                "the unblocked job {:?} moves to {}, not to its completion target {}",
+                update.job_id,
+                update.to,
+                row.completion_target()
             );
         }
         Ok(())
