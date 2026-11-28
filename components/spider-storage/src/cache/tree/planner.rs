@@ -16,9 +16,7 @@ use crate::cache::tree::TreeEventOutcome;
 use crate::cache::tree::TreeNode;
 use crate::cache::tree::TreeStructure;
 use crate::db::JobStateUpdate;
-use crate::limits::MAX_CHILDREN_PER_JOB;
 use crate::limits::MAX_ERROR_MESSAGE_CHARS;
-use crate::limits::MAX_JOB_CHILDREN_SIZE;
 use crate::limits::MAX_PROPAGATED_MESSAGE_CHARS;
 use crate::limits::MAX_ROUND_PAYLOAD;
 
@@ -157,10 +155,6 @@ pub(super) enum Admission {
     /// The event is deferred to a later round: its outputs and children would push the round's
     /// payload over [`MAX_ROUND_PAYLOAD`].
     PayloadBudgetExceeded,
-
-    /// The event is deferred to a later round: it reports children over the limits of one job, and
-    /// the failure of its job aborts a job that the round's plan already changes.
-    AbortOfChangedJob,
 }
 
 /// Plans a round's events one at a time, each against the result of the earlier ones, and builds
@@ -192,9 +186,7 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
     ///
     /// * An admitted event's plan is merged into the round's plan and the overlay.
     /// * An event over the payload budget is deferred.
-    /// * An event that reports children over the limits of one job, and whose failure aborts a job
-    ///   that the round's plan already changes, is deferred.
-    /// * Any other job conflict applies nothing.
+    /// * A job conflict applies nothing.
     ///
     /// # Returns
     ///
@@ -207,27 +199,14 @@ impl<'structure_lifetime> RoundPlanner<'structure_lifetime> {
     /// * Forwards [`EventPlan::of`]'s return values on failure.
     pub(super) fn plan_event(&mut self, event: &TreeEvent) -> Result<Admission, InternalError> {
         let event_plan = EventPlan::of(event, &self.overlay)?;
-        let admission = match self.plan.admission(&event_plan) {
-            Admission::JobConflict(_)
-                if matches!(
-                    (&event.kind, &event_plan.outcome),
-                    (
-                        TreeEventKind::RegularTasksDone { .. },
-                        TreeEventOutcome::Applied(JobState::Failed)
-                    )
-                ) =>
-            {
-                Admission::AbortOfChangedJob
-            }
-            admission => admission,
-        };
+        let admission = self.plan.admission(&event_plan);
         match admission {
             Admission::Admitted => {
                 self.overlay.merge(&event_plan);
                 self.plan.merge(event_plan);
             }
             Admission::JobConflict(_) => {}
-            Admission::PayloadBudgetExceeded | Admission::AbortOfChangedJob => {
+            Admission::PayloadBudgetExceeded => {
                 self.plan.defer();
             }
         }
@@ -403,11 +382,8 @@ impl EventPlan {
     ///       published.
     ///     * Without one, it moves to [`JobState::Succeeded`], and its success climbs (see
     ///       [`Self::climb_after_success`]).
-    ///   * [`TreeEventKind::RegularTasksDone`] with children over the limits of one job (see
-    ///     [`ChildJobUsage::is_within_job_limits`]): the job fails from [`JobState::Running`] with
-    ///     a message naming the limits (see [`Self::fail_and_abort`]).
-    ///   * [`TreeEventKind::RegularTasksDone`] with other children: the job stores its outputs,
-    ///     moves from [`JobState::Running`] to [`JobState::BlockingOnChildren`] and registers its
+    ///   * [`TreeEventKind::RegularTasksDone`] with children: the job stores its outputs, moves
+    ///     from [`JobState::Running`] to [`JobState::BlockingOnChildren`] and registers its
     ///     children.
     ///   * [`TreeEventKind::CommitDone`]: the job moves from [`JobState::CommitReady`] to
     ///     [`JobState::Succeeded`], and its success climbs (see [`Self::climb_after_success`]).
@@ -424,6 +400,9 @@ impl EventPlan {
     ///
     /// * [`InternalError::NonRootCancelled`] if the event is a [`TreeEventKind::CancelRoot`] of a
     ///   job in the tree other than its root, whatever the job's state.
+    /// * [`InternalError::ChildrenOverJobLimits`] if the event is a
+    ///   [`TreeEventKind::RegularTasksDone`] whose children exceed the limits of one job (see
+    ///   [`ChildJobUsage::is_within_job_limits`]), and the job's state accepts it.
     /// * Forwards [`Self::climb_after_success`]'s return values on failure.
     /// * Forwards [`Self::fail_and_abort`]'s return values on failure.
     fn of(event: &TreeEvent, overlay: &Overlay<'_>) -> Result<Self, InternalError> {
@@ -451,21 +430,14 @@ impl EventPlan {
             }
             TreeEventKind::RegularTasksDone { outputs, children } => {
                 let children = ChildJobUsage::of(children);
-                if children.is_within_job_limits() {
-                    Self::register_children(job_id, outputs.clone(), children)
-                } else {
-                    Self::fail_and_abort(
+                if !children.is_within_job_limits() {
+                    return Err(InternalError::ChildrenOverJobLimits {
                         job_id,
-                        &node,
-                        &format!(
-                            "child jobs ({} of {} bytes) exceed the limits of \
-                             {MAX_CHILDREN_PER_JOB} child jobs and {MAX_JOB_CHILDREN_SIZE} bytes \
-                             per job",
-                            children.count, children.size
-                        ),
-                        overlay,
-                    )?
+                        count: children.count,
+                        size: children.size,
+                    });
                 }
+                Self::register_children(job_id, outputs.clone(), children)
             }
             TreeEventKind::CommitDone => {
                 let mut event_plan = Self::complete_commit(job_id);
