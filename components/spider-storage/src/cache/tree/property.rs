@@ -82,7 +82,6 @@ enum Arrivals {
 }
 
 /// How [`Simulation::run`] ended.
-#[derive(Debug, Clone, Copy)]
 enum RunOutcome {
     /// The tree became quiescent after `num_rounds` rounds.
     Quiescent { num_rounds: usize },
@@ -225,6 +224,8 @@ impl From<&TreeEventKind> for RaisedKind {
 /// The kind of event that the coverage counters count the outcomes of: a [`RaisedKind`] told apart
 /// by whether a [`RaisedKind::RegularTasksDone`] registers children and by the lane of a
 /// [`RaisedKind::TerminalFailure`].
+///
+/// Its order is declaration order, used only to key and print the coverage map in a fixed order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, EnumIter)]
 enum CoveredKind {
     Start,
@@ -240,6 +241,8 @@ enum CoveredKind {
 
 /// The outcome of a planned event that the coverage counters count: a [`TreeEventOutcome`] without
 /// its payload.
+///
+/// Its order is declaration order, used only to key and print the coverage map in a fixed order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum OutcomeKind {
     Applied,
