@@ -43,6 +43,7 @@ use crate::state::test_utils::create_test_prepared_child_of_size;
 const MAX_MODEL_DEPTH: u32 = 5;
 const MAX_FAN_OUT: usize = 4;
 const MAX_ROUNDS_PER_TREE: usize = 400;
+const MAX_ROUNDS_FOR_COVERAGE: usize = 30_000;
 const LARGE_OUTPUT_SIZE: usize = 6 * 1024 * 1024;
 const REGISTRATION_PROBABILITIES: [f64; 3] = [0.3, 0.6, 0.95];
 const FAILURE_PROBABILITIES: [f64; 2] = [0.15, 0.01];
@@ -1060,6 +1061,91 @@ impl Coverage {
         }
         Ok(())
     }
+
+    /// Checks that the random trees raising events as `raising` reached every case that their test
+    /// requires.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::ensure_reached`]'s return values on failure.
+    /// * Forwards [`Self::ensure_outcomes_reached`]'s return values on failure.
+    fn ensure_cases_reached(&self, raising: Raising) -> anyhow::Result<()> {
+        match raising {
+            Raising::Repeated => {
+                Self::ensure_reached(&[
+                    ("grouped rounds", self.grouped_rounds),
+                    ("deferred events", self.deferred_events),
+                    ("registrations", self.registrations),
+                    ("absent events", self.absent_events),
+                    ("applied cancels", self.applied_cancels),
+                    ("propagated failures", self.propagated_failures),
+                    (
+                        "commit-ready jobs aborted by cancels",
+                        self.commit_ready_jobs_aborted_by_cancels,
+                    ),
+                    (
+                        "commit-ready jobs aborted by failures",
+                        self.commit_ready_jobs_aborted_by_failures,
+                    ),
+                    ("unblocked parents", self.unblocked_parents),
+                    ("cancels planned with other events", self.crowded_cancels),
+                    ("payload budget deferrals", self.budget_deferrals),
+                    (
+                        "large registrations that defer others for the budget",
+                        self.budget_deferring_registrations,
+                    ),
+                    (
+                        "rounds that register several child sets",
+                        self.multi_registration_rounds,
+                    ),
+                    (
+                        "cancels or failures taken ahead of regular events",
+                        self.fast_forwarded_rounds,
+                    ),
+                    ("full rounds", self.full_rounds),
+                    (
+                        "perturbations that break an invariant",
+                        self.broken_perturbations,
+                    ),
+                    (
+                        "perturbations that break nothing",
+                        self.harmless_perturbations,
+                    ),
+                ])?;
+                self.ensure_outcomes_reached(&[OutcomeKind::Applied, OutcomeKind::Stale])
+            }
+            Raising::Once => {
+                Self::ensure_reached(&[
+                    ("grouped rounds", self.grouped_rounds),
+                    ("deferred events", self.deferred_events),
+                    ("registrations", self.registrations),
+                    ("applied cancels", self.applied_cancels),
+                    ("propagated failures", self.propagated_failures),
+                    (
+                        "commit-ready jobs aborted by cancels",
+                        self.commit_ready_jobs_aborted_by_cancels,
+                    ),
+                    (
+                        "commit-ready jobs aborted by failures",
+                        self.commit_ready_jobs_aborted_by_failures,
+                    ),
+                    ("unblocked parents", self.unblocked_parents),
+                    (
+                        "rounds that register several child sets",
+                        self.multi_registration_rounds,
+                    ),
+                    ("full rounds", self.full_rounds),
+                ])?;
+                self.ensure_outcomes_reached(&[
+                    OutcomeKind::Applied,
+                    OutcomeKind::Stale,
+                    OutcomeKind::Untracked,
+                ])
+            }
+        }
+    }
 }
 
 /// A failure that an applied event planned, to check once the plan is applied.
@@ -1899,20 +1985,22 @@ async fn run_tree(seed: u64, raising: Raising, coverage: &mut Coverage) -> anyho
     Ok(rounds)
 }
 
-/// Runs random trees with `raising`, from [`BASE_SEED`] on, until at least
-/// `JOB_TREE_PROPERTY_ROUNDS` rounds are planned (by default 3,000 in debug builds and 20,000 in
-/// others), or only the tree of the seed `JOB_TREE_PROPERTY_SEED` if it is set.
+/// Runs random trees with `raising`, or only the tree of the seed `JOB_TREE_PROPERTY_SEED` if it is
+/// set:
 ///
-/// # Returns
-///
-/// The coverage of the trees on success, or [`None`] if only one seed was rerun.
+/// * The trees start from [`BASE_SEED`].
+/// * They run until at least `JOB_TREE_PROPERTY_ROUNDS` rounds are planned, by default 3,000 in
+///   debug builds and 20,000 in others.
+/// * They then keep running until they reach every case that [`Coverage::ensure_cases_reached`]
+///   requires, or until [`MAX_ROUNDS_FOR_COVERAGE`] rounds are planned.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
 /// * Forwards [`run_tree`]'s return values on failure, with the tree's seed.
-async fn run_trees(raising: Raising) -> anyhow::Result<Option<Coverage>> {
+/// * Forwards [`Coverage::ensure_cases_reached`]'s return values on failure, once the trees stop.
+async fn run_trees(raising: Raising) -> anyhow::Result<()> {
     let env_value = |name: &str| match std::env::var(name) {
         Ok(value) => value
             .parse::<u64>()
@@ -1927,7 +2015,7 @@ async fn run_trees(raising: Raising) -> anyhow::Result<Option<Coverage>> {
         run_tree(seed, raising, &mut Coverage::default())
             .await
             .with_context(|| format!("the tree of seed {seed} breaks a property"))?;
-        return Ok(None);
+        return Ok(());
     }
     let num_rounds = env_value("JOB_TREE_PROPERTY_ROUNDS")?.map_or(
         Ok(if cfg!(debug_assertions) {
@@ -1940,7 +2028,13 @@ async fn run_trees(raising: Raising) -> anyhow::Result<Option<Coverage>> {
     let mut coverage = Coverage::default();
     let mut rounds = 0;
     let mut seed = BASE_SEED;
-    while rounds < num_rounds {
+    let reached = loop {
+        if rounds >= num_rounds {
+            let reached = coverage.ensure_cases_reached(raising);
+            if reached.is_ok() || rounds >= MAX_ROUNDS_FOR_COVERAGE {
+                break reached;
+            }
+        }
         rounds += run_tree(seed, raising, &mut coverage)
             .await
             .with_context(|| {
@@ -1950,94 +2044,20 @@ async fn run_trees(raising: Raising) -> anyhow::Result<Option<Coverage>> {
                 )
             })?;
         seed += 1;
-    }
+    };
     println!(
         "Planned {rounds} rounds over {} random trees raising events {raising:?}: {coverage:?}.",
         seed - BASE_SEED
     );
-    Ok(Some(coverage))
+    reached
 }
 
 #[tokio::test]
 async fn planned_rounds_keep_the_tree_consistent() -> anyhow::Result<()> {
-    let Some(coverage) = run_trees(Raising::Repeated).await? else {
-        return Ok(());
-    };
-    Coverage::ensure_reached(&[
-        ("grouped rounds", coverage.grouped_rounds),
-        ("deferred events", coverage.deferred_events),
-        ("registrations", coverage.registrations),
-        ("absent events", coverage.absent_events),
-        ("applied cancels", coverage.applied_cancels),
-        ("propagated failures", coverage.propagated_failures),
-        (
-            "commit-ready jobs aborted by cancels",
-            coverage.commit_ready_jobs_aborted_by_cancels,
-        ),
-        (
-            "commit-ready jobs aborted by failures",
-            coverage.commit_ready_jobs_aborted_by_failures,
-        ),
-        ("unblocked parents", coverage.unblocked_parents),
-        (
-            "cancels planned with other events",
-            coverage.crowded_cancels,
-        ),
-        ("payload budget deferrals", coverage.budget_deferrals),
-        (
-            "large registrations that defer others for the budget",
-            coverage.budget_deferring_registrations,
-        ),
-        (
-            "rounds that register several child sets",
-            coverage.multi_registration_rounds,
-        ),
-        (
-            "cancels or failures taken ahead of regular events",
-            coverage.fast_forwarded_rounds,
-        ),
-        ("full rounds", coverage.full_rounds),
-        (
-            "perturbations that break an invariant",
-            coverage.broken_perturbations,
-        ),
-        (
-            "perturbations that break nothing",
-            coverage.harmless_perturbations,
-        ),
-    ])?;
-    coverage.ensure_outcomes_reached(&[OutcomeKind::Applied, OutcomeKind::Stale])
+    run_trees(Raising::Repeated).await
 }
 
 #[tokio::test]
 async fn events_raised_once_are_each_answered_and_quiesce_the_tree() -> anyhow::Result<()> {
-    let Some(coverage) = run_trees(Raising::Once).await? else {
-        return Ok(());
-    };
-    Coverage::ensure_reached(&[
-        ("grouped rounds", coverage.grouped_rounds),
-        ("deferred events", coverage.deferred_events),
-        ("registrations", coverage.registrations),
-        ("applied cancels", coverage.applied_cancels),
-        ("propagated failures", coverage.propagated_failures),
-        (
-            "commit-ready jobs aborted by cancels",
-            coverage.commit_ready_jobs_aborted_by_cancels,
-        ),
-        (
-            "commit-ready jobs aborted by failures",
-            coverage.commit_ready_jobs_aborted_by_failures,
-        ),
-        ("unblocked parents", coverage.unblocked_parents),
-        (
-            "rounds that register several child sets",
-            coverage.multi_registration_rounds,
-        ),
-        ("full rounds", coverage.full_rounds),
-    ])?;
-    coverage.ensure_outcomes_reached(&[
-        OutcomeKind::Applied,
-        OutcomeKind::Stale,
-        OutcomeKind::Untracked,
-    ])
+    run_trees(Raising::Once).await
 }
