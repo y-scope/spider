@@ -46,7 +46,7 @@ const NUM_CHILDREN: usize = 3;
 const DROPPED_FAILURE: &str = "dropped failure";
 
 /// Where a test job `J` runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter)]
+#[derive(Debug, Clone, Copy, EnumIter)]
 enum Placement {
     /// `J` is a root job alone.
     Alone,
