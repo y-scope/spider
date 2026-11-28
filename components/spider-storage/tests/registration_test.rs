@@ -161,31 +161,6 @@ impl TestEnv {
              {error:?}"
         );
     }
-
-    /// Asserts that `job_id` is not in the job cache: an instance creation for its task 0 finds no
-    /// job.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the assertion fails.
-    async fn assert_not_cached(&self, job_id: JobId, what: &str) {
-        let instance = self
-            .service
-            .create_task_instance(
-                self.service.session_id(),
-                job_id,
-                TaskId::Index(0),
-                self.execution_manager_id,
-            )
-            .await;
-        assert!(
-            matches!(
-                instance,
-                Err(StorageServerError::JobNotFound(not_found_id)) if not_found_id == job_id
-            ),
-            "{what}: job {job_id} should not be cached, got {instance:?}"
-        );
-    }
 }
 
 #[tokio::test]

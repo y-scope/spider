@@ -36,9 +36,6 @@ pub struct Plan {
     /// The outcome of each event of the round, in the round's order.
     pub outcomes: Vec<RoundOutcome>,
 
-    /// The child sets to register, one per registering event, in the round's order.
-    pub registrations: Vec<PlannedRegistration>,
-
     /// The number of bytes of job outputs and child payloads that the plan writes.
     payload_size: u64,
 }
@@ -75,19 +72,10 @@ impl Plan {
     /// of active children: the overlay keeps them until the round's planning finishes.
     fn merge(&mut self, event_plan: EventPlan) {
         self.payload_size += event_plan.payload_size();
-        if let Some(EventRegistration {
-            parent_id,
-            children,
-        }) = event_plan.registration
-        {
-            self.registrations.push(PlannedRegistration {
-                event_index: self.outcomes.len(),
-                parent_id,
-                children,
-            });
-        }
-        self.outcomes
-            .push(RoundOutcome::Planned(event_plan.outcome));
+        self.outcomes.push(RoundOutcome::Planned {
+            outcome: event_plan.outcome,
+            has_child_registration: event_plan.registration.is_some(),
+        });
         self.updates.extend(event_plan.updates);
         self.publications.extend(event_plan.publications);
     }
@@ -98,27 +86,34 @@ impl Plan {
     }
 }
 
-/// The registration of a child set that a round plans.
-#[derive(Debug, PartialEq, Eq)]
-pub struct PlannedRegistration {
-    /// The index, in the round, of the event that registers the children.
-    pub event_index: usize,
-
-    /// The job whose children the event registers.
-    pub parent_id: JobId,
-
-    /// The usage of the children that the event registers.
-    pub children: ChildJobUsage,
-}
-
 /// The outcome of an event in a round.
 #[derive(Debug)]
 pub enum RoundOutcome {
-    /// The round plans and answers the event with the carried outcome.
-    Planned(TreeEventOutcome),
+    /// The round plans and answers the event with the carried outcome. If `has_child_registration`,
+    /// the round also registers the children that the event carries.
+    Planned {
+        outcome: TreeEventOutcome,
+        has_child_registration: bool,
+    },
 
     /// The round defers the event to a later round.
     Deferred,
+}
+
+impl RoundOutcome {
+    /// # Returns
+    ///
+    /// Whether the round registers the children that the event carries.
+    #[must_use]
+    pub const fn has_child_registration(&self) -> bool {
+        match self {
+            Self::Planned {
+                has_child_registration,
+                ..
+            } => *has_child_registration,
+            Self::Deferred => false,
+        }
+    }
 }
 
 /// Ready work that a plan makes available once its updates are applied.
@@ -315,7 +310,25 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     /// the round's earlier events plan for it, or [`None`] if the job is not in the tree.
     fn node(&self, job_id: JobId) -> Option<TreeNode> {
         let node = self.structure.node(job_id)?;
-        Some(TreeNode {
+        Some(self.planned(job_id, node))
+    }
+
+    /// # Returns
+    ///
+    /// An iterator over the tree's jobs and their nodes as the round's earlier events plan them, in
+    /// ascending ID order.
+    fn nodes(&self) -> impl Iterator<Item = (JobId, TreeNode)> + '_ {
+        self.structure
+            .nodes()
+            .map(|(job_id, node)| (job_id, self.planned(job_id, node)))
+    }
+
+    /// # Returns
+    ///
+    /// The structure's node `node` of the tree's job `job_id`, with the state and the number of
+    /// active children that the round's earlier events plan for it.
+    fn planned(&self, job_id: JobId, node: &TreeNode) -> TreeNode {
+        TreeNode {
             state: self
                 .planned_states
                 .get(&job_id)
@@ -327,7 +340,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
                 .copied()
                 .unwrap_or(node.num_active_children),
             ..*node
-        })
+        }
     }
 }
 
@@ -337,13 +350,6 @@ struct BlockingParent {
     node: TreeNode,
 }
 
-/// The children that the plan of one event registers.
-#[derive(Debug, Clone, Copy)]
-struct EventRegistration {
-    parent_id: JobId,
-    children: ChildJobUsage,
-}
-
 /// The plan of one event of a round.
 #[derive(Debug)]
 struct EventPlan {
@@ -351,7 +357,7 @@ struct EventPlan {
     publications: Vec<Publication>,
     num_active_children: HashMap<JobId, usize>,
     outcome: TreeEventOutcome,
-    registration: Option<EventRegistration>,
+    registration: Option<ChildJobUsage>,
 }
 
 impl EventPlan {
@@ -388,20 +394,25 @@ impl EventPlan {
     ///   * [`TreeEventKind::TerminalFailure`]: the job moves from its lane's state to
     ///     [`JobState::Failed`] and stores the failure's message, cut to
     ///     [`MAX_ERROR_MESSAGE_CHARS`] characters.
-    ///   * [`TreeEventKind::CancelRoot`]: the root moves to [`JobState::Cancelled`] if it is
-    ///     [`JobState::Ready`] or has no cleanup task, otherwise to [`JobState::CleanupReady`],
-    ///     with its cleanup task published.
+    ///   * [`TreeEventKind::CancelRoot`]: the root's tree is cancelled (see
+    ///     [`Self::abort_from_root`]).
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
+    /// * [`InternalError::NonRootCancelled`] if the event is a [`TreeEventKind::CancelRoot`] of a
+    ///   job in the tree other than its root, whatever the job's state.
     /// * Forwards [`Self::climb_after_success`]'s return values on failure.
     fn of(event: &TreeEvent, overlay: &Overlay<'_>) -> Result<Self, InternalError> {
         let job_id = event.job_id;
         let Some(node) = overlay.node(job_id) else {
             return Ok(Self::untracked());
         };
+        if matches!(event.kind, TreeEventKind::CancelRoot) && job_id != overlay.structure.root_id()
+        {
+            return Err(InternalError::NonRootCancelled(job_id));
+        }
         if let Err(error) = event.kind.ensure_accepts(node.state) {
             return Ok(Self::stale(error));
         }
@@ -442,7 +453,7 @@ impl EventPlan {
             TreeEventKind::TerminalFailure { message, .. } => {
                 Self::fail_job(job_id, node.state, message)
             }
-            TreeEventKind::CancelRoot => Self::cancel_root(job_id, &node),
+            TreeEventKind::CancelRoot => Self::abort_from_root(job_id, &node, overlay),
         };
         Ok(event_plan)
     }
@@ -495,10 +506,7 @@ impl EventPlan {
     /// stores `outputs` and moves from [`JobState::Running`] to [`JobState::BlockingOnChildren`].
     fn register_children(job_id: JobId, outputs: Vec<TaskOutput>, children: ChildJobUsage) -> Self {
         Self {
-            registration: Some(EventRegistration {
-                parent_id: job_id,
-                children,
-            }),
+            registration: Some(children),
             ..Self::applying(JobStateUpdate {
                 outputs: Some(outputs),
                 ..JobStateUpdate::new(job_id, JobState::Running, JobState::BlockingOnChildren)
@@ -560,18 +568,39 @@ impl EventPlan {
     ///
     /// # Returns
     ///
-    /// The plan of cancelling the root `root_id`, whose node is `node`: the root moves from the
-    /// node's state to its abort target (see [`TreeNode::abort_target`]), with its cleanup task
-    /// published if that is [`JobState::CleanupReady`].
-    fn cancel_root(root_id: JobId, node: &TreeNode) -> Self {
-        let from = node.state;
-        let to = node.abort_target();
-        let publications = if to == JobState::CleanupReady {
-            vec![Publication::Cleanup(root_id)]
-        } else {
-            Vec::new()
+    /// The plan of aborting the tree from its root `root_id`, whose node is `root`, read against
+    /// `overlay`:
+    ///
+    /// * The root is deactivated (see [`Self::deactivate`]).
+    /// * Every other abortable job of the tree (see [`TreeNode::is_abortable`]) is deactivated too,
+    ///   in ascending ID order.
+    fn abort_from_root(root_id: JobId, root: &TreeNode, overlay: &Overlay<'_>) -> Self {
+        let mut event_plan = Self {
+            outcome: TreeEventOutcome::Applied(root.abort_target()),
+            updates: Vec::new(),
+            publications: Vec::new(),
+            num_active_children: HashMap::new(),
+            registration: None,
         };
-        Self::applying_and_publishing(JobStateUpdate::new(root_id, from, to), publications)
+        event_plan.deactivate(root_id, root);
+        for (job_id, node) in overlay.nodes() {
+            if job_id != root_id && node.is_abortable() {
+                event_plan.deactivate(job_id, &node);
+            }
+        }
+        event_plan
+    }
+
+    /// Adds to this plan the move of `job_id`, whose node is `node`, from the node's state to its
+    /// abort target (see [`TreeNode::abort_target`]), with its cleanup task published if that is
+    /// [`JobState::CleanupReady`].
+    fn deactivate(&mut self, job_id: JobId, node: &TreeNode) {
+        let to = node.abort_target();
+        self.updates
+            .push(JobStateUpdate::new(job_id, node.state, to));
+        if to == JobState::CleanupReady {
+            self.publications.push(Publication::Cleanup(job_id));
+        }
     }
 
     /// Factory function.
@@ -701,10 +730,7 @@ impl EventPlan {
             .flatten()
             .map(|output| output.len() as u64)
             .sum();
-        outputs_size
-            + self
-                .registration
-                .map_or(0, |registration| registration.children.size)
+        outputs_size + self.registration.map_or(0, |children| children.size)
     }
 }
 
@@ -725,7 +751,7 @@ mod tests {
 
     use crate::cache::tree::ChildJobUsage;
     use crate::cache::tree::Plan;
-    use crate::cache::tree::PlannedRegistration;
+    use crate::cache::tree::RoundOutcome;
     use crate::cache::tree::TreeNode;
     use crate::cache::tree::planner::Admission;
     use crate::cache::tree::planner::EventPlan;
@@ -823,20 +849,26 @@ mod tests {
         );
 
         plan.merge(registration(4, children));
-        assert_eq!(
-            plan.registrations,
-            [
-                PlannedRegistration {
-                    event_index: 1,
-                    parent_id: JobId::from(3),
-                    children,
-                },
-                PlannedRegistration {
-                    event_index: 2,
-                    parent_id: JobId::from(4),
-                    children,
-                },
-            ]
+        assert!(
+            matches!(
+                plan.outcomes.as_slice(),
+                [
+                    RoundOutcome::Planned {
+                        has_child_registration: false,
+                        ..
+                    },
+                    RoundOutcome::Planned {
+                        has_child_registration: true,
+                        ..
+                    },
+                    RoundOutcome::Planned {
+                        has_child_registration: true,
+                        ..
+                    },
+                ]
+            ),
+            "a round with two child sets gave {:?}",
+            plan.outcomes
         );
         assert_eq!(
             plan.admission(&registration(

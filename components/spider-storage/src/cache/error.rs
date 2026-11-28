@@ -74,6 +74,12 @@ pub enum InternalError {
     #[error("the round's event that registers the children of job {0:?} differs from its plan")]
     RegistrationMismatch(JobId),
 
+    #[error("the round's plan has {num_outcomes} outcomes for {num_events} events")]
+    RoundOutcomeCountMismatch {
+        num_outcomes: usize,
+        num_events: usize,
+    },
+
     #[error("job {0:?} blocks on its children without an active child")]
     BlockingJobWithoutActiveChild(JobId),
 
@@ -83,6 +89,9 @@ pub enum InternalError {
         parent_id: JobId,
         state: JobState,
     },
+
+    #[error("job {0:?} is cancelled, but it is not the root of its tree")]
+    NonRootCancelled(JobId),
 
     #[error("task index out of bound")]
     TaskIndexOutOfBound,
