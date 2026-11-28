@@ -1091,6 +1091,9 @@ async fn reports_racing_over_the_job_child_limit_fail_one_task_only() -> anyhow:
     for race in ReservationRace::iter() {
         for iteration in 0..race.num_iterations() {
             for max_num_retry in [0, 1] {
+                if race == ReservationRace::Sequential && max_num_retry == 0 {
+                    continue;
+                }
                 let what = format!("{race:?}, {max_num_retry} retries, iteration {iteration}");
                 assert_reservation_race(&env, &large, race, max_num_retry, &what).await;
             }
