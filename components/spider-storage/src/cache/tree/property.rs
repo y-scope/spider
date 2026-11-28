@@ -461,6 +461,10 @@ impl Model {
     /// A random child set of up to [`MAX_FAN_OUT`] children within the limits of one job, as the
     /// service reserves them: in 5% of the sets exactly [`MAX_JOB_CHILDREN_SIZE`] bytes, in 10%
     /// between half of it and all of it, and otherwise small children.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of children doesn't fit in a `u64`.
     async fn generate_children(input_byte: u8, rng: &mut StdRng) -> Vec<PreparedChild> {
         let roll: f64 = rng.random();
         let num_children = rng.random_range(1..=MAX_FAN_OUT);
@@ -740,6 +744,10 @@ impl Model {
     ///   violation than the expected one of a perturbed tree.
     /// * Forwards [`Self::check_rows`]'s return values on failure.
     /// * Forwards [`TreeStructure::apply_num_active_children`]'s return values on failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`NON_TERMINAL_STATES`] is empty.
     fn check(&mut self, rng: &mut StdRng, coverage: &mut Coverage) -> anyhow::Result<()> {
         self.check_rows()?;
         self.structure
@@ -1697,6 +1705,10 @@ fn child_usage(children: &[PreparedChild]) -> ChildJobUsage {
 /// # Returns
 ///
 /// The total number of bytes of `outputs`.
+///
+/// # Panics
+///
+/// Panics if the size of an output doesn't fit in a `u64`.
 fn outputs_size(outputs: &[TaskOutput]) -> u64 {
     outputs
         .iter()
