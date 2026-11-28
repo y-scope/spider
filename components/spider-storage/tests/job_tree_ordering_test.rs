@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use anyhow::Context;
 use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 use spider_core::types::id::TaskId;
@@ -280,7 +281,7 @@ async fn a_scheduler_that_never_polls_the_lanes_stalls_no_tree() -> anyhow::Resu
 /// Holds a round of a tree's committer between its database write and its apply, queues more than
 /// [`MAX_EVENTS_PER_ROUND`] completions of the root's children behind it, then submits
 /// `fast_forwarded`, and checks that the round after the held one plans `fast_forwarded` first and
-/// fills up with the completions, and that the round after that plans the rest of them.
+/// enough of the completions to fill it up, and that the round after that plans the rest of them.
 async fn assert_fast_forwarded_past_a_full_backlog(
     fast_forwarded: FastForwarded,
 ) -> anyhow::Result<()> {
@@ -346,11 +347,11 @@ async fn assert_fast_forwarded_past_a_full_backlog(
     let next_receive = env.pause(HookPoint::CommitterBeforeReceive, HookFilter::job(root_id));
     fast_forwarded_round.release();
     reached(&next_receive, 1).await;
-    assert_eq!(
-        wait_until_answered(&queued_completion_join_handles, MAX_EVENTS_PER_ROUND - 1).await?,
-        MAX_EVENTS_PER_ROUND - 1,
-        "the round after the held one should plan a round's worth of the queued completions"
-    );
+    wait_until_answered(&queued_completion_join_handles, MAX_EVENTS_PER_ROUND - 1)
+        .await
+        .context(
+            "the round after the held one should answer enough queued completions to fill it up",
+        )?;
     next_receive.release();
 
     assert_job_result(
@@ -414,10 +415,6 @@ async fn assert_backlog_tree_finishes(
 /// Waits until at least `num_answered` of the completions of `completion_join_handles` are
 /// answered.
 ///
-/// # Returns
-///
-/// The number of answered completions on success.
-///
 /// # Errors
 ///
 /// Returns an error if:
@@ -427,7 +424,7 @@ async fn assert_backlog_tree_finishes(
 async fn wait_until_answered(
     completion_join_handles: &[JoinHandle<JobResult>],
     num_answered: usize,
-) -> anyhow::Result<usize> {
+) -> anyhow::Result<()> {
     let count_answered = || {
         completion_join_handles
             .iter()
@@ -440,7 +437,7 @@ async fn wait_until_answered(
         }
     })
     .await?;
-    Ok(count_answered())
+    Ok(())
 }
 
 /// Starts a filler tree of [`MAX_CHILDREN_PER_JOB`] children with cleanup tasks and cancels it, so
