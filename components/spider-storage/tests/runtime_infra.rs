@@ -1687,6 +1687,39 @@ pub fn value(tag: u8, index: usize) -> Vec<u8> {
 
 /// # Returns
 ///
+/// A valid one-task child job whose only input is `input_size` incompressible bytes.
+///
+/// # Panics
+///
+/// Panics if the job fails to build or to compress.
+#[must_use]
+pub fn large_child(input_size: usize) -> CompressedJobSubmission {
+    let (graph, _) = build_chain_task_graph(1, ExecutionPolicy::default());
+    let mut inputs = TaskGraphInputBuilder::new();
+    inputs
+        .append_task_input(&incompressible(input_size))
+        .expect("task input appending should succeed");
+    CompressedJobSubmission {
+        compressed_serialized_task_graph: compress_task_graph(&graph)
+            .expect("task graph compression should succeed"),
+        compressed_serialized_job_inputs: compress_job_inputs(&inputs.build())
+            .expect("input compression should succeed"),
+    }
+}
+
+/// # Returns
+///
+/// A child job of `size` bytes that fails to decode.
+#[must_use]
+pub fn undecodable_child(size: usize) -> CompressedJobSubmission {
+    CompressedJobSubmission {
+        compressed_serialized_task_graph: vec![0u8; size],
+        compressed_serialized_job_inputs: Vec::new(),
+    }
+}
+
+/// # Returns
+///
 /// The outputs that the storage service stores for the one-output tasks that reported `values`, in
 /// order.
 ///
@@ -1838,4 +1871,19 @@ async fn tree_rows(pool: &MySqlPool, root_id: JobId) -> HashMap<JobId, JobState>
 /// Panics if the outputs fail to serialize.
 fn serialized_output(value: &[u8]) -> Vec<u8> {
     TaskOutputsSerializer::from_tuple(&(value,)).expect("output serialization should succeed")
+}
+
+/// # Returns
+///
+/// `size` pseudo-random bytes.
+fn incompressible(size: usize) -> Vec<u8> {
+    let mut xorshift_state = 0x9e37_79b9_7f4a_7c15_u64;
+    (0..size)
+        .map(|_| {
+            xorshift_state ^= xorshift_state << 13;
+            xorshift_state ^= xorshift_state >> 7;
+            xorshift_state ^= xorshift_state << 17;
+            xorshift_state.to_le_bytes()[0]
+        })
+        .collect()
 }
