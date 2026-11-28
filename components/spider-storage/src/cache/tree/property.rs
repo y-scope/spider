@@ -16,6 +16,8 @@ use rand::seq::SliceRandom;
 use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 use spider_core::types::io::TaskOutput;
+use strum::EnumIter;
+use strum::IntoEnumIterator;
 
 use crate::cache::error::StaleStateError;
 use crate::cache::task::PreparedChild;
@@ -112,26 +114,26 @@ impl RaisedKind {
 
     /// # Returns
     ///
-    /// The label of this kind, for the coverage counters.
-    const fn label(&self) -> &'static str {
+    /// The kind that the coverage counters count an event of this kind as.
+    const fn covered_kind(&self) -> CoveredKind {
         match self {
-            Self::Start => "Start",
-            Self::RegularTasksDone { registers: false } => "RegularTasksDone",
-            Self::RegularTasksDone { registers: true } => "RegularTasksDone(registers)",
-            Self::CommitDone => "CommitDone",
-            Self::CleanupDone => "CleanupDone",
+            Self::Start => CoveredKind::Start,
+            Self::RegularTasksDone { registers: false } => CoveredKind::RegularTasksDone,
+            Self::RegularTasksDone { registers: true } => CoveredKind::RegisteringRegularTasksDone,
+            Self::CommitDone => CoveredKind::CommitDone,
+            Self::CleanupDone => CoveredKind::CleanupDone,
             Self::TerminalFailure {
                 lane: Lane::Regular,
                 ..
-            } => "TerminalFailure(Regular)",
+            } => CoveredKind::RegularTerminalFailure,
             Self::TerminalFailure {
                 lane: Lane::Commit, ..
-            } => "TerminalFailure(Commit)",
+            } => CoveredKind::CommitTerminalFailure,
             Self::TerminalFailure {
                 lane: Lane::Cleanup,
                 ..
-            } => "TerminalFailure(Cleanup)",
-            Self::CancelRoot => "CancelRoot",
+            } => CoveredKind::CleanupTerminalFailure,
+            Self::CancelRoot => CoveredKind::CancelRoot,
         }
     }
 
@@ -205,6 +207,41 @@ impl From<&TreeEventKind> for RaisedKind {
                 message: message.clone(),
             },
             TreeEventKind::CancelRoot => Self::CancelRoot,
+        }
+    }
+}
+
+/// The kind of event that the coverage counters count the outcomes of: a [`RaisedKind`] told apart
+/// by whether a [`RaisedKind::RegularTasksDone`] registers children and by the lane of a
+/// [`RaisedKind::TerminalFailure`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, EnumIter)]
+enum CoveredKind {
+    Start,
+    RegularTasksDone,
+    RegisteringRegularTasksDone,
+    CommitDone,
+    CleanupDone,
+    RegularTerminalFailure,
+    CommitTerminalFailure,
+    CleanupTerminalFailure,
+    CancelRoot,
+}
+
+/// The outcome of a planned event that the coverage counters count: a [`TreeEventOutcome`] without
+/// its payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum OutcomeKind {
+    Applied,
+    Stale,
+    Untracked,
+}
+
+impl From<&TreeEventOutcome> for OutcomeKind {
+    fn from(outcome: &TreeEventOutcome) -> Self {
+        match outcome {
+            TreeEventOutcome::Applied(_) => Self::Applied,
+            TreeEventOutcome::Stale(_) => Self::Stale,
+            TreeEventOutcome::Untracked => Self::Untracked,
         }
     }
 }
@@ -898,7 +935,7 @@ struct Coverage {
     harmless_perturbations: usize,
     unfinished_trees: usize,
     backlogged_trees: usize,
-    outcomes: BTreeMap<(&'static str, &'static str), usize>,
+    outcomes: BTreeMap<(CoveredKind, OutcomeKind), usize>,
 }
 
 impl Coverage {
@@ -924,14 +961,9 @@ impl Coverage {
         let mut has_applied_cancel = false;
         for (index, outcome) in &planned {
             let kind = &raised[*index].kind;
-            let outcome_label = match outcome {
-                TreeEventOutcome::Applied(_) => "Applied",
-                TreeEventOutcome::Stale(_) => "Stale",
-                TreeEventOutcome::Untracked => "Untracked",
-            };
             *self
                 .outcomes
-                .entry((kind.label(), outcome_label))
+                .entry((kind.covered_kind(), OutcomeKind::from(*outcome)))
                 .or_default() += 1;
             match (outcome, kind) {
                 (TreeEventOutcome::Untracked, _) => self.absent_events += 1,
@@ -1006,33 +1038,23 @@ impl Coverage {
         Ok(())
     }
 
-    /// Checks that every event kind reached each of `outcome_labels`.
+    /// Checks that every event kind reached each of `outcomes`.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`anyhow::Error`] naming the first event kind that never reached one of `outcome_labels`.
-    fn ensure_outcomes_reached(&self, outcome_labels: &[&'static str]) -> anyhow::Result<()> {
-        for kind in [
-            "Start",
-            "RegularTasksDone",
-            "RegularTasksDone(registers)",
-            "CommitDone",
-            "CleanupDone",
-            "TerminalFailure(Regular)",
-            "TerminalFailure(Commit)",
-            "TerminalFailure(Cleanup)",
-            "CancelRoot",
-        ] {
-            for outcome in outcome_labels {
+    /// * [`anyhow::Error`] naming the first event kind that never reached one of `outcomes`.
+    fn ensure_outcomes_reached(&self, outcomes: &[OutcomeKind]) -> anyhow::Result<()> {
+        for kind in CoveredKind::iter() {
+            for outcome in outcomes {
                 ensure!(
                     self.outcomes
                         .get(&(kind, *outcome))
                         .copied()
                         .unwrap_or_default()
                         > 0,
-                    "no {kind} event was {outcome}"
+                    "no {kind:?} event was {outcome:?}"
                 );
             }
         }
@@ -1984,7 +2006,7 @@ async fn planned_rounds_keep_the_tree_consistent() -> anyhow::Result<()> {
             coverage.harmless_perturbations,
         ),
     ])?;
-    coverage.ensure_outcomes_reached(&["Applied", "Stale"])
+    coverage.ensure_outcomes_reached(&[OutcomeKind::Applied, OutcomeKind::Stale])
 }
 
 #[tokio::test]
@@ -2013,5 +2035,9 @@ async fn events_raised_once_are_each_answered_and_quiesce_the_tree() -> anyhow::
         ),
         ("full rounds", coverage.full_rounds),
     ])?;
-    coverage.ensure_outcomes_reached(&["Applied", "Stale", "Untracked"])
+    coverage.ensure_outcomes_reached(&[
+        OutcomeKind::Applied,
+        OutcomeKind::Stale,
+        OutcomeKind::Untracked,
+    ])
 }
