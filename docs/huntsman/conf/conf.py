@@ -1,5 +1,15 @@
 from datetime import date
 
+from docutils import nodes
+from docutils.parsers.rst import directives
+from sphinx.domains.std import ConfigurationValue
+
+# -- Repository information ----------------------------------------------------
+
+# NOTE: When a formal release is cut, update this to the corresponding release branch;
+# otherwise, it should stay on "main".
+SPIDER_GIT_REF = "main"
+
 # -- Project information -------------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
@@ -38,6 +48,10 @@ autodoc_typehints = "description"
 # -- HTML output options -------------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
+# NOTE: Source copies are disabled since the theme renders no source links and the copies would
+# bypass the `source-read` substitutions below.
+html_copy_source = False
+
 html_favicon = "https://docs.yscope.com/_static/favicon.ico"
 html_title = project
 html_show_copyright = True
@@ -67,9 +81,48 @@ html_theme_options = {
 html_context = {
     "github_user": "y-scope",
     "github_repo": "spider",
-    "github_version": "main",
+    "github_version": SPIDER_GIT_REF,
     "doc_path": "docs/huntsman/src",
 }
+
+# -- Custom directives ---------------------------------------------------------
+# https://www.sphinx-doc.org/en/master/extdev/domainapi.html
+
+_CONFVAL_EXTRA_OPTIONS = ("Helm value", "Docker Compose env var")
+
+
+class _SpiderConfigurationValue(ConfigurationValue):
+    option_spec = {
+        **ConfigurationValue.option_spec,
+        **{name: directives.unchanged_required for name in _CONFVAL_EXTRA_OPTIONS},
+    }
+
+    def transform_content(self, content_node):
+        super().transform_content(content_node)
+        fields = []
+        for name in _CONFVAL_EXTRA_OPTIONS:
+            if name not in self.options:
+                continue
+            parsed, msgs = self.parse_inline(self.options[name], lineno=self.lineno)
+            fields.append(
+                nodes.field("", nodes.field_name("", name), nodes.field_body("", *parsed))
+            )
+            fields.extend(msgs)
+        if not fields:
+            return
+        if content_node.children and isinstance(content_node.children[0], nodes.field_list):
+            content_node.children[0][:0] = fields
+        else:
+            content_node.insert(0, nodes.field_list("", *fields))
+
+
+# -- Source transforms ---------------------------------------------------------
+# https://www.sphinx-doc.org/en/master/extdev/event_callbacks.html#event-source-read
+
+
+def _substitute_docs_vars(app, docname, source):
+    source[0] = source[0].replace("DOCS_VAR_SPIDER_GIT_REF", SPIDER_GIT_REF)
+
 
 # -- Theme custom CSS and JS ---------------------------------------------------
 # https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/static_assets.html
@@ -77,3 +130,5 @@ html_context = {
 
 def setup(app):
     app.add_css_file("custom.css")
+    app.add_directive_to_domain("std", "confval", _SpiderConfigurationValue, override=True)
+    app.connect("source-read", _substitute_docs_vars)
