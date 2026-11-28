@@ -15,8 +15,8 @@ use spider_storage::job_submission::CompressedJobSubmission;
 use spider_storage::limits::MAX_CHILDREN_PER_JOB;
 use spider_storage::limits::MAX_DEPTH;
 use spider_storage::limits::MAX_JOB_CHILDREN_SIZE;
-use spider_storage::limits::MAX_REPORT_CHILDREN_SIZE;
 use spider_storage::limits::MAX_REPORT_OUTPUTS_SIZE;
+use spider_storage::limits::MAX_TASK_CHILDREN_SIZE;
 use spider_storage::state::StorageServerError;
 use spider_storage::state::error::ReportRejection;
 use spider_storage::test_hooks::HookAction;
@@ -393,7 +393,7 @@ async fn a_report_over_a_limit_fails_its_task() -> anyhow::Result<()> {
             },
             error_prefix: ReportRejection::ChildrenTooLarge {
                 size: 5 * (3 * MIB + MIB / 2) as u64,
-                limit: MAX_REPORT_CHILDREN_SIZE,
+                limit: MAX_TASK_CHILDREN_SIZE,
             }
             .to_string(),
         },
