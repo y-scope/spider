@@ -310,7 +310,25 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
     /// the round's earlier events plan for it, or [`None`] if the job is not in the tree.
     fn node(&self, job_id: JobId) -> Option<TreeNode> {
         let node = self.structure.node(job_id)?;
-        Some(TreeNode {
+        Some(self.planned(job_id, node))
+    }
+
+    /// # Returns
+    ///
+    /// An iterator over the tree's jobs and their nodes as the round's earlier events plan them, in
+    /// ascending ID order.
+    fn nodes(&self) -> impl Iterator<Item = (JobId, TreeNode)> + '_ {
+        self.structure
+            .nodes()
+            .map(|(job_id, node)| (job_id, self.planned(job_id, node)))
+    }
+
+    /// # Returns
+    ///
+    /// The structure's node `node` of the tree's job `job_id`, with the state and the number of
+    /// active children that the round's earlier events plan for it.
+    fn planned(&self, job_id: JobId, node: &TreeNode) -> TreeNode {
+        TreeNode {
             state: self
                 .planned_states
                 .get(&job_id)
@@ -322,7 +340,7 @@ impl<'structure_lifetime> Overlay<'structure_lifetime> {
                 .copied()
                 .unwrap_or(node.num_active_children),
             ..*node
-        })
+        }
     }
 }
 
@@ -376,20 +394,25 @@ impl EventPlan {
     ///   * [`TreeEventKind::TerminalFailure`]: the job moves from its lane's state to
     ///     [`JobState::Failed`] and stores the failure's message, cut to
     ///     [`MAX_ERROR_MESSAGE_CHARS`] characters.
-    ///   * [`TreeEventKind::CancelRoot`]: the root moves to [`JobState::Cancelled`] if it is
-    ///     [`JobState::Ready`] or has no cleanup task, otherwise to [`JobState::CleanupReady`],
-    ///     with its cleanup task published.
+    ///   * [`TreeEventKind::CancelRoot`]: the root's tree is cancelled (see
+    ///     [`Self::abort_from_root`]).
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
+    /// * [`InternalError::NonRootCancelled`] if the event is a [`TreeEventKind::CancelRoot`] of a
+    ///   job in the tree other than its root, whatever the job's state.
     /// * Forwards [`Self::climb_after_success`]'s return values on failure.
     fn of(event: &TreeEvent, overlay: &Overlay<'_>) -> Result<Self, InternalError> {
         let job_id = event.job_id;
         let Some(node) = overlay.node(job_id) else {
             return Ok(Self::untracked());
         };
+        if matches!(event.kind, TreeEventKind::CancelRoot) && job_id != overlay.structure.root_id()
+        {
+            return Err(InternalError::NonRootCancelled(job_id));
+        }
         if let Err(error) = event.kind.ensure_accepts(node.state) {
             return Ok(Self::stale(error));
         }
@@ -430,7 +453,7 @@ impl EventPlan {
             TreeEventKind::TerminalFailure { message, .. } => {
                 Self::fail_job(job_id, node.state, message)
             }
-            TreeEventKind::CancelRoot => Self::cancel_root(job_id, &node),
+            TreeEventKind::CancelRoot => Self::abort_from_root(job_id, &node, overlay),
         };
         Ok(event_plan)
     }
@@ -545,18 +568,39 @@ impl EventPlan {
     ///
     /// # Returns
     ///
-    /// The plan of cancelling the root `root_id`, whose node is `node`: the root moves from the
-    /// node's state to its abort target (see [`TreeNode::abort_target`]), with its cleanup task
-    /// published if that is [`JobState::CleanupReady`].
-    fn cancel_root(root_id: JobId, node: &TreeNode) -> Self {
-        let from = node.state;
-        let to = node.abort_target();
-        let publications = if to == JobState::CleanupReady {
-            vec![Publication::Cleanup(root_id)]
-        } else {
-            Vec::new()
+    /// The plan of aborting the tree from its root `root_id`, whose node is `root`, read against
+    /// `overlay`:
+    ///
+    /// * The root is deactivated (see [`Self::deactivate`]).
+    /// * Every other abortable job of the tree (see [`TreeNode::is_abortable`]) is deactivated too,
+    ///   in ascending ID order.
+    fn abort_from_root(root_id: JobId, root: &TreeNode, overlay: &Overlay<'_>) -> Self {
+        let mut event_plan = Self {
+            outcome: TreeEventOutcome::Applied(root.abort_target()),
+            updates: Vec::new(),
+            publications: Vec::new(),
+            num_active_children: HashMap::new(),
+            registration: None,
         };
-        Self::applying_and_publishing(JobStateUpdate::new(root_id, from, to), publications)
+        event_plan.deactivate(root_id, root);
+        for (job_id, node) in overlay.nodes() {
+            if job_id != root_id && node.is_abortable() {
+                event_plan.deactivate(job_id, &node);
+            }
+        }
+        event_plan
+    }
+
+    /// Adds to this plan the move of `job_id`, whose node is `node`, from the node's state to its
+    /// abort target (see [`TreeNode::abort_target`]), with its cleanup task published if that is
+    /// [`JobState::CleanupReady`].
+    fn deactivate(&mut self, job_id: JobId, node: &TreeNode) {
+        let to = node.abort_target();
+        self.updates
+            .push(JobStateUpdate::new(job_id, node.state, to));
+        if to == JobState::CleanupReady {
+            self.publications.push(Publication::Cleanup(job_id));
+        }
     }
 
     /// Factory function.
