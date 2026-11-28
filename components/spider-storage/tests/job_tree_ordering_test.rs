@@ -15,6 +15,7 @@ use spider_storage::state::StorageServerError;
 use spider_storage::test_hooks::HookFilter;
 use spider_storage::test_hooks::HookPoint;
 use tokio::task::JoinHandle;
+use tokio::task::JoinSet;
 
 use crate::runtime_infra::HOOK_TIMEOUT;
 use crate::runtime_infra::JobResult;
@@ -291,7 +292,7 @@ async fn a_scheduler_that_never_polls_the_lanes_stalls_no_tree() -> anyhow::Resu
 ///
 /// Returns an error if:
 ///
-/// * Forwards [`wait_until_answered`]'s return values on failure.
+/// * Forwards [`join_answered`]'s return values on failure.
 ///
 /// # Panics
 ///
@@ -316,20 +317,16 @@ async fn assert_fast_forwarded_past_a_full_backlog(
     reached(&held, 1).await;
 
     let queued_submissions = env.observe(HookPoint::JobEventAfterSubmit, HookFilter::default());
-    let queued_completion_join_handles: Vec<JoinHandle<JobResult>> = tree
-        .queued_ids
-        .iter()
-        .enumerate()
-        .map(|(index, queued_id)| {
-            tokio::spawn(env.task_success(
-                *queued_id,
-                0,
-                tree.task_instance_ids[queued_id],
-                &value(0x62, index),
-                Vec::new(),
-            ))
-        })
-        .collect();
+    let mut queued_completions = JoinSet::new();
+    for (index, queued_id) in tree.queued_ids.iter().enumerate() {
+        queued_completions.spawn(env.task_success(
+            *queued_id,
+            0,
+            tree.task_instance_ids[queued_id],
+            &value(0x62, index),
+            Vec::new(),
+        ));
+    }
     reached(&queued_submissions, tree.queued_ids.len()).await;
 
     let (fast_forwarded_job_id, fast_forwarded_state) = match fast_forwarded {
@@ -361,7 +358,7 @@ async fn assert_fast_forwarded_past_a_full_backlog(
     let next_receive = env.pause(HookPoint::CommitterBeforeReceive, HookFilter::job(root_id));
     fast_forwarded_round.release();
     reached(&next_receive, 1).await;
-    wait_until_answered(&queued_completion_join_handles, MAX_EVENTS_PER_ROUND - 1)
+    let mut queued_results = join_answered(&mut queued_completions, MAX_EVENTS_PER_ROUND - 1)
         .await
         .context(
             "the round after the held one should answer enough queued completions to fill it up",
@@ -378,9 +375,15 @@ async fn assert_fast_forwarded_past_a_full_backlog(
         fast_forwarded_state,
         "the fast-forwarded event",
     );
-    for queued_completion_join_handle in queued_completion_join_handles {
+    let num_unanswered = queued_completions.len();
+    queued_results.extend(
+        join_answered(&mut queued_completions, num_unanswered)
+            .await
+            .context("the round after that should answer the rest of the queued completions")?,
+    );
+    for queued_result in &queued_results {
         assert_stale(
-            &join(queued_completion_join_handle).await,
+            queued_result,
             &StaleStateError::JobAlreadyTerminated(JobState::Cancelled),
             "a queued completion",
         );
@@ -430,32 +433,37 @@ async fn assert_backlog_tree_finishes(
     env.assert_lanes_empty().await;
 }
 
-/// Waits until at least `num_answered` of the completions of `completion_join_handles` are
-/// answered.
+/// Waits until `num_answered` more of the completions in `completions` are answered, and takes them
+/// out of `completions`.
+///
+/// # Returns
+///
+/// The results of the answered completions, in the order they are answered, on success.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
+/// * [`anyhow::Error`] if `completions` holds fewer than `num_answered` completions.
 /// * Forwards [`tokio::time::timeout`]'s return values on failure, if fewer than `num_answered`
 ///   completions are answered within [`HOOK_TIMEOUT`].
-async fn wait_until_answered(
-    completion_join_handles: &[JoinHandle<JobResult>],
+/// * Forwards [`JoinSet::join_next`]'s return values on failure.
+async fn join_answered(
+    completions: &mut JoinSet<JobResult>,
     num_answered: usize,
-) -> anyhow::Result<()> {
-    let count_answered = || {
-        completion_join_handles
-            .iter()
-            .filter(|completion_join_handle| completion_join_handle.is_finished())
-            .count()
-    };
+) -> anyhow::Result<Vec<JobResult>> {
     tokio::time::timeout(HOOK_TIMEOUT, async {
-        while count_answered() < num_answered {
-            tokio::time::sleep(Duration::from_millis(1)).await;
+        let mut results = Vec::with_capacity(num_answered);
+        while results.len() < num_answered {
+            let result = completions
+                .join_next()
+                .await
+                .context("`completions` should hold every completion to wait for")??;
+            results.push(result);
         }
+        anyhow::Ok(results)
     })
-    .await?;
-    Ok(())
+    .await?
 }
 
 /// Starts a filler tree of [`MAX_CHILDREN_PER_JOB`] children with cleanup tasks and cancels it, so
