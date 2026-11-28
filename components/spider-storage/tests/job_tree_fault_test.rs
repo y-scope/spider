@@ -1,7 +1,6 @@
 //! Faults of jobs, alone and in trees, on `MariaDB`.
 
 use std::collections::HashMap;
-use std::time::Duration;
 
 use spider_core::job::JobState;
 use spider_core::task::ExecutionPolicy;
@@ -1348,7 +1347,7 @@ async fn race_reports(
                 assert_eq!(losers.len(), 1, "{what}: one loser, got {results:?}");
                 losers[0]
             } else {
-                let retried = env.poll_lane(Lane::Task, 1, Duration::from_secs(10)).await;
+                let retried = env.poll_lane(Lane::Task, 1, HOOK_TIMEOUT).await;
                 let [(retried_job_id, TaskId::Index(loser))] = retried[..] else {
                     panic!("{what}: unexpected retried tasks {retried:?}");
                 };
