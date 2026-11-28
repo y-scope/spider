@@ -637,6 +637,9 @@ impl EventPlan {
             "descendant job {job_id} failed: {}",
             truncate_chars(message, MAX_PROPAGATED_MESSAGE_CHARS)
         );
+        // The climb ends only at the root: every ancestor of a job under a blocking parent blocks
+        // on its children too, so an ancestor in any other state, or a missing one, is a broken
+        // invariant.
         loop {
             event_plan.updates.push(JobStateUpdate {
                 error_message: Some(propagated_message.clone()),
