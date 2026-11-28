@@ -47,8 +47,8 @@ use crate::job_submission::ValidatedJobSubmission;
 use crate::limits::MAX_CHILDREN_PER_JOB;
 use crate::limits::MAX_DEPTH;
 use crate::limits::MAX_JOB_CHILDREN_SIZE;
-use crate::limits::MAX_REPORT_CHILDREN_SIZE;
 use crate::limits::MAX_REPORT_OUTPUTS_SIZE;
+use crate::limits::MAX_TASK_CHILDREN_SIZE;
 use crate::partial_mutation::PartialMutationGuard;
 use crate::state::CommitterEnv;
 use crate::state::JobCache;
@@ -464,7 +464,8 @@ impl<
     /// Marks a task instance as succeeded, with the child jobs that its report creates.
     ///
     /// A report that breaks a limit of [`crate::limits`], whose children fail to decode or build,
-    /// or whose number of outputs doesn't match its task's fails the task instance instead.
+    /// or whose number of outputs doesn't match its task's fails the task instance instead (see
+    /// [`Self::fail_task_instance`]).
     ///
     /// # Returns
     ///
@@ -634,6 +635,9 @@ impl<
     }
 
     /// Marks a task instance as failed.
+    ///
+    /// A failure with no retry left fails the job, and the job's tree if the job's parent blocks on
+    /// its children (see [`SharedJobControlBlock::fail_task_instance`]).
     ///
     /// # Returns
     ///
@@ -1099,7 +1103,7 @@ impl<
     /// * [`ReportRejection::OutputsTooLarge`] if the outputs exceed [`MAX_REPORT_OUTPUTS_SIZE`].
     /// * [`ReportRejection::TooDeep`] if the children would be deeper than [`MAX_DEPTH`].
     /// * [`ReportRejection::ChildTooLarge`] if a child exceeds the database's statement payload.
-    /// * [`ReportRejection::ChildrenTooLarge`] if the children exceed [`MAX_REPORT_CHILDREN_SIZE`].
+    /// * [`ReportRejection::ChildrenTooLarge`] if the children exceed [`MAX_TASK_CHILDREN_SIZE`].
     /// * [`ReportRejection::JobChildrenTooLarge`] if the children would take the job over a per-job
     ///   child limit.
     /// * [`ReportRejection::InvalidChild`] if [`PreparedChild::create`] fails for a child.
@@ -1139,10 +1143,10 @@ impl<
             });
         }
         let children_size: u64 = children.iter().map(CompressedJobSubmission::size).sum();
-        if children_size > MAX_REPORT_CHILDREN_SIZE {
+        if children_size > MAX_TASK_CHILDREN_SIZE {
             return Err(ReportRejection::ChildrenTooLarge {
                 size: children_size,
-                limit: MAX_REPORT_CHILDREN_SIZE,
+                limit: MAX_TASK_CHILDREN_SIZE,
             });
         }
 

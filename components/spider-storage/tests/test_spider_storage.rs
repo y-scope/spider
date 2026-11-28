@@ -11,6 +11,7 @@ mod jcb_test;
 mod job_transition_test;
 mod job_tree_cancel_test;
 mod job_tree_completion_test;
+mod job_tree_ordering_test;
 mod mariadb_test;
 mod point_of_no_return_test;
 mod pool_config_test;

@@ -509,6 +509,158 @@ impl CommitTree {
     }
 }
 
+/// How a leaf's failure and the root's cancel interleave.
+#[derive(Debug, Clone, Copy, EnumIter)]
+enum FailureRace {
+    /// Both in one round; the failure arrives first.
+    SameRoundFailureFirst,
+
+    /// Both in one round; the cancel arrives first.
+    SameRoundCancelFirst,
+
+    /// The failure is submitted while the cancel's round is between its database write and its
+    /// apply.
+    CancelInFlight,
+
+    /// The failure is reported after the cancel is answered.
+    AfterCancelReply,
+
+    /// The cancel is submitted while the failure's round is between its database write and its
+    /// apply.
+    FailureInFlight,
+
+    /// The cancel is submitted after the failure is answered.
+    AfterFailureReply,
+}
+
+impl FailureRace {
+    /// # Returns
+    ///
+    /// Whether the cancel is planned before the failure.
+    const fn is_cancel_first(self) -> bool {
+        !matches!(self, Self::FailureInFlight | Self::AfterFailureReply)
+    }
+}
+
+/// The jobs of a tree `R → {A → {L, S}, Q}`, where the leaf `L` fails.
+struct FailureTree {
+    root_id: JobId,
+    middle_id: JobId,
+    leaf_id: JobId,
+    has_cleanup: HashMap<JobId, bool>,
+}
+
+impl FailureTree {
+    /// The message of the leaf's failure.
+    const LEAF_FAILURE: &str = "leaf failure";
+
+    /// Starts a tree with `cleanups`, where `S` and `Q` are the bystanders.
+    ///
+    /// # Returns
+    ///
+    /// The tree.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the root or `A` doesn't get two children.
+    async fn start(env: &TestEnv, cleanups: Cleanups) -> Self {
+        let root = matches!(cleanups, Cleanups::All | Cleanups::RootOnly);
+        let path = matches!(cleanups, Cleanups::All);
+        let bystander = matches!(cleanups, Cleanups::All | Cleanups::BystandersOnly);
+        let root_id = env.start_root(&shape_with_cleanup(root)).await;
+        let [middle_id, uncle_id] = env
+            .register_children(
+                root_id,
+                &value(0x14, 0),
+                &[shape_with_cleanup(path), shape_with_cleanup(bystander)],
+            )
+            .await[..]
+        else {
+            panic!("the root should have two children");
+        };
+        let [leaf_id, sibling_id] = env
+            .register_children(
+                middle_id,
+                &value(0x15, 0),
+                &[shape_with_cleanup(path), shape_with_cleanup(bystander)],
+            )
+            .await[..]
+        else {
+            panic!("the middle job should have two children");
+        };
+        Self {
+            root_id,
+            middle_id,
+            leaf_id,
+            has_cleanup: HashMap::from([
+                (root_id, root),
+                (middle_id, path),
+                (leaf_id, path),
+                (sibling_id, bystander),
+                (uncle_id, bystander),
+            ]),
+        }
+    }
+
+    /// # Returns
+    ///
+    /// Every job of the tree.
+    fn job_ids(&self) -> Vec<JobId> {
+        self.has_cleanup.keys().copied().collect()
+    }
+
+    /// # Returns
+    ///
+    /// The state that a cancel or an abort moves `job_id` to.
+    fn target(&self, job_id: JobId) -> JobState {
+        abort_target(self.has_cleanup[&job_id])
+    }
+
+    /// # Returns
+    ///
+    /// The states of the tree's jobs after the cancel.
+    fn cancelled(&self) -> HashMap<JobId, JobState> {
+        self.job_ids()
+            .into_iter()
+            .map(|job_id| (job_id, self.target(job_id)))
+            .collect()
+    }
+
+    /// # Returns
+    ///
+    /// The states of the tree's jobs after the leaf's failure: `L` and its ancestors fail, and the
+    /// other jobs are aborted.
+    fn failed(&self) -> HashMap<JobId, JobState> {
+        self.job_ids()
+            .into_iter()
+            .map(|job_id| {
+                let state = if [self.root_id, self.middle_id, self.leaf_id].contains(&job_id) {
+                    JobState::Failed
+                } else {
+                    self.target(job_id)
+                };
+                (job_id, state)
+            })
+            .collect()
+    }
+
+    /// # Returns
+    ///
+    /// The error messages of the tree's jobs after the leaf's failure.
+    fn failure_errors(&self) -> HashMap<JobId, String> {
+        let propagated = format!(
+            "descendant job {} failed: {}",
+            self.leaf_id,
+            Self::LEAF_FAILURE
+        );
+        HashMap::from([
+            (self.root_id, propagated.clone()),
+            (self.middle_id, propagated),
+            (self.leaf_id, Self::LEAF_FAILURE.to_owned()),
+        ])
+    }
+}
+
 impl TestEnv {
     /// Races the cancel of a `CommitReady` root, with a cleanup task if `has_cleanup`, with the
     /// root's commit as `race` says, and asserts the outcome: the cancel deactivates the root, and
@@ -1614,6 +1766,175 @@ impl TestEnv {
             }
         }
     }
+
+    /// Races the cancel of a failure race's tree, with `cleanups`, with the failure of its leaf as
+    /// `race` says, and asserts that the event planned first wins:
+    ///
+    /// * A cancel planned first deactivates the whole tree and makes the failure stale, which
+    ///   stores no error.
+    /// * A failure planned first fails the leaf and its ancestors, aborts the rest of the tree and
+    ///   makes the cancel stale.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the outcome is not the one asserted.
+    async fn assert_cancel_races_failure(&self, cleanups: Cleanups, race: FailureRace) {
+        let what = format!("{cleanups:?}, {race:?}");
+        let tree = FailureTree::start(self, cleanups).await;
+        let root_id = tree.root_id;
+        let leaf_id = tree.leaf_id;
+        let task_instance_id = self.create_instance(leaf_id, TaskId::Index(0)).await;
+        let job_ids = tree.job_ids();
+        let probes = TreeProbes::arm(self, root_id, &job_ids);
+        let failure_submit_hook =
+            self.observe(HookPoint::JobEventAfterSubmit, HookFilter::job(leaf_id));
+        let cancel_submit_hook =
+            self.observe(HookPoint::JobEventAfterSubmit, HookFilter::job(root_id));
+        let snapshot = CommitSnapshot::arm(self, root_id, root_id, 1);
+
+        let (failure, cancelled) = self.race_failure(&tree, race, task_instance_id).await;
+
+        let (expected, expected_errors) = if race.is_cancel_first() {
+            assert_job_result(
+                &cancelled,
+                tree.target(root_id),
+                &format!("{what}: the cancel"),
+            );
+            let expected_stale = if matches!(race, FailureRace::AfterCancelReply) {
+                StaleStateError::JobNoLongerRunning
+            } else {
+                regular_stale(tree.target(leaf_id))
+            };
+            assert_stale(&failure, &expected_stale, &format!("{what}: the failure"));
+            (tree.cancelled(), HashMap::new())
+        } else {
+            assert_job_result(&failure, JobState::Failed, &format!("{what}: the failure"));
+            assert_stale(
+                &cancelled,
+                &StaleStateError::JobAlreadyTerminated(JobState::Failed),
+                &format!("{what}: the cancel"),
+            );
+            (tree.failed(), tree.failure_errors())
+        };
+        let outlives_winner = expected
+            .values()
+            .any(|state| *state == JobState::CleanupReady);
+
+        assert_eq!(
+            failure_submit_hook.hits(),
+            usize::from(!matches!(race, FailureRace::AfterCancelReply)),
+            "{what}: the submitted failures"
+        );
+        assert_eq!(
+            cancel_submit_hook.hits(),
+            1,
+            "{what}: the submitted cancels"
+        );
+        let num_rounds = match race {
+            FailureRace::CancelInFlight
+            | FailureRace::FailureInFlight
+            | FailureRace::AfterFailureReply => {
+                if outlives_winner {
+                    2
+                } else {
+                    1
+                }
+            }
+            FailureRace::SameRoundFailureFirst
+            | FailureRace::SameRoundCancelFirst
+            | FailureRace::AfterCancelReply => 1,
+        };
+        probes.assert_rounds(num_rounds, 1, &what);
+        probes.assert_transitions(&job_ids.iter().map(|job_id| (*job_id, 1)).collect(), &what);
+        assert_eq!(
+            snapshot.rows().await,
+            expected,
+            "{what}: the rows at the winner's write"
+        );
+        self.finish_tree(root_id, &expected, &expected_errors, &what)
+            .await;
+    }
+
+    /// Runs the failure of `tree`'s leaf, through its instance `task_instance_id`, and the cancel
+    /// of its root as `race` says.
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing:
+    ///
+    /// * The result of the failure's report.
+    /// * The result of the cancel.
+    async fn race_failure(
+        &self,
+        tree: &FailureTree,
+        race: FailureRace,
+        task_instance_id: TaskInstanceId,
+    ) -> (JobResult, JobResult) {
+        let root_id = tree.root_id;
+        let leaf_id = tree.leaf_id;
+        let failure = self.task_failure(
+            leaf_id,
+            TaskId::Index(0),
+            task_instance_id,
+            FailureTree::LEAF_FAILURE,
+        );
+        let cancelled = self.cancel(root_id);
+        match race {
+            FailureRace::SameRoundFailureFirst => {
+                Race::start(
+                    self,
+                    HookPoint::CommitterBeforeReceive,
+                    HookFilter::job(root_id),
+                    failure,
+                    cancelled,
+                    root_id,
+                )
+                .await
+                .finish()
+                .await
+            }
+            FailureRace::SameRoundCancelFirst | FailureRace::CancelInFlight => {
+                let point = if matches!(race, FailureRace::SameRoundCancelFirst) {
+                    HookPoint::CommitterBeforeReceive
+                } else {
+                    HookPoint::CommitterRoundAfterDbWrite
+                };
+                let (cancelled, failure) = Race::start(
+                    self,
+                    point,
+                    HookFilter::job(root_id),
+                    cancelled,
+                    failure,
+                    leaf_id,
+                )
+                .await
+                .finish()
+                .await;
+                (failure, cancelled)
+            }
+            FailureRace::AfterCancelReply => {
+                let cancelled = cancelled.await;
+                (failure.await, cancelled)
+            }
+            FailureRace::FailureInFlight => {
+                Race::start(
+                    self,
+                    HookPoint::CommitterRoundAfterDbWrite,
+                    HookFilter::job(leaf_id),
+                    failure,
+                    cancelled,
+                    root_id,
+                )
+                .await
+                .finish()
+                .await
+            }
+            FailureRace::AfterFailureReply => {
+                let failure = failure.await;
+                (failure, cancelled.await)
+            }
+        }
+    }
 }
 
 #[tokio::test]
@@ -1681,6 +2002,24 @@ async fn a_cancel_aborts_a_commit_ready_non_root_job_unless_its_commit_is_planne
     env.finish().await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires MariaDB"]
+async fn a_root_cancel_racing_a_leaf_failure_lets_the_first_planned_win() {
+    let env = TestEnv::start_keeping_task_instances().await;
+    for cleanups in [
+        Cleanups::None,
+        Cleanups::All,
+        Cleanups::BystandersOnly,
+        Cleanups::RootOnly,
+    ] {
+        for race in FailureRace::iter() {
+            env.assert_cancel_races_failure(cleanups, race).await;
+        }
+    }
+    env.assert_lanes_empty().await;
+    env.finish().await;
+}
+
 /// # Returns
 ///
 /// A one-task job shape with a cleanup task if `has_cleanup`.
@@ -1693,7 +2032,7 @@ const fn shape_with_cleanup(has_cleanup: bool) -> JobShape {
 
 /// # Returns
 ///
-/// The state that a cancel moves a running, blocking or commit-ready job to.
+/// The state that a cancel or an abort moves a running, blocking or commit-ready job to.
 const fn abort_target(has_cleanup: bool) -> JobState {
     if has_cleanup {
         JobState::CleanupReady

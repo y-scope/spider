@@ -1023,20 +1023,20 @@ mod hooked {
     }
 
     #[tokio::test]
-    async fn a_child_too_large_fails_only_its_parent_and_the_rounds_other_parent_registers()
+    async fn a_completion_rolled_back_with_a_rejected_registration_is_planned_again()
     -> anyhow::Result<()> {
         let (inbound_queue_sender, inbound_queue_receiver) = create_inbound_queue();
         let mut tree = TestTree::spawn(false, false, inbound_queue_sender).await;
-        let parent_ids = tree
+        let child_ids = tree
             .start_and_register_children(create_test_prepared_children(2).await)
             .await;
-        let [oversized_parent_id, other_parent_id] =
-            <[JobId; 2]>::try_from(parent_ids).expect("the root should have two children");
+        let [registering_child_id, completing_child_id] =
+            <[JobId; 2]>::try_from(child_ids).expect("the root should have two children");
         inbound_queue_receiver.recv_tasks(3, TIMEOUT).await?;
 
         let oversized_child = create_test_incompressible_prepared_child(MOCK_MAX_CHILD_SIZE).await;
         let expected_message = DbError::ChildTooLarge {
-            parent_id: oversized_parent_id,
+            parent_id: registering_child_id,
             size: oversized_child.submission().size(),
             limit: MOCK_MAX_CHILD_SIZE,
         }
@@ -1044,53 +1044,76 @@ mod hooked {
         let reply_join_handles = tree
             .submit_events_in_one_round(vec![
                 TreeEvent {
-                    job_id: oversized_parent_id,
+                    job_id: registering_child_id,
                     kind: registration(vec![oversized_child]),
                 },
                 TreeEvent {
-                    job_id: other_parent_id,
-                    kind: registration(create_test_prepared_children(1).await),
+                    job_id: completing_child_id,
+                    kind: regular_tasks_done(),
                 },
             ])
             .await;
-        let [oversized_join_handle, other_join_handle] =
+        let [registration_join_handle, completion_join_handle] =
             <[_; 2]>::try_from(reply_join_handles).expect("two events were submitted");
-        let oversized = join_reply(oversized_join_handle).await;
-        assert!(
-            matches!(oversized, Ok(TreeEventOutcome::Applied(JobState::Failed))),
-            "a registration of a child too large gave {oversized:?}"
-        );
-        let other = join_reply(other_join_handle).await;
+        let registration = join_reply(registration_join_handle).await;
         assert!(
             matches!(
-                other,
-                Ok(TreeEventOutcome::Applied(JobState::BlockingOnChildren))
+                registration,
+                Ok(TreeEventOutcome::Applied(JobState::Failed))
             ),
-            "a registration of a round with a child too large of another parent gave {other:?}"
+            "a registration of a child too large gave {registration:?}"
         );
-        assert_eq!(
-            tree.db.errors.get(&oversized_parent_id).as_deref(),
-            Some(&expected_message)
+        let completion = join_reply(completion_join_handle).await;
+        assert!(
+            matches!(
+                completion,
+                Ok(TreeEventOutcome::Stale(
+                    StaleStateError::JobAlreadyTerminated(JobState::Cancelled)
+                ))
+            ),
+            "a completion of the rolled-back round gave {completion:?}"
         );
-        let grandchild_id = JobId::from(other_parent_id.get() + 1);
-        assert_eq!(tree.db.parents.len(), 3);
-        tree.assert_running_child(grandchild_id, other_parent_id, 2)
-            .await;
+        for (job_id, state, error) in [
+            (
+                ROOT_ID,
+                JobState::Failed,
+                Some(format!(
+                    "descendant job {registering_child_id} failed: {expected_message}"
+                )),
+            ),
+            (
+                registering_child_id,
+                JobState::Failed,
+                Some(expected_message.clone()),
+            ),
+            (completing_child_id, JobState::Cancelled, None),
+        ] {
+            assert_eq!(
+                tree.db.states.get(&job_id).as_deref(),
+                Some(&state),
+                "the stored state of {job_id:?}"
+            );
+            assert_eq!(
+                tree.db.errors.get(&job_id).as_deref(),
+                error.as_ref(),
+                "the stored error of {job_id:?}"
+            );
+        }
+        assert!(
+            !tree.db.outputs.contains_key(&completing_child_id),
+            "the outputs of the rolled-back completion should not be stored"
+        );
+        assert_eq!(tree.db.parents.len(), 2, "no grandchild should be inserted");
+        let mut terminated_job_ids = tree.receive_terminated_job_ids();
+        terminated_job_ids.sort_unstable_by_key(JobId::get);
         assert_eq!(
-            inbound_queue_receiver.recv_tasks(1, TIMEOUT).await?,
-            [InboundQueueEntry {
-                resource_group_id: tree.owner_id,
-                job_id: grandchild_id,
-                task_kind: 0,
-            }]
+            terminated_job_ids,
+            [ROOT_ID, registering_child_id, completing_child_id]
         );
         assert_eq!(
             inbound_queue_receiver.recv_tasks(1, Duration::ZERO).await?,
             []
         );
-        assert_eq!(tree.gc_receiver.try_recv(), Ok(oversized_parent_id));
-
-        tree.shutdown_handle.shut_down_gracefully();
         tree.wait_for_exit().await;
         assert!(!tree.shutdown_handle.is_fatal());
         Ok(())

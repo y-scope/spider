@@ -5,7 +5,6 @@ use std::time::Duration;
 use spider_core::job::JobState;
 use spider_core::task::ExecutionPolicy;
 use spider_core::task::TaskIndex;
-use spider_core::task::TaskState;
 use spider_core::task::TimeoutPolicy;
 use spider_core::types::id::TaskId;
 use spider_core::types::io::TaskOutputsSerializer;
@@ -14,12 +13,7 @@ use spider_storage::cache::error::StaleStateError;
 use spider_storage::limits::MAX_ERROR_MESSAGE_CHARS;
 use spider_storage::state::StorageServerError;
 use spider_storage::task_instance_pool::TaskInstancePoolConfig;
-use spider_storage::test_hooks::HookAction;
-use spider_storage::test_hooks::HookCount;
-use spider_storage::test_hooks::HookFilter;
-use spider_storage::test_hooks::HookPoint;
 
-use crate::runtime_infra::HOOK_TIMEOUT;
 use crate::runtime_infra::TestEnv;
 
 #[tokio::test]
@@ -93,73 +87,6 @@ async fn a_failure_message_over_the_packet_size_is_truncated() -> anyhow::Result
         env.service.get_job_error(job_id).await?,
         message[..MAX_ERROR_MESSAGE_CHARS]
     );
-    env.finish().await;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn a_straggler_failure_in_the_committers_write_window_is_stale() -> anyhow::Result<()> {
-    let env = TestEnv::start().await;
-    let job_id = env.start_chain_job(1, 2).await;
-    let first_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
-    let straggler_instance_id = env.create_instance(job_id, TaskId::Index(0)).await;
-    let pause = env.hooks.arm(
-        HookPoint::CommitterRoundAfterDbWrite,
-        HookFilter::job(job_id),
-        HookAction::Pause,
-        HookCount::Once,
-    );
-
-    let service = env.service.clone();
-    let success = tokio::spawn(async move {
-        service
-            .succeed_task_instance(
-                service.session_id(),
-                job_id,
-                first_instance_id,
-                0,
-                serialized_output(vec![1; 4]),
-                Vec::new(),
-            )
-            .await
-    });
-    pause.reached(1, HOOK_TIMEOUT).await.expect(
-        "the hook should be reached within the timeout; the request may have failed before \
-         reaching the hook point",
-    );
-    assert_eq!(env.row_state(job_id).await, JobState::Succeeded);
-    assert_eq!(env.service.get_job_state(job_id).await?, JobState::Running);
-
-    let straggler_failure = tokio::time::timeout(
-        HOOK_TIMEOUT,
-        env.service.fail_task_instance(
-            env.service.session_id(),
-            job_id,
-            straggler_instance_id,
-            TaskId::Index(0),
-            "straggler".to_owned(),
-        ),
-    )
-    .await
-    .expect("the straggler's failure should not wait for the paused round");
-    assert!(
-        matches!(
-            straggler_failure,
-            Err(StorageServerError::Cache(CacheError::StaleState(
-                StaleStateError::TaskAlreadyTerminated(TaskState::Succeeded)
-            )))
-        ),
-        "a straggler failure in the committer's write window should be stale, got \
-         {straggler_failure:?}"
-    );
-    assert_eq!(env.service.get_job_state(job_id).await?, JobState::Running);
-    assert_eq!(env.row_state(job_id).await, JobState::Succeeded);
-
-    pause.release();
-    assert_eq!(success.await??, JobState::Succeeded);
-    env.assert_job_state(job_id, JobState::Succeeded).await;
-    drop(pause);
     env.finish().await;
     Ok(())
 }

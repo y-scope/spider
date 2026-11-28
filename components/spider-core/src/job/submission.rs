@@ -8,6 +8,9 @@ use crate::types::id::TaskId;
 /// The maximum number of child jobs of one job, over all of its tasks' reports.
 pub const MAX_CHILDREN_PER_JOB: usize = 1024;
 
+/// The maximum compressed size of the child jobs of one job, over all of its tasks' reports.
+pub const MAX_JOB_CHILDREN_SIZE: u64 = 16 * 1024 * 1024;
+
 /// The maximum compressed size of child job submissions from one task.
 pub const MAX_TASK_CHILDREN_SIZE: u64 = 16 * 1024 * 1024;
 
@@ -74,6 +77,12 @@ impl TaskSuccessOutcome {
         }
     }
 }
+
+const _: () = assert!(
+    MAX_TASK_CHILDREN_SIZE <= MAX_JOB_CHILDREN_SIZE,
+    "one task's children count toward its job's children, so the limit of one task's children \
+     should not exceed the job's"
+);
 
 #[cfg(test)]
 mod tests {
