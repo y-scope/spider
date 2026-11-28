@@ -127,7 +127,8 @@ async fn a_failure_behind_a_full_backlog_is_planned_in_the_next_round() -> anyho
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires MariaDB"]
-async fn a_failure_aborting_a_registering_parent_in_its_round_inserts_no_child() {
+async fn a_failure_aborting_a_registering_parent_in_its_round_inserts_no_child()
+-> anyhow::Result<()> {
     let env = TestEnv::start_keeping_task_instances().await;
     let root_id = env.start_root(&JobShape::ONE_TASK).await;
     let [registrar_id, failing_id] = env
@@ -197,6 +198,7 @@ async fn a_failure_aborting_a_registering_parent_in_its_round_inserts_no_child()
     env.assert_quiescent(root_id).await;
     env.assert_lanes_empty().await;
     env.finish().await;
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
